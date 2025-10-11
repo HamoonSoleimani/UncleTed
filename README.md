@@ -39,8 +39,8 @@
 > This application is designed for **educational and defensive security purposes ONLY**. Features like stealth operations, remote data access, and data destruction carry significant ethical and legal responsibilities. **Never install or use this application on a device without the owner's explicit and informed consent.** Unauthorized use is strictly prohibited and may lead to severe legal consequences. The developer assumes no liability for any misuse of this software.
 
 ## 🖼️ Screenshots
-<img width="901" height="2560" alt="image" src="https://github.com/user-attachments/assets/16a8dbc3-e880-4db6-aee0-c48a7c31ae11" />
-<img width="638" height="2560" alt="image" src="https://github.com/user-attachments/assets/b762f43c-9760-4ac1-943a-bd7e94f54d08" />
+<img width="200" height="800" alt="image" src="https://github.com/user-attachments/assets/16a8dbc3-e880-4db6-aee0-c48a7c31ae11" />
+<img width="208" height="800" alt="image" src="https://github.com/user-attachments/assets/b762f43c-9760-4ac1-943a-bd7e94f54d08" />
 
 
 
