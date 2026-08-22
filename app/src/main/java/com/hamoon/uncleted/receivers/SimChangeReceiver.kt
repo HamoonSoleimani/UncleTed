@@ -37,10 +37,14 @@ class SimChangeReceiver : BroadcastReceiver() {
                 } catch (e: SecurityException) {
                     Log.e("SimChangeReceiver", "Permission denied for reading SIM serial number.", e)
                 }
-            } else if (currentSimState == TelephonyManager.SIM_STATE_ABSENT) {
-                Log.d("SimChangeReceiver", "SIM_STATE_ABSENT. Clearing stored SIM serial.")
-                SecurityPreferences.setInitialSimSerial(context, null)
-            }
-        }
-    }
+         } else if (currentSimState == TelephonyManager.SIM_STATE_ABSENT) {
+    Log.w("SimChangeReceiver", "SIM removed!")
+
+    PanicActionService.trigger(
+        context,
+        "SIM_REMOVED",
+        PanicActionService.Severity.MEDIUM
+    )
+
+    SecurityPreferences.setInitialSimSerial(context, null)
 }
