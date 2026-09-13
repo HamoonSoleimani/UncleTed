@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurfaceVariant">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- SECTION 1: DECEPTION -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Deception &amp; Traps"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="?attr/colorSecondary"
+                    android:layout_marginBottom="16dp"/>
+
+                <Button
+                    android:id="@+id/btn_manual_honeypot"
+                    style="@style/Widget.Material3.Button.TonalButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/manual_action_honeypot"
+                    android:backgroundTint="#FF9800"
+                    android:textColor="#FFFFFF"
+                    app:iconTint="#FFFFFF"
+                    app:icon="@drawable/ic_lock_24"/>
+
+                <Button
+                    android:id="@+id/btn_fake_shutdown"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Trigger Fake Shutdown"
+                    app:icon="@drawable/ic_power_off_24"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- SECTION 2: DEVICE CONTROL -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Device Control"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="?attr/colorSecondary"
+                    android:layout_marginBottom="16dp"/>
+
+                <Button
+                    android:id="@+id/btn_manual_lock"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/manual_action_lock"
+                    app:icon="@drawable/ic_lock_24"/>
+
+                <Button
+                    android:id="@+id/btn_secure_reboot"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Secure Reboot (Root)"
+                    app:icon="@drawable/ic_settings_24"/>
+
+                <Button
+                    android:id="@+id/btn_network_kill"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Network Killswitch (Root)"
+                    android:textColor="?attr/colorError"
+                    app:iconTint="?attr/colorError"
+                    app:icon="@drawable/ic_sim_card_24"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- SECTION 3: SURVEILLANCE -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Surveillance"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="?attr/colorSecondary"
+                    android:layout_marginBottom="16dp"/>
+
+                <Button
+                    android:id="@+id/btn_manual_location"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/manual_action_location"
+                    app:icon="@drawable/ic_info_24"/>
+
+                <Button
+                    android:id="@+id/btn_evidence_burst"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Evidence Burst (Photo+Audio)"
+                    app:icon="@drawable/ic_selfie_24"/>
+
+                <Button
+                    android:id="@+id/btn_stealth_screenshot"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Stealth Screenshot (Root)"
+                    app:icon="@drawable/ic_touch_app_24"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- SECTION 4: EMERGENCY -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Emergency &amp; Destruction"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="?attr/colorError"
+                    android:layout_marginBottom="16dp"/>
+
+                <Button
+                    android:id="@+id/btn_manual_siren"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/manual_action_siren"
+                    app:icon="@drawable/ic_alert_24"/>
+
+                <com.google.android.material.divider.MaterialDivider
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="16dp"/>
+
+                <!-- Level 1: Standard Wipe -->
+                <Button
+                    android:id="@+id/btn_manual_wipe"
+                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="1. Factory Reset (Safe)"
+                    android:textColor="?attr/colorError"
+                    app:icon="@drawable/ic_alert_triangle_24"
+                    app:iconTint="?attr/colorError"
+                    app:strokeColor="?attr/colorError"/>
+
+                <!-- Level 2: Secure Wipe (Root) -->
+                <Button
+                    android:id="@+id/btn_manual_wipe_secure"
+                    style="@style/Widget.Material3.Button.TonalButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="2. Secure Shred (Root)"
+                    android:textColor="?attr/colorOnErrorContainer"
+                    android:backgroundTint="#FFCCBC"
+                    app:icon="@drawable/ic_alert_triangle_24"
+                    app:iconTint="?attr/colorOnErrorContainer"/>
+
+                <!-- Level 3: System Destruction (Root) -->
+                <Button
+                    android:id="@+id/btn_manual_wipe_system"
+                    style="@style/Widget.Material3.Button.TonalButton.Icon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="3. OS Suicide (Soft Brick)"
+                    android:textColor="#B71C1C"
+                    android:backgroundTint="#EF9A9A"
+                    app:icon="@drawable/ic_alert_triangle_24"
+                    app:iconTint="#B71C1C"/>
+
+                <!-- Level 4: Nuclear Winter (Root) -->
+                <Button
+                    android:id="@+id/btn_manual_wipe_nuclear"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="4. NUCLEAR WINTER (HARD BRICK)"
+                    android:textStyle="bold"
+                    android:backgroundTint="#B71C1C"
+                    android:textColor="#FFFFFF"
+                    app:icon="@drawable/ic_alert_triangle_24"
+                    app:iconTint="#FFFFFF"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+</ScrollView>

@@ -7,8 +7,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.*
+import javax.activation.CommandMap
 import javax.activation.DataHandler
 import javax.activation.FileDataSource
+import javax.activation.MailcapCommandMap
 import javax.mail.*
 import javax.mail.internet.InternetAddress
 import javax.mail.internet.MimeBodyPart
@@ -66,35 +68,51 @@ object EmailSender {
             return@withContext false
         }
 
-        val props = Properties()
-        props["mail.smtp.host"] = config.host
-        props["mail.smtp.port"] = config.port.toString()
-        props["mail.smtp.auth"] = "true"
-        props["mail.smtp.connectiontimeout"] = "10000"
-        props["mail.smtp.timeout"] = "10000"
-
-        if (config.enableSslTls) {
-            props["mail.smtp.starttls.enable"] = "true"
-            props["mail.smtp.ssl.protocols"] = "TLSv1.2"
-            props["mail.smtp.ssl.trust"] = config.host
-            props["mail.smtp.socketFactory.port"] = config.port.toString()
-            props["mail.smtp.socketFactory.class"] = "javax.net.ssl.SSLSocketFactory"
-            props["mail.smtp.socketFactory.fallback"] = "false"
-        } else {
-            props["mail.smtp.starttls.enable"] = "false"
-            props["mail.smtp.ssl.enable"] = "false"
-        }
-
-        val session = Session.getInstance(props, object : Authenticator() {
-            override fun getPasswordAuthentication(): PasswordAuthentication {
-                return PasswordAuthentication(config.username, config.password)
-            }
-        })
-
+        val originalClassLoader = Thread.currentThread().contextClassLoader
         try {
+            // Fix 1: Ensure Thread Context ClassLoader has access to APK classes (JavaMail provider lookup)
+            Thread.currentThread().contextClassLoader = context.classLoader
+
+            // Fix 2: Register mailcap command map handlers to prevent "No content handler" errors
+            val mc = CommandMap.getDefaultCommandMap() as MailcapCommandMap
+            mc.addMailcap("text/html;; x-java-content-handler=com.sun.mail.handlers.text_html")
+            mc.addMailcap("text/xml;; x-java-content-handler=com.sun.mail.handlers.text_xml")
+            mc.addMailcap("text/plain;; x-java-content-handler=com.sun.mail.handlers.text_plain")
+            mc.addMailcap("multipart/*;; x-java-content-handler=com.sun.mail.handlers.multipart_mixed")
+            mc.addMailcap("message/rfc822;; x-java-content-handler=com.sun.mail.handlers.message_rfc822")
+            CommandMap.setDefaultCommandMap(mc)
+
+            val props = Properties()
+            // Fix 3: Explicitly bind the transport protocol and class to avoid META-INF lookup failures
+            props["mail.transport.protocol"] = "smtp"
+            props["mail.smtp.class"] = "com.sun.mail.smtp.SMTPTransport"
+
+            props["mail.smtp.host"] = config.host
+            props["mail.smtp.port"] = config.port.toString()
+            props["mail.smtp.auth"] = "true"
+            props["mail.smtp.connectiontimeout"] = "10000"
+            props["mail.smtp.timeout"] = "10000"
+
+            if (config.enableSslTls) {
+                props["mail.smtp.starttls.enable"] = "true"
+                props["mail.smtp.ssl.protocols"] = "TLSv1.2"
+                props["mail.smtp.ssl.trust"] = config.host
+                props["mail.smtp.socketFactory.port"] = config.port.toString()
+                props["mail.smtp.socketFactory.class"] = "javax.net.ssl.SSLSocketFactory"
+                props["mail.smtp.socketFactory.fallback"] = "false"
+            } else {
+                props["mail.smtp.starttls.enable"] = "false"
+                props["mail.smtp.ssl.enable"] = "false"
+            }
+
+            val session = Session.getInstance(props, object : Authenticator() {
+                override fun getPasswordAuthentication(): PasswordAuthentication {
+                    return PasswordAuthentication(config.username, config.password)
+                }
+            })
+
             val message = MimeMessage(session)
             message.setFrom(InternetAddress(config.username))
-            // FIXED: Use InternetAddress.parse to correctly handle the recipient string
             message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipientEmail))
             message.subject = subject
 
@@ -120,6 +138,9 @@ object EmailSender {
         } catch (e: Exception) {
             Log.e(TAG, "Error sending email to $recipientEmail: ${e.message}", e)
             false
+        } finally {
+            // Restore original ClassLoader
+            Thread.currentThread().contextClassLoader = originalClassLoader
         }
     }
 }

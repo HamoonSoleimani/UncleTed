@@ -5,5 +5,7 @@
         <wipe-data />
         <!-- Allows the app to instantly lock the screen -->
         <force-lock />
+        <!-- Required by Android to report failed PIN/password attempts on lockscreen -->
+        <watch-login />
     </uses-policies>
 </device-admin>

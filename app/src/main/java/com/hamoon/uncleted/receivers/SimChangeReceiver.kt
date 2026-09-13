@@ -3,6 +3,7 @@ package com.hamoon.uncleted.receivers
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import android.telephony.TelephonyManager
 import android.util.Log
 import com.hamoon.uncleted.data.SecurityPreferences
@@ -30,21 +31,24 @@ class SimChangeReceiver : BroadcastReceiver() {
                         Log.d("SimChangeReceiver", "Initial SIM ICC serial set: $currentIccSerialNumber")
                     } else if (storedIccSerialNumber != currentIccSerialNumber) {
                         Log.w("SimChangeReceiver", "SIM card changed! Old: $storedIccSerialNumber, New: $currentIccSerialNumber")
-                        // THE FIX IS HERE: Use the full path PanicActionService.Severity
                         PanicActionService.trigger(context, "SIM_CHANGED", PanicActionService.Severity.MEDIUM)
                         SecurityPreferences.setInitialSimSerial(context, currentIccSerialNumber)
                     }
                 } catch (e: SecurityException) {
                     Log.e("SimChangeReceiver", "Permission denied for reading SIM serial number.", e)
                 }
-         } else if (currentSimState == TelephonyManager.SIM_STATE_ABSENT) {
-    Log.w("SimChangeReceiver", "SIM removed!")
+            } else if (currentSimState == TelephonyManager.SIM_STATE_ABSENT) {
+                val storedIccSerialNumber = SecurityPreferences.getInitialSimSerial(context)
+                val isBootGracePeriod = SystemClock.elapsedRealtime() < 60_000L
 
-    PanicActionService.trigger(
-        context,
-        "SIM_REMOVED",
-        PanicActionService.Severity.MEDIUM
-    )
-
-    SecurityPreferences.setInitialSimSerial(context, null)
+                if (!storedIccSerialNumber.isNullOrEmpty() && !isBootGracePeriod) {
+                    Log.w("SimChangeReceiver", "SIM card removed after setup! Triggering alert.")
+                    PanicActionService.trigger(context, "SIM_REMOVED", PanicActionService.Severity.MEDIUM)
+                } else {
+                    Log.d("SimChangeReceiver", "SIM_STATE_ABSENT ignored (initial setup or boot grace period).")
+                }
+                // Stored serial is preserved so a replacement SIM will still trigger SIM_CHANGED
+            }
+        }
+    }
 }

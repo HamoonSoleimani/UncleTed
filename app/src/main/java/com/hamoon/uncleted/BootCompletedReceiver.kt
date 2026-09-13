@@ -12,23 +12,24 @@ import com.hamoon.uncleted.util.WatchdogManager
 
 class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            Log.d("BootCompletedReceiver", "Device booted. Checking if services should start.")
+        val action = intent.action
+        if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
+            Log.d("BootCompletedReceiver", "Device booted ($action). Synchronizing security services.")
 
-            // REVISED: Check the master protection switch to start the main monitoring service.
+            // Refresh credential hook bridge on boot
+            SecurityPreferences.syncHookCredentials(context)
+
             if (SecurityPreferences.isProtectionEnabled(context)) {
                 val serviceIntent = Intent(context, MonitoringService::class.java)
                 ContextCompat.startForegroundService(context, serviceIntent)
                 Log.i("BootCompletedReceiver", "Started MonitoringService on boot.")
             }
 
-            // Check and reschedule WatchdogWorker
             if (SecurityPreferences.isWatchdogModeEnabled(context)) {
                 WatchdogManager.scheduleOrCancelWatchdog(context)
                 Log.i("BootCompletedReceiver", "Rescheduled WatchdogWorker on boot.")
             }
 
-            // Check and reschedule TripwireWorker from its last check-in time
             if (SecurityPreferences.isTripwireEnabled(context)) {
                 TripwireManager.scheduleFromLastCheckIn(context)
                 Log.i("BootCompletedReceiver", "Rescheduled TripwireWorker on boot.")

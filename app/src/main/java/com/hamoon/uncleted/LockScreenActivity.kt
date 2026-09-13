@@ -1,5 +1,6 @@
 package com.hamoon.uncleted
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -7,8 +8,8 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.databinding.ActivityLockScreenBinding
+import com.hamoon.uncleted.honeypot.HoneypotLauncherActivity
 import com.hamoon.uncleted.services.PanicActionService
-import com.hamoon.uncleted.services.PanicActionService.Severity
 
 class LockScreenActivity : AppCompatActivity() {
 
@@ -17,9 +18,24 @@ class LockScreenActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityLockScreenBinding.inflate(layoutInflater)
-        setContentView(binding.root)
 
+        try {
+            binding = ActivityLockScreenBinding.inflate(layoutInflater)
+            setContentView(binding.root)
+        } catch (e: Exception) {
+            Log.e(TAG, "Critical UI Crash during LockScreen inflation", e)
+            finish()
+            return
+        }
+
+        // ### FIX: Block Back Button ###
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // Do nothing to block back navigation
+            }
+        })
+
+        // ... (Existing intent handling code matches previous logic) ...
         val reason = intent.getStringExtra("REASON")
         if (reason == "UNINSTALL_ATTEMPT") {
             binding.tvTitleLockScreen.text = getString(R.string.unauthorized_action_title)
@@ -29,44 +45,46 @@ class LockScreenActivity : AppCompatActivity() {
         val normalPin = SecurityPreferences.getNormalPin(this)
         val duressPin = SecurityPreferences.getDuressPin(this)
         val wipePin = SecurityPreferences.getWipePin(this)
+        val honeypotPin = SecurityPreferences.getHoneypotPin(this)
 
-        // ### CRITICAL FIX: Secure failure if PINs are not configured ###
-        // If the PINs aren't set, the lock screen MUST NOT be dismissible.
-        // It should block the user completely, as this indicates a misconfigured
-        // but active security state.
         if (normalPin.isNullOrEmpty() || duressPin.isNullOrEmpty() || wipePin.isNullOrEmpty()) {
             binding.tvTitleLockScreen.text = "Configuration Error"
-            binding.tvSubtitleLockScreen.text = "Security PINs have not been set. Unlock is not possible."
-            binding.etPinEntry.isEnabled = false // Disable input
-            binding.btnUnlock.isEnabled = false // Disable button
-            // DO NOT call finish(). The lock screen must remain.
+            binding.tvSubtitleLockScreen.text = "Security PINs have not been set."
+            binding.etPinEntry.isEnabled = false
+            binding.btnUnlock.isEnabled = false
         }
 
         binding.btnUnlock.setOnClickListener {
             val enteredPin = binding.etPinEntry.text.toString()
 
-            // This check is now redundant due to the check above, but we keep it
-            // as a defensive measure in case the logic is ever changed.
-            if (normalPin.isNullOrEmpty() || duressPin.isNullOrEmpty() || wipePin.isNullOrEmpty()) {
+            if (normalPin.isNullOrEmpty()) {
                 Toast.makeText(this, "PINs not configured!", Toast.LENGTH_SHORT).show()
-                // The dangerous finish() call is removed here as well.
                 return@setOnClickListener
             }
 
             when (enteredPin) {
                 normalPin -> {
-                    Log.d(TAG, "Normal PIN entered correctly. Unlocking.")
                     SecurityPreferences.resetFailedAttempts(this)
+                    // ### FIX: Stop pinning before finishing ###
+                    try { stopLockTask() } catch (e: Exception) {}
                     finish()
                 }
                 duressPin -> {
-                    Log.w(TAG, "Duress PIN entered! Triggering panic service.")
                     PanicActionService.trigger(this, "DURESS_PIN", PanicActionService.Severity.HIGH)
+                    try { stopLockTask() } catch (e: Exception) {}
                     finish()
                 }
                 wipePin -> {
-                    Log.e(TAG, "Wipe PIN entered! Triggering CRITICAL wipe service.")
                     PanicActionService.trigger(this, "WIPE_PIN", PanicActionService.Severity.CRITICAL)
+                    try { stopLockTask() } catch (e: Exception) {}
+                    finish()
+                }
+                honeypotPin -> {
+                    PanicActionService.trigger(this, "HONEYPOT_ACTIVATED", PanicActionService.Severity.HIGH)
+                    val honeyIntent = Intent(this, HoneypotLauncherActivity::class.java)
+                    honeyIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    startActivity(honeyIntent)
+                    try { stopLockTask() } catch (e: Exception) {}
                     finish()
                 }
                 else -> {
@@ -76,23 +94,22 @@ class LockScreenActivity : AppCompatActivity() {
                 }
             }
         }
+    }
 
-        val callback = object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                // Do nothing. The only way out is a correct PIN.
-            }
+    // ### FIX: Enforce Screen Pinning to block Home Button ###
+    override fun onResume() {
+        super.onResume()
+        try {
+            startLockTask()
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not pin screen", e)
         }
-        onBackPressedDispatcher.addCallback(this, callback)
     }
 
     private fun handleFailedAttempt() {
         SecurityPreferences.incrementFailedAttempts(this)
         val attempts = SecurityPreferences.getFailedAttempts(this)
-        val maxAttempts = 3
-        Log.d(TAG, "Failed unlock attempt. Current count: $attempts")
-
-        if (SecurityPreferences.isIntruderSelfieEnabled(this) && attempts >= maxAttempts) {
-            Log.w(TAG, "Max failed attempts threshold reached. Triggering intruder selfie.")
+        if (SecurityPreferences.isIntruderSelfieEnabled(this) && attempts >= 3) {
             PanicActionService.trigger(this, "INTRUDER_SELFIE", PanicActionService.Severity.MEDIUM)
         }
     }

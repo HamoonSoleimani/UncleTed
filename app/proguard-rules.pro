@@ -20,11 +20,6 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
-# ================================================================================
-# ### START: CRITICAL FIX FOR EMAIL FUNCTIONALITY ###
-# The JavaMail and Activation libraries use reflection, which breaks when code is
-# obfuscated by Proguard/R8. These rules preserve the necessary classes.
-# ================================================================================
 
 # Keep all classes in the JavaMail API packages. The '*' keeps all methods and fields.
 -keep class javax.mail.** { *; }
@@ -40,6 +35,32 @@
 # but are not included in the Android runtime. This prevents build warnings/failures.
 -dontwarn java.beans.**
 -dontwarn javax.activation.**
+
 # ================================================================================
-# ### END: CRITICAL FIX FOR EMAIL FUNCTIONALITY ###
+# ### LSPOSED / XPOSED MODULE RULES ###
 # ================================================================================
+-keep class de.robv.android.xposed.** { *; }
+-dontwarn de.robv.android.xposed.**
+
+# Keep all hook implementation classes inside the UncleTed codebase
+-keep class com.hamoon.uncleted.hooks.** { *; }
+-keepclassmembers class com.hamoon.uncleted.hooks.** { *; }
+
+# ================================================================================
+# ### JAVAMAIL & ACTIVATION ENGINE RULES ###
+# ================================================================================
+-keep class javax.mail.** { *; }
+-keep class javax.mail.internet.** { *; }
+-keep class com.sun.mail.** { *; }
+-keep class com.sun.mail.smtp.** { *; }
+-keep class com.sun.mail.handlers.** { *; }
+
+-keep class javax.activation.** { *; }
+-keep class java.beans.** { *; }
+
+-dontwarn java.beans.**
+-dontwarn javax.activation.**
+-dontwarn com.sun.mail.**
+
+-keepresources META-INF/javamail.*
+-keepresources META-INF/mailcap*

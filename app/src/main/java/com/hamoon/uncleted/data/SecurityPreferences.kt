@@ -1,5 +1,8 @@
 package com.hamoon.uncleted.data
-
+import com.hamoon.uncleted.util.CredentialBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
@@ -83,15 +86,67 @@ object SecurityPreferences {
     fun setMaintenanceMode(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("MAINTENANCE_MODE", isEnabled).apply()
     fun isMaintenanceMode(context: Context): Boolean = getInstance(context).getBoolean("MAINTENANCE_MODE", false)
 
+    fun setHoneypotPin(context: Context, pin: String) = getInstance(context).edit().putString("HONEYPOT_PIN", pin).apply()
+    fun getHoneypotPin(context: Context): String? = getInstance(context).getString("HONEYPOT_PIN", null)
+
+    // Store captured honeypot data (e.g., fake bank logins)
+    fun addHoneypotIntel(context: Context, info: String) {
+        val current = getInstance(context).getStringSet("HONEYPOT_INTEL", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        current.add("${System.currentTimeMillis()}: $info")
+        getInstance(context).edit().putStringSet("HONEYPOT_INTEL", current).apply()
+    }
+
+    fun getHoneypotIntel(context: Context): Set<String> = getInstance(context).getStringSet("HONEYPOT_INTEL", emptySet()) ?: emptySet()
+    fun clearHoneypotIntel(context: Context) = getInstance(context).edit().remove("HONEYPOT_INTEL").apply()
+
+
     // --- Authentication ---
-    fun setNormalPin(context: Context, pin: String) = getInstance(context).edit().putString("NORMAL_PIN", pin).apply()
+    fun setNormalPin(context: Context, pin: String) {
+        getInstance(context).edit().putString("NORMAL_PIN", pin).apply()
+    }
     fun getNormalPin(context: Context): String? = getInstance(context).getString("NORMAL_PIN", null)
 
-    fun setDuressPin(context: Context, pin: String) = getInstance(context).edit().putString("DURESS_PIN", pin).apply()
+    fun setDuressPin(context: Context, pin: String) {
+        getInstance(context).edit().putString("DURESS_PIN", pin).apply()
+        syncHookCredentials(context)
+    }
     fun getDuressPin(context: Context): String? = getInstance(context).getString("DURESS_PIN", null)
 
-    fun setWipePin(context: Context, pin: String) = getInstance(context).edit().putString("WIPE_PIN", pin).apply()
+    fun setWipePin(context: Context, pin: String) {
+        getInstance(context).edit().putString("WIPE_PIN", pin).apply()
+        syncHookCredentials(context)
+    }
     fun getWipePin(context: Context): String? = getInstance(context).getString("WIPE_PIN", null)
+
+    /**
+     * Pushes the current Duress and Wipe PINs to /data/system/uncleted/credentials.cfg
+     * so that the LSPosed system_server hook can read them before and after first unlock (BFU/AFU).
+     */
+    fun syncHookCredentials(context: Context) {
+        val appContext = context.applicationContext
+        val wipePin = getWipePin(appContext)
+        val duressPin = getDuressPin(appContext)
+
+        CoroutineScope(Dispatchers.IO).launch {
+            CredentialBridge.syncCredentials(appContext, wipePin, duressPin)
+        }
+    }
+
+    /**
+     * Clears credentials from both encrypted preferences and the platform hook bridge.
+     */
+    fun clearAllPins(context: Context) {
+        getInstance(context).edit()
+            .remove("NORMAL_PIN")
+            .remove("DURESS_PIN")
+            .remove("WIPE_PIN")
+            .remove("HONEYPOT_PIN")
+            .apply()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            CredentialBridge.clearCredentials(context.applicationContext)
+        }
+    }
 
     fun getFailedAttempts(context: Context): Int = getInstance(context).getInt("FAILED_ATTEMPTS", 0)
     fun incrementFailedAttempts(context: Context) {
@@ -99,7 +154,6 @@ object SecurityPreferences {
         getInstance(context).edit().putInt("FAILED_ATTEMPTS", current + 1).apply()
     }
     fun resetFailedAttempts(context: Context) = getInstance(context).edit().putInt("FAILED_ATTEMPTS", 0).apply()
-
     // --- Remote Control ---
     fun setEmergencyContact(context: Context, contact: String) = getInstance(context).edit().putString("EMERGENCY_CONTACT", contact).apply()
     fun getEmergencyContact(context: Context): String? = getInstance(context).getString("EMERGENCY_CONTACT", null)
@@ -141,6 +195,10 @@ object SecurityPreferences {
 
     fun setShakeSensitivity(context: Context, level: Int) = getInstance(context).edit().putInt("SHAKE_SENSITIVITY", level).apply()
     fun getShakeSensitivity(context: Context): Int = getInstance(context).getInt("SHAKE_SENSITIVITY", 3) // Default middle sensitivity
+
+    fun setHardwareWipeEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("HARDWARE_WIPE_ENABLED", isEnabled).apply()
+    fun isHardwareWipeEnabled(context: Context): Boolean = getInstance(context).getBoolean("HARDWARE_WIPE_ENABLED", false) // Default False for safety
+
 
     // --- Stealth Mode ---
     fun setAppHidden(context: Context, isHidden: Boolean) = getInstance(context).edit().putBoolean("APP_HIDDEN", isHidden).apply()

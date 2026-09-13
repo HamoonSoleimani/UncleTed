@@ -125,11 +125,27 @@
     <string name="sms_command_guide_title">SMS Command Guide</string>
     <string name="sms_command_guide_instructions">Send an SMS to this device from any phone using the following format. Replace "[password]" with your SMS Command Master Password.</string>
     <string name="sms_command_wipe">UNCLETED WIPE [password]</string>
-    <string name="sms_command_wipe_desc">Triggers a CRITICAL alert, sends evidence, and initiates a full device wipe (if enabled).</string>
+    <string name="sms_command_wipe_desc">Wipes the device IMMEDIATELY. No evidence is collected to ensure maximum speed of destruction.</string>
+
+    <string name="sms_command_evidence">UNCLETED EVIDENCE [password]</string>
+    <string name="sms_command_evidence_desc">Records video, audio, and location. Saves files locally and sends them via Email.</string>
     <string name="sms_command_siren">UNCLETED SIREN [password]</string>
     <string name="sms_command_siren_desc">Triggers a HIGH alert, sends evidence, and activates a loud siren on the device.</string>
     <string name="sms_command_lock">UNCLETED LOCK [password]</string>
     <string name="sms_command_lock_desc">Immediately locks the device and shows the secure PIN entry screen.</string>
+    
+    <!-- NEW COMMANDS -->
+    <string name="sms_command_locate">UNCLETED LOCATE [password]</string>
+    <string name="sms_command_locate_desc">Forces a high-accuracy GPS fix and sends the location via SMS or Email immediately.</string>
+
+    <string name="sms_command_audio">UNCLETED AUDIO [password] [seconds]</string>
+    <string name="sms_command_audio_desc">Silently records ambient audio for the specified seconds (default 60s) and emails the file. Example: UNCLETED AUDIO 1234 30</string>
+
+    <string name="sms_command_speak">UNCLETED SPEAK [password] [message]</string>
+    <string name="sms_command_speak_desc">Uses Text-to-Speech to read the message aloud at maximum volume. Example: UNCLETED SPEAK 1234 DROP THE PHONE</string>
+
+    <string name="sms_command_reboot">UNCLETED REBOOT [password]</string>
+    <string name="sms_command_reboot_desc">(Root Only) Forces the device to reboot immediately. Useful if the system is hanging or unresponsive.</string>
     <string name="remote_install_code_hint">Remote Install SMS Code</string>
 
     <!-- Features Screen -->
@@ -290,7 +306,7 @@
     <!-- About Screen -->
     <string name="about_title">About Uncle Ted</string>
     <string name="about_developer_credit">Designed and Developed by Hamoon Soleimani</string>
-    <string name="about_app_version">Version 1.0.2</string>
+    <string name="about_app_version">Version 2.0.1</string>
     <string name="about_legal_disclaimer_title">Legal &amp; Ethical Disclaimer</string>
     <string name="about_legal_disclaimer_body">This application is designed for educational and defensive security purposes ONLY. Features like stealth operations, remote data access, and data destruction carry significant ethical and legal responsibilities. Never install or use this application on a device without the owner\'s explicit and informed consent. Unauthorized use is strictly prohibited and may lead to severe legal consequences. The developer assumes no liability for any misuse of this software.</string>
     <string name="about_github">GitHub</string>
@@ -309,6 +325,23 @@
     <string name="admin_disable_warning">Disabling this service will severely compromise your device\'s security. This action has been logged and reported.</string>
     <string name="watchdog_status_message">Uncle Ted: Device Status Update</string>
     <string name="watchdog_status_body">Current Status:\nBattery: %1$s%%\nLocation: %2$s</string>
+
+<!-- Manual Actions Screen -->
+    <string name="manual_actions_title">Manual Actions</string>
+    <string name="manual_action_location">Send Location Alert</string>
+    <string name="manual_action_lock">Lock Device</string>
+    <string name="manual_action_siren">Trigger Siren</string>
+    <string name="manual_action_wipe">Wipe Data (Critical)</string>
+    <string name="manual_wipe_confirmation_title">Confirm Data Wipe</string>
+    <string name="manual_wipe_confirmation_message">Are you absolutely sure? This will permanently delete all data on the device immediately.</string>
+    <string name="manual_wipe_confirm_button">Yes, Wipe Device</string>
+    <string name="menu_manual_actions">Manual Actions</string>
+		
+		<!-- Add these lines inside the <resources> tag -->
+	<string name="manual_action_honeypot">Launch Honeypot Mode</string>
+	<string name="manual_honeypot_confirmation_title">Activate Honeypot?</string>
+	<string name="manual_honeypot_confirmation_message">This will immediately replace your current screen with the fake launcher environment. You can use this to hand the phone to a thief while unlocked.</string>
+	<string name="manual_honeypot_confirm_button">Yes, Activate Trap</string>
 
     <!-- All Ted Kaczynski quotes in a single array for random selection -->
     <string-array name="kaczynski_quotes">

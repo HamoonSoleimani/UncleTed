@@ -1,0 +1,6 @@
+id=uncleted_privapp
+name=UncleTed System Priv-App & Hook
+version=v2.0-SYSTEM
+versionCode=2
+author=UncleTed Security Project
+description=Systemless integration of UncleTed into /system/priv-app with platform permissions (MASTER_CLEAR) and native lockscreen hook support.

@@ -1,15 +1,14 @@
-// ================================================================================
-// ### FILE: app/src/main/java/com/hamoon/uncleted/services/PanicActionService.kt
-// ================================================================================
 package com.hamoon.uncleted.services
 
-import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.location.Location
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -17,6 +16,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.telephony.SmsManager
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -31,10 +31,16 @@ import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.util.*
 import kotlinx.coroutines.*
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
-class PanicActionService : LifecycleService() {
+/**
+ * The Central Nervous System of Uncle Ted.
+ * This service handles all emergency triggers, orchestrates evidence collection,
+ * manages the siren, and executes safe or advanced data destruction protocols.
+ */
+class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
 
     enum class Severity { LOW, MEDIUM, HIGH, CRITICAL }
 
@@ -44,24 +50,95 @@ class PanicActionService : LifecycleService() {
     private var sirenMediaPlayer: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var vibrator: Vibrator? = null
+
     private lateinit var cameraLifecycleOwner: FakeLifecycleOwner
 
+    private var tts: TextToSpeech? = null
+    private var ttsMessageQueue: String? = null
+    private var pendingWipeType: String? = null
+
     companion object {
-        private const val TAG = "PanicActionService"
+        private const val TAG = "UncleTed-LockHook"
+        private const val SERVICE_TAG = "PanicActionService"
         private val lastTriggerTimestamps = ConcurrentHashMap<String, Long>()
-        private const val TRIGGER_COOLDOWN_MS = 10000
+        private const val TRIGGER_COOLDOWN_MS = 1500L
         private const val NOTIFICATION_ID = 1001
+
+        var pendingTtsMessage: String? = null
+        var pendingAudioDuration: Int = 60
 
         fun trigger(context: Context, reason: String, severity: Severity) {
             val now = System.currentTimeMillis()
             val lastTrigger = lastTriggerTimestamps[reason] ?: 0L
+
             if (now - lastTrigger < TRIGGER_COOLDOWN_MS) {
-                Log.w(TAG, "Panic trigger for '$reason' throttled. Cooldown active.")
+                Log.w(SERVICE_TAG, "Panic trigger for '$reason' throttled.")
                 return
             }
             lastTriggerTimestamps[reason] = now
-            EventLogger.log(context, "Panic Triggered: $reason (Severity: ${severity.name})")
+            EventLogger.log(context, "Action Triggered: $reason (Severity: ${severity.name})")
 
+            val isImmediateWipe = reason == "REMOTE_WIPE" ||
+                    reason == "WIPE_PIN" ||
+                    reason == "WIPE_PIN_DETECTED" ||
+                    reason == "TRIPWIRE_WIPE" ||
+                    reason == "MANUAL_WIPE" ||
+                    reason == "HARDWARE_BUTTON_WIPE" ||
+                    reason == "GEOFENCE_SUICIDE_EVIN" ||
+                    reason == "USB_TRIPWIRE_FAIL"
+
+            val isSirenOnly = reason == "REMOTE_SIREN" || reason == "MANUAL_SIREN"
+
+            val requiresMedia = (severity == Severity.MEDIUM || severity == Severity.HIGH || severity == Severity.CRITICAL)
+                    && !isImmediateWipe && !isSirenOnly
+
+            CoroutineScope(Dispatchers.IO).launch {
+                val isRooted = RootChecker.isDeviceRooted()
+
+                if (isRooted) {
+                    if (isImmediateWipe) {
+                        Log.i(SERVICE_TAG, "ROOT: Executing wipe protocol safely without bricking partitions.")
+
+                        // Safe level resolution: Never default to NUCLEAR_WINTER unless specifically intended (e.g. Evin suicide geofence)
+                        val wipeLevel = when {
+                            reason == "GEOFENCE_SUICIDE_EVIN" -> RootActions.WipeLevel.NUCLEAR_WINTER
+                            SecurityPreferences.isSecureWipeEnabled(context) -> RootActions.WipeLevel.FAST_USERDATA
+                            else -> RootActions.WipeLevel.STANDARD_WIPE
+                        }
+
+                        RootActions.executeWipeProtocol(context, wipeLevel)
+                        return@launch
+                    }
+
+                    if (requiresMedia && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        Log.d(SERVICE_TAG, "ROOT: Bypassing Background Activity Restriction via Shell.")
+                        val brokerIntent = Intent(context, CameraPermissionBrokerActivity::class.java).apply {
+                            putExtra("REASON", reason)
+                            putExtra("SEVERITY", severity.name)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        }
+                        GodMode.startActivityInBackground(context, brokerIntent)
+                    } else {
+                        startServiceInternal(context, reason, severity)
+                    }
+
+                } else {
+                    if (requiresMedia && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        Log.d(SERVICE_TAG, "NON-ROOT: Requesting Broker Activity for permissions.")
+                        val brokerIntent = Intent(context, CameraPermissionBrokerActivity::class.java).apply {
+                            putExtra("REASON", reason)
+                            putExtra("SEVERITY", severity.name)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(brokerIntent)
+                    } else {
+                        startServiceInternal(context, reason, severity)
+                    }
+                }
+            }
+        }
+
+        private fun startServiceInternal(context: Context, reason: String, severity: Severity) {
             val intent = Intent(context, PanicActionService::class.java).apply {
                 putExtra("REASON", reason)
                 putExtra("SEVERITY", severity.name)
@@ -73,6 +150,7 @@ class PanicActionService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
         cameraLifecycleOwner = FakeLifecycleOwner()
+
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "uncleted::PanicWakeLock")
         wakeLock?.acquire(10 * 60 * 1000L)
@@ -83,53 +161,137 @@ class PanicActionService : LifecycleService() {
             @Suppress("DEPRECATION")
             getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
+
+        tts = TextToSpeech(this, this)
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            val result = tts?.setLanguage(Locale.getDefault())
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Log.e(SERVICE_TAG, "TTS Language not supported")
+            } else {
+                ttsMessageQueue?.let {
+                    speakMessage(it)
+                    ttsMessageQueue = null
+                }
+            }
+        } else {
+            Log.e(SERVICE_TAG, "TTS Initialization failed")
+        }
+    }
+
+    private fun speakMessage(message: String) {
+        try {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
+
+            val params = android.os.Bundle()
+            params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+
+            tts?.speak(message, TextToSpeech.QUEUE_FLUSH, params, "UncleTedTTS")
+            Log.i(SERVICE_TAG, "Speaking: $message")
+        } catch (e: Exception) {
+            Log.e(SERVICE_TAG, "Error during TTS speak", e)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
 
         val reason = intent?.getStringExtra("REASON") ?: "UNKNOWN"
-        val severity = try {
-            Severity.valueOf(intent?.getStringExtra("SEVERITY") ?: "MEDIUM")
-        } catch (e: Exception) {
-            Severity.MEDIUM
+        val severityStr = intent?.getStringExtra("SEVERITY") ?: "MEDIUM"
+        val severity = try { Severity.valueOf(severityStr) } catch (e: Exception) { Severity.MEDIUM }
+
+        pendingWipeType = intent?.getStringExtra("WIPE_TYPE")
+
+        if (reason == "REMOTE_SPEAK") {
+            val message = pendingTtsMessage ?: "System Alert"
+            pendingTtsMessage = null
+            if (tts != null) speakMessage(message) else ttsMessageQueue = message
         }
-        val isBrokered = intent?.getBooleanExtra("IS_BROKERED", false) ?: false
+
+        val isImmediateWipe = reason == "REMOTE_WIPE" ||
+                reason == "WIPE_PIN" ||
+                reason == "WIPE_PIN_DETECTED" ||
+                reason == "TRIPWIRE_WIPE" ||
+                reason == "MANUAL_WIPE" ||
+                reason == "HARDWARE_BUTTON_WIPE" ||
+                reason == "GEOFENCE_SUICIDE_EVIN" ||
+                reason == "USB_TRIPWIRE_FAIL"
+
+        val isSirenOnly = reason == "REMOTE_SIREN" || reason == "MANUAL_SIREN"
 
         try {
-            startForeground(NOTIFICATION_ID, NotificationHelper.createPanicNotification(this))
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Failed to start foreground service with full permissions", e)
-            try {
-                startForeground(NOTIFICATION_ID, NotificationHelper.createBasicNotification(this))
-            } catch (e2: SecurityException) {
-                Log.e(TAG, "Failed to start any foreground service, stopping", e2)
-                stopSelf(startId)
-                return START_NOT_STICKY
+            val notification = NotificationHelper.createPanicNotification(this)
+
+            if (Build.VERSION.SDK_INT >= 34) {
+                var fgsTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+
+                val needsLocation = severity != Severity.LOW
+                val needsCamera = !isImmediateWipe && !isSirenOnly && (severity != Severity.LOW)
+                val needsMic = !isImmediateWipe && !isSirenOnly && (severity == Severity.HIGH || severity == Severity.CRITICAL)
+                val needsMediaPlayback = isSirenOnly || reason == "REMOTE_SPEAK"
+
+                if (needsLocation && PermissionUtils.hasLocationPermissions(this)) {
+                    fgsTypes = fgsTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                }
+                if (needsCamera && PermissionUtils.hasCameraPermission(this)) {
+                    fgsTypes = fgsTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                }
+                if (needsMic && PermissionUtils.hasRecordAudioPermission(this)) {
+                    fgsTypes = fgsTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                }
+                if (needsMediaPlayback) {
+                    fgsTypes = fgsTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                }
+
+                startForeground(NOTIFICATION_ID, notification, fgsTypes)
+
+            } else if (Build.VERSION.SDK_INT >= 29) {
+                if (isImmediateWipe || isSirenOnly) {
+                    startForeground(NOTIFICATION_ID, notification)
+                } else {
+                    startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                }
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
             }
+        } catch (e: Exception) {
+            Log.e(SERVICE_TAG, "Failed to start foreground service: ${e.message}")
+            if (isImmediateWipe) {
+                try { DeviceAdminHelper.wipeDeviceImmediately(this) } catch (_: Exception) {}
+            }
+            stopSelf(startId)
+            return START_NOT_STICKY
         }
 
-        val needsCamera = severity in listOf(Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
+        val isBrokered = intent?.getBooleanExtra("IS_BROKERED", false) ?: false
+        val needsMedia = (severity == Severity.MEDIUM || severity == Severity.HIGH || severity == Severity.CRITICAL) && !isImmediateWipe && !isSirenOnly
 
-        if (needsCamera && !isBrokered && !PermissionUtils.hasCameraPermission(this)) {
-            Log.d(TAG, "Camera needed for reason '$reason' but no permission. Launching broker activity.")
-
+        if (needsMedia && !isBrokered && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !PermissionUtils.hasCameraPermission(this)) {
+            Log.w(SERVICE_TAG, "Service missing permissions. Redirecting to Broker.")
             val brokerIntent = Intent(this, CameraPermissionBrokerActivity::class.java).apply {
                 putExtra("REASON", reason)
                 putExtra("SEVERITY", severity.name)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            startActivity(brokerIntent)
+            try { startActivity(brokerIntent) } catch (e: Exception) { Log.e(SERVICE_TAG, "Failed to start Broker", e) }
             stopSelf(startId)
             return START_NOT_STICKY
         }
 
-        Log.w(TAG, "Service started with reason: $reason, severity: $severity (Brokered: $isBrokered)")
+        Log.w(TAG, "Service executing protocol for: $reason (Severity: $severity)")
+
+        serviceScope.coroutineContext.cancelChildren()
 
         lifecycleScope.launch(serviceScope.coroutineContext) {
             try {
-                withContext(Dispatchers.Main) {
-                    cameraLifecycleOwner.start()
+                if (!isImmediateWipe && !isSirenOnly) {
+                    withContext(Dispatchers.Main) {
+                        cameraLifecycleOwner.start()
+                    }
                 }
 
                 when (severity) {
@@ -139,8 +301,9 @@ class PanicActionService : LifecycleService() {
                     Severity.CRITICAL -> handleCriticalIncident(reason)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error executing protocol for reason: $reason", e)
-                EventLogger.log(this@PanicActionService, "ERROR: Protocol failed for $reason. Details: ${e.message}")
+                if (e !is CancellationException) {
+                    Log.e(SERVICE_TAG, "Error executing protocol: ${e.message}", e)
+                }
             } finally {
                 stopSelf(startId)
             }
@@ -149,292 +312,297 @@ class PanicActionService : LifecycleService() {
     }
 
     private suspend fun handleLowSeverityIncident(reason: String) {
-        Log.i(TAG, "Handling LOW severity: $reason")
-        val template = when (reason) {
-            "GEOFENCE_EXIT" -> AdvancedEmailSender.getEmailTemplates()["DEVICE_MOVED"]!!
-            else -> AdvancedEmailSender.EmailTemplate("Uncle Ted Alert: $reason", "Low severity event detected: $reason")
+        if (reason == "MANUAL_LOCATION") {
+            val location = getCurrentLocation()
+            if (location != null) {
+                val locInfo = LocationTracker.LocationInfo(location, null, location.accuracy, location.time)
+                sendAlert(AdvancedEmailSender.EmailTemplate("Location Requested", LocationTracker.formatLocationForEmail(locInfo)))
+            } else {
+                sendAlert(AdvancedEmailSender.EmailTemplate("Location Failed", "Could not retrieve GPS."))
+            }
+            return
         }
-        sendAlert(template)
+        sendAlert(AdvancedEmailSender.EmailTemplate("Alert: $reason", "Low priority event detected: $reason"))
     }
 
     private suspend fun handleMediumSeverityIncident(reason: String) {
-        Log.w(TAG, "Handling MEDIUM severity: $reason")
+        if (reason == "REMOTE_SPEAK") return
+
+        Log.i(TAG, "Capturing photo evidence for: $reason")
         val capture = if (PermissionUtils.hasCameraPermission(this)) {
-            AdvancedCameraHandler.performFullCapture(this, cameraLifecycleOwner, videoDurationSeconds = 5)
+            AdvancedCameraHandler.performFullCapture(this, cameraLifecycleOwner, videoDurationSeconds = 0)
         } else {
+            Log.e(TAG, "Camera permission not granted! Cannot take photo.")
             null
+        }
+
+        if (reason == "INTRUDER_SELFIE") {
+            if (capture?.frontPhoto != null) {
+                val photoFile = capture.frontPhoto
+                Log.i(TAG, "Intruder selfie captured successfully: ${photoFile.absolutePath}")
+
+                val uri = FileUtils.saveImageToPictures(this, photoFile)
+                if (uri != null) {
+                    Log.i(TAG, "Intruder selfie successfully saved to Gallery: $uri")
+                    NotificationHelper.showSelfieSavedNotification(this, uri)
+                }
+            } else {
+                Log.w(TAG, "Front camera photo capture returned null.")
+            }
         }
 
         val template = when (reason) {
             "INTRUDER_SELFIE" -> AdvancedEmailSender.getEmailTemplates()["INTRUDER"]!!
-            "SIM_CHANGED" -> AdvancedEmailSender.getEmailTemplates()["SIM_CHANGE"]!!
-            "FAKE_SHUTDOWN" -> AdvancedEmailSender.getEmailTemplates()["SYSTEM_TAMPER"]!!
+            "SIM_CHANGED", "SIM_REMOVED" -> AdvancedEmailSender.getEmailTemplates()["SIM_CHANGE"]!!
+            "MANUAL_HONEYPOT" -> AdvancedEmailSender.EmailTemplate("Honeypot Deployed", "Honeypot mode manually activated. Monitoring for interactions.")
             else -> AdvancedEmailSender.getEmailTemplates()["GENERIC_MEDIUM"]!!
         }
-        sendAlert(template, capture)
 
-        if (reason == "INTRUDER_SELFIE" && SecurityPreferences.isSaveSelfieToStorageEnabled(this)) {
-            capture?.frontPhoto?.let {
-                val uri = FileUtils.saveImageToPictures(this, it)
-                if (uri != null) NotificationHelper.showSelfieSavedNotification(this, uri)
-            }
-        }
+        sendAlert(template, capture)
     }
 
     private suspend fun handleHighSeverityIncident(reason: String) {
-        Log.e(TAG, "Handling HIGH severity: $reason")
-        val capture = if (PermissionUtils.hasCameraPermission(this)) {
-            AdvancedCameraHandler.performFullCapture(this, cameraLifecycleOwner, videoDurationSeconds = 15)
-        } else {
-            null
+        if (reason == "REMOTE_SIREN" || reason == "MANUAL_SIREN") {
+            Log.i(SERVICE_TAG, "Executing Siren Only Protocol.")
+            sendAlert(AdvancedEmailSender.EmailTemplate("Siren Activated", "Loud siren triggered on device."))
+            startSiren(30)
+            return
         }
 
-        val audioFile = if (SecurityPreferences.isAmbientAudioEnabled(this) && PermissionUtils.hasRecordAudioPermission(this)) {
-            AudioRecorder.recordAudio(this, 30)
-        } else {
-            null
+        if (reason == "REMOTE_AUDIO_RECORD") {
+            val audioFile = if (PermissionUtils.hasRecordAudioPermission(this)) {
+                AudioRecorder.recordAudio(this, pendingAudioDuration)
+            } else null
+
+            if (audioFile != null) {
+                sendAlert(AdvancedEmailSender.EmailTemplate("Remote Audio", "Audio surveillance attached."), null, audioFile)
+            }
+            pendingAudioDuration = 60
+            return
         }
 
-        if (reason == "DURESS_PIN" && SecurityPreferences.isGpsSpoofingEnabled(this)) {
-            RootActions.enableGpsSpoofing(this)
+        if (reason == "REMOTE_EVIDENCE") {
+            val capture = if (PermissionUtils.hasCameraPermission(this))
+                AdvancedCameraHandler.performFullCapture(this, cameraLifecycleOwner, 15) else null
+            val audio = if (PermissionUtils.hasRecordAudioPermission(this))
+                AudioRecorder.recordAudio(this, 30) else null
+
+            val template = AdvancedEmailSender.EmailTemplate("Evidence Collection", "Full evidence suite attached.")
+            sendAlert(template, capture, audio)
+            return
         }
 
-        // ### START: PRECISE FIX FOR AI LOCKDOWN ACTION ###
-        // Define the email template and perform the specific action for each high-severity reason.
-        val template: AdvancedEmailSender.EmailTemplate
-        when (reason) {
-            "DURESS_PIN", "SHAKE_TRIGGERED" -> {
-                template = AdvancedEmailSender.getEmailTemplates()["DURESS"]!!
-                sendAlert(template, capture, audioFile)
-                startSiren(30)
-            }
-            "UNINSTALL_ATTEMPT" -> {
-                template = AdvancedEmailSender.getEmailTemplates()["SYSTEM_BREACH"]!!
-                sendAlert(template, capture, audioFile)
-            }
-            "REMOTE_SIREN" -> {
-                template = AdvancedEmailSender.getEmailTemplates()["REMOTE_ACTION"]!!
-                sendAlert(template, capture, audioFile)
-                startSiren(30)
-            }
+        val sirenJob = if (reason == "DURESS_PIN" || reason == "SHAKE_TRIGGERED") {
+            serviceScope.async { startSiren(30) }
+        } else null
+
+        val capture = if (PermissionUtils.hasCameraPermission(this))
+            AdvancedCameraHandler.performFullCapture(this, cameraLifecycleOwner, 15) else null
+
+        val audioFile = if (SecurityPreferences.isAmbientAudioEnabled(this) && PermissionUtils.hasRecordAudioPermission(this))
+            AudioRecorder.recordAudio(this, 30) else null
+
+        if (reason == "DURESS_PIN" && RootChecker.isDeviceRooted()) {
+            RootActions.setMockLocationConfig(this, true)
+        }
+
+        val template = when (reason) {
+            "DURESS_PIN", "SHAKE_TRIGGERED" -> AdvancedEmailSender.getEmailTemplates()["DURESS"]!!
+            "UNINSTALL_ATTEMPT" -> AdvancedEmailSender.getEmailTemplates()["SYSTEM_BREACH"]!!
             "AI_INITIATED_LOCKDOWN" -> {
-                template = AdvancedEmailSender.getEmailTemplates()["SYSTEM_BREACH"]!!.copy(subject = "Security Alert: AI-Initiated Lockdown")
-                sendAlert(template, capture, audioFile)
-                // Perform the lockdown action
                 withContext(Dispatchers.Main) {
-                    Log.i(TAG, "ACTION: Locking device due to AI decision.")
-                    val lockIntent = Intent(this@PanicActionService, LockScreenActivity::class.java).apply {
+                    startActivity(Intent(this@PanicActionService, LockScreenActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                         putExtra("REASON", "AI_LOCKDOWN")
-                    }
-                    startActivity(lockIntent)
+                    })
                 }
+                AdvancedEmailSender.getEmailTemplates()["SYSTEM_BREACH"]!!.copy(subject = "AI Lockdown")
             }
-            else -> {
-                template = AdvancedEmailSender.getEmailTemplates()["GENERIC_HIGH"]!!
-                sendAlert(template, capture, audioFile)
-            }
+            else -> AdvancedEmailSender.getEmailTemplates()["GENERIC_HIGH"]!!
         }
-        // ### END: PRECISE FIX FOR AI LOCKDOWN ACTION ###
+
+        sendAlert(template, capture, audioFile)
+        sirenJob?.await()
     }
 
     private suspend fun handleCriticalIncident(reason: String) {
-        Log.e(TAG, "Handling CRITICAL severity: $reason")
-        sendAlert(AdvancedEmailSender.getEmailTemplates()["URGENT_PREAMBLE"]!!.copy(
-            body = "CRITICAL INCIDENT: $reason. Stand by for evidence package."
-        ))
+        val isWipeRequest = (reason == "REMOTE_WIPE" ||
+                reason == "WIPE_PIN" ||
+                reason == "WIPE_PIN_DETECTED" ||
+                reason == "MANUAL_WIPE" ||
+                reason == "TRIPWIRE_WIPE" ||
+                reason == "HARDWARE_BUTTON_WIPE" ||
+                reason == "GEOFENCE_SUICIDE_EVIN")
 
-        val capture = if (PermissionUtils.hasCameraPermission(this)) {
-            AdvancedCameraHandler.performFullCapture(this, cameraLifecycleOwner, videoDurationSeconds = 30)
-        } else {
-            null
-        }
+        if (isWipeRequest) {
+            Log.e(SERVICE_TAG, "!!! CRITICAL: IMMEDIATE WIPE REQUESTED via $reason !!!")
 
-        val audioFile = if (SecurityPreferences.isAmbientAudioEnabled(this) && PermissionUtils.hasRecordAudioPermission(this)) {
-            AudioRecorder.recordAudio(this, 60)
-        } else {
-            null
-        }
+            try {
+                withTimeout(1500) {
+                    sendAlert(AdvancedEmailSender.EmailTemplate("DEVICE WIPING NOW", "Reason: $reason. Goodbye.", true))
+                }
+            } catch (e: Exception) { Log.w(SERVICE_TAG, "Could not send goodbye packet: timeout") }
 
-        val template = AdvancedEmailSender.getEmailTemplates()["SYSTEM_BREACH"]!!.copy(
-            body = "CRITICAL INCIDENT: $reason. Full device diagnostics and evidence package attached."
-        )
+            val isManualOverride = reason == "MANUAL_WIPE" || reason == "REMOTE_WIPE" || reason == "HARDWARE_BUTTON_WIPE" || reason == "GEOFENCE_SUICIDE_EVIN"
 
-        sendAlert(template, capture, audioFile, includeDeviceInfo = true)
+            if (isManualOverride || SecurityPreferences.isWipeDeviceEnabled(this)) {
 
-        if ((reason == "REMOTE_WIPE" || reason == "TRIPWIRE_WIPE" || reason == "WIPE_PIN") && SecurityPreferences.isWipeDeviceEnabled(this)) {
-            if (SecurityPreferences.isSecureWipeEnabled(this)) {
-                RootActions.performSecureWipePlus(this)
+                if (pendingWipeType == "STANDARD_WIPE") {
+                    Log.i(SERVICE_TAG, "Manual Action: Executing Level 1 (Safe Standard Wipe).")
+                    DeviceAdminHelper.wipeDeviceImmediately(this)
+                    return
+                }
+
+                if (RootChecker.isDeviceRooted()) {
+                    Log.e(SERVICE_TAG, "Executing ROOT Wipe Strategy.")
+
+                    // 1. Manual user override selection from Manual Actions fragment
+                    if (pendingWipeType != null) {
+                        try {
+                            val level = RootActions.WipeLevel.valueOf(pendingWipeType!!)
+                            Log.e(SERVICE_TAG, "Manual Wipe Selection Detected: $level")
+                            RootActions.executeWipeProtocol(this, level)
+                            return
+                        } catch (e: Exception) {
+                            Log.e(SERVICE_TAG, "Invalid wipe type passed: $pendingWipeType. Falling back to settings.", e)
+                        }
+                    }
+
+                    // 2. Safe automated wipe: Never use NUCLEAR_WINTER unless specifically triggered by designated zone
+                    if (reason == "GEOFENCE_SUICIDE_EVIN") {
+                        RootActions.executeWipeProtocol(this, RootActions.WipeLevel.NUCLEAR_WINTER)
+                    } else if (SecurityPreferences.isSecureWipeEnabled(this)) {
+                        RootActions.executeWipeProtocol(this, RootActions.WipeLevel.FAST_USERDATA)
+                    } else {
+                        RootActions.executeWipeProtocol(this, RootActions.WipeLevel.STANDARD_WIPE)
+                    }
+                } else {
+                    Log.e(SERVICE_TAG, "Executing DEVICE ADMIN Wipe Strategy.")
+                    DeviceAdminHelper.wipeDeviceImmediately(this)
+                }
             } else {
-                performStandardWipe()
+                Log.w(SERVICE_TAG, "Wipe requested but 'Wipe Device Enabled' is OFF and not a manual override. Reason: $reason")
             }
+            return
         }
+
+        sendAlert(AdvancedEmailSender.getEmailTemplates()["URGENT_PREAMBLE"]!!.copy(body = "CRITICAL: $reason"))
+        val capture = if (PermissionUtils.hasCameraPermission(this)) AdvancedCameraHandler.performFullCapture(this, cameraLifecycleOwner, 10) else null
+        val audio = if (PermissionUtils.hasRecordAudioPermission(this)) AudioRecorder.recordAudio(this, 10) else null
+
+        sendAlert(AdvancedEmailSender.getEmailTemplates()["SYSTEM_BREACH"]!!.copy(body = "CRITICAL DETAILS: $reason"), capture, audio, true)
     }
 
     private suspend fun sendAlert(
         template: AdvancedEmailSender.EmailTemplate,
         capture: AdvancedCameraHandler.CameraCapture? = null,
         audioFile: File? = null,
-        includeDeviceInfo: Boolean = false
+        includeDeviceInfo: Boolean = false,
+        screenshotFile: File? = null
     ) {
         val contact = SecurityPreferences.getEmergencyContact(this)
         if (contact.isNullOrEmpty()) {
-            Log.e(TAG, "Emergency contact not set. Cannot send alert.")
-            EventLogger.log(this, "Alert failed: Emergency contact not set.")
+            Log.d(TAG, "No emergency contact configured. Skipping remote alert dispatch.")
             return
         }
 
         val deviceInfo = if (includeDeviceInfo) DeviceInfoCollector.collectDeviceInfo(this) else null
 
-        var screenshotFile: File? = null
-        if (SecurityPreferences.isStealthScreenshotEnabled(this) && RootChecker.isDeviceRooted()) {
-            screenshotFile = RootActions.takeStealthScreenshot(this)
+        var sc = screenshotFile
+        if (sc == null && SecurityPreferences.isStealthScreenshotEnabled(this) && RootChecker.isDeviceRooted()) {
+            sc = RootActions.takeStealthScreenshot(this)
         }
 
         if (contact.contains("@")) {
-            AdvancedEmailSender.sendAdvancedAlert(this, template, capture, audioFile, deviceInfo, screenshotFile)
+            AdvancedEmailSender.sendAdvancedAlert(this, template, capture, audioFile, deviceInfo, sc)
         } else {
-            val location = capture?.location ?: getCurrentLocation()
-            val locationString = if (location != null) {
-                "Location: https://maps.google.com?q=${location.latitude},${location.longitude}"
-            } else {
-                "Location unavailable."
-            }
-            val smsBody = "Uncle Ted Alert: ${template.subject}. $locationString"
-            sendSms(contact, smsBody)
+            val loc = capture?.location ?: getCurrentLocation()
+            val locStr = if (loc != null) "https://maps.google.com?q=${loc.latitude},${loc.longitude}" else "No GPS"
+            sendSms(contact, "Uncle Ted Alert: ${template.subject}. Loc: $locStr")
         }
     }
 
-    private suspend fun getCurrentLocation(): Location? = suspendCancellableCoroutine { continuation ->
+    private suspend fun getCurrentLocation(): Location? = suspendCancellableCoroutine { cont ->
         if (!PermissionUtils.hasLocationPermissions(this)) {
-            Log.e(TAG, "Location permissions not granted.")
-            if (continuation.isActive) continuation.resume(null)
+            if (cont.isActive) cont.resume(null)
             return@suspendCancellableCoroutine
         }
-
-        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        val cancellationTokenSource = CancellationTokenSource()
-
-        continuation.invokeOnCancellation { cancellationTokenSource.cancel() }
-
         try {
-            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancellationTokenSource.token)
-                .addOnSuccessListener { location ->
-                    Log.d(TAG, "Location retrieved: ${location?.latitude}, ${location?.longitude}")
-                    if (continuation.isActive) continuation.resume(location)
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "Failed to get location", e)
-                    if (continuation.isActive) continuation.resume(null)
-                }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Location permission denied", e)
-            if (continuation.isActive) continuation.resume(null)
+            val client = LocationServices.getFusedLocationProviderClient(this)
+            val source = CancellationTokenSource()
+            cont.invokeOnCancellation { source.cancel() }
+
+            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, source.token)
+                .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
+                .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+        } catch (e: Exception) {
+            if (cont.isActive) cont.resume(null)
         }
     }
 
     private fun sendSms(phoneNumber: String, message: String) {
-        if (!PermissionUtils.hasSmsPermissions(this)) {
-            Log.e(TAG, "SMS permissions not granted. Cannot send SMS.")
-            return
-        }
+        if (!PermissionUtils.hasSmsPermissions(this)) return
         try {
-            val smsManager = getSystemService(SmsManager::class.java)
-            smsManager.sendTextMessage(phoneNumber, null, message, null, null)
-            Log.i(TAG, "SMS sent to $phoneNumber")
-            EventLogger.log(this, "SMS alert sent to $phoneNumber.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send SMS", e)
-            EventLogger.log(this, "ERROR: Failed to send SMS.")
-        }
+            getSystemService(SmsManager::class.java).sendTextMessage(phoneNumber, null, message, null, null)
+        } catch (e: Exception) { Log.e(SERVICE_TAG, "SMS Failed", e) }
     }
 
     private suspend fun startSiren(durationSeconds: Int) {
-        Log.d(TAG, "ACTION: Executing Remote Siren for ${durationSeconds}s")
+        Log.i(SERVICE_TAG, "Siren STARTING for ${durationSeconds}s")
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         var originalAlarmVolume: Int? = null
 
         try {
             originalAlarmVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
-            val maxAlarmVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxAlarmVolume, 0)
+            val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVol, 0)
 
-            val alarmUri = Settings.System.DEFAULT_ALARM_ALERT_URI
-            if (alarmUri != null) {
+            var soundUri = Settings.System.DEFAULT_ALARM_ALERT_URI
+            if (soundUri == null) soundUri = Settings.System.DEFAULT_NOTIFICATION_URI
+            if (soundUri == null) soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+
+            if (soundUri != null) {
                 sirenMediaPlayer = MediaPlayer().apply {
-                    setDataSource(this@PanicActionService, alarmUri)
-                    setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ALARM)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build()
-                    )
+                    setDataSource(this@PanicActionService, soundUri)
+                    setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
                     isLooping = true
                     prepare()
                     start()
                 }
-            } else {
-                Log.e(TAG, "Default alarm URI is null. Cannot play siren sound.")
+                Log.i(SERVICE_TAG, "Siren playing...")
             }
 
             vibrator?.let {
-                val pattern = longArrayOf(0, 1000, 500, 1000)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    it.vibrate(VibrationEffect.createWaveform(pattern, 0))
-                } else {
-                    @Suppress("DEPRECATION")
-                    it.vibrate(pattern, 0)
-                }
+                val pattern = longArrayOf(0, 500, 200, 500, 200, 500, 1000)
+                val effect = VibrationEffect.createWaveform(pattern, 0)
+                it.vibrate(effect)
             }
 
             delay(durationSeconds * 1000L)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start or maintain siren", e)
+            Log.e(SERVICE_TAG, "Failed to play siren", e)
         } finally {
             stopSiren()
-            originalAlarmVolume?.let {
-                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, it, 0)
-                Log.d(TAG, "Restored original alarm volume.")
-            }
+            originalAlarmVolume?.let { audioManager.setStreamVolume(AudioManager.STREAM_ALARM, it, 0) }
+            Log.i(SERVICE_TAG, "Siren finished.")
         }
     }
 
     private fun stopSiren() {
         try {
-            if (sirenMediaPlayer?.isPlaying == true) {
-                sirenMediaPlayer?.stop()
-            }
-            sirenMediaPlayer?.release()
-        } catch (e: IllegalStateException) {
-            Log.w(TAG, "MediaPlayer was in an invalid state during stop/release.", e)
-        } finally {
-            sirenMediaPlayer = null
-        }
-
+            sirenMediaPlayer?.apply { if (isPlaying) stop(); release() }
+        } catch (e: Exception) { Log.w(SERVICE_TAG, "Error releasing media player", e) }
+        sirenMediaPlayer = null
         vibrator?.cancel()
-        Log.d(TAG, "Siren and vibration stopped.")
     }
 
-    private fun performStandardWipe() {
-        EventLogger.log(this, "WIPE INITIATED (Standard).")
-        if (PermissionUtils.isDeviceAdminActive(this)) {
-            Log.w(TAG, "ACTION: INITIATING DEVICE WIPE!")
-            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-            dpm.wipeData(0)
-        } else {
-            Log.e(TAG, "Attempted to wipe data but Device Admin is not active.")
-            EventLogger.log(this, "WIPE FAILED: Device Admin not active.")
-        }
-    }
-
-    override fun onBind(intent: Intent): IBinder? {
-        super.onBind(intent)
-        return null
-    }
+    override fun onBind(intent: Intent): IBinder? = null
 
     override fun onDestroy() {
-        wakeLock?.release()
+        tts?.stop()
+        tts?.shutdown()
+        wakeLock?.let { if (it.isHeld) it.release() }
         stopSiren()
         cameraLifecycleOwner.destroy()
         serviceJob.cancel()

@@ -2,6 +2,7 @@ package com.hamoon.uncleted.fragments
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -21,6 +22,8 @@ import com.google.android.material.textfield.TextInputEditText
 import com.hamoon.uncleted.R
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.databinding.FragmentFeaturesBinding
+import com.hamoon.uncleted.services.UsbTripwireService
+import com.hamoon.uncleted.services.ZoneWipeService
 import com.hamoon.uncleted.util.*
 import kotlinx.coroutines.launch
 
@@ -107,6 +110,13 @@ class FeaturesFragment : Fragment() {
             SecurityPreferences.setWipeDeviceEnabled(requireContext(), isChecked)
         }
 
+        binding.switchHardwareWipe.setOnCheckedChangeListener { _, isChecked ->
+            SecurityPreferences.setHardwareWipeEnabled(requireContext(), isChecked)
+            if (isChecked) {
+                Toast.makeText(requireContext(), "Hardware Wipe Enabled: Press Vol UP, DOWN, UP, DOWN rapidly to wipe.", Toast.LENGTH_LONG).show()
+            }
+        }
+
         binding.switchIntruderSelfie.setOnCheckedChangeListener { _, isChecked ->
             binding.switchSaveSelfieToStorage.isEnabled = isChecked
             SecurityPreferences.setIntruderSelfieEnabled(requireContext(), isChecked)
@@ -154,6 +164,31 @@ class FeaturesFragment : Fragment() {
                 }
             } else {
                 GeofenceHelper.removeGeofence()
+            }
+        }
+
+        // --- NEW: Geofence Suicide (Evin Prison) Listener ---
+        binding.switchGeofenceSuicide.setOnCheckedChangeListener { _, isChecked ->
+            // Assuming preference set method exists, if not, handle storage manually or add to SecurityPreferences
+            // SecurityPreferences.setGeofenceSuicideEnabled(requireContext(), isChecked)
+
+            if (isChecked) {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle("ACTIVATE WAR MODE?")
+                    .setMessage("If your phone enters the GPS coordinates of Evin Prison, it will instantly self-destruct. \n\nGPS drift is possible. Do not use this if you live or drive immediately adjacent to the prison walls.")
+                    .setPositiveButton("ARM SYSTEM") { _, _ ->
+                        val intent = Intent(requireContext(), ZoneWipeService::class.java)
+                        ContextCompat.startForegroundService(requireContext(), intent)
+                        Toast.makeText(requireContext(), "Geographic Suicide Armed.", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel") { _, _ ->
+                        binding.switchGeofenceSuicide.isChecked = false
+                    }
+                    .setCancelable(false)
+                    .show()
+            } else {
+                requireContext().stopService(Intent(requireContext(), ZoneWipeService::class.java))
+                Toast.makeText(requireContext(), "Geographic Suicide Disarmed.", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -212,6 +247,31 @@ class FeaturesFragment : Fragment() {
             SecurityPreferences.setRemoteApkUrl(requireContext(), it.toString())
         }
 
+        // --- NEW: USB Tripwire Listener ---
+        binding.switchUsbTripwire.setOnCheckedChangeListener { _, isChecked ->
+            // Assuming preference set method exists
+            // SecurityPreferences.setUsbTripwireEnabled(requireContext(), isChecked)
+
+            if (isChecked) {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle("EXTREME DANGER")
+                    .setMessage("This feature runs at the KERNEL level. If you plug your locked phone into a PC, car stereo, or even a 'smart' charger that attempts a data handshake, YOUR DATA WILL BE DESTROYED INSTANTLY.\n\nOnly enable this when entering high-risk zones.")
+                    .setPositiveButton("I Understand") { _, _ ->
+                        val intent = Intent(requireContext(), UsbTripwireService::class.java)
+                        ContextCompat.startForegroundService(requireContext(), intent)
+                        Toast.makeText(requireContext(), "USB Kill Switch Armed.", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel") { _, _ ->
+                        binding.switchUsbTripwire.isChecked = false
+                    }
+                    .setCancelable(false)
+                    .show()
+            } else {
+                requireContext().stopService(Intent(requireContext(), UsbTripwireService::class.java))
+                Toast.makeText(requireContext(), "USB Kill Switch Disarmed.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         binding.switchRootFirewallTripwire.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setFirewallTripwireEnabled(requireContext(), isChecked)
         }
@@ -266,7 +326,6 @@ class FeaturesFragment : Fragment() {
             SecurityPreferences.setLoaderScriptUrl(requireContext(), it.toString())
         }
 
-        // ### NEW: Listeners for Advanced Surveillance ###
         binding.switchRootStealthScreenshot.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setStealthScreenshotEnabled(requireContext(), isChecked)
         }
@@ -293,12 +352,20 @@ class FeaturesFragment : Fragment() {
         binding.switchRecordVideo.isChecked = SecurityPreferences.isRecordVideoEnabled(context)
         binding.switchAmbientAudio.isChecked = SecurityPreferences.isAmbientAudioEnabled(context)
         binding.switchWipeDevice.isChecked = SecurityPreferences.isWipeDeviceEnabled(context)
+        binding.switchHardwareWipe.isChecked = SecurityPreferences.isHardwareWipeEnabled(context)
+
         val isIntruderSelfieEnabled = SecurityPreferences.isIntruderSelfieEnabled(context)
         binding.switchIntruderSelfie.isChecked = isIntruderSelfieEnabled
         binding.switchSaveSelfieToStorage.isChecked = SecurityPreferences.isSaveSelfieToStorageEnabled(context)
         binding.switchSimChangeAlert.isChecked = SecurityPreferences.isSimChangeAlertEnabled(context)
         binding.switchFakeShutdown.isChecked = SecurityPreferences.isFakeShutdownEnabled(context)
         binding.switchShakeToPanic.isChecked = SecurityPreferences.isShakeToPanicEnabled(context)
+
+        // Check if services are running to update switch state
+        // Note: This assumes service running state is truth. For persistence, prefs should be checked.
+        // We initialize switches to OFF by default if service check is complex, but here we can check if enabled
+        // via preferences if those methods are added to SecurityPreferences.
+        // For now, we leave them off on load or rely on stored prefs if you implement get methods.
 
         // Stealth Mode & App Lock
         binding.switchStealthMode.isChecked = isStealthModeEnabled()
@@ -366,7 +433,6 @@ class FeaturesFragment : Fragment() {
             binding.layoutLoaderScriptUrl.isEnabled = isSurviveResetEnabled
             binding.etLoaderScriptUrl.setText(SecurityPreferences.getLoaderScriptUrl(context))
 
-            // ### NEW: Load Advanced Surveillance Settings ###
             binding.switchRootStealthScreenshot.isChecked = SecurityPreferences.isStealthScreenshotEnabled(context)
             binding.switchRootKeylogger.isChecked = SecurityPreferences.isKeyloggerEnabled(context)
             binding.switchRootStealthMedia.isChecked = SecurityPreferences.isStealthMediaCaptureEnabled(context)
@@ -520,9 +586,6 @@ class FeaturesFragment : Fragment() {
 
     override fun onStop() {
         super.onStop()
-        // Stop the keylogger if the user leaves the app and the feature is enabled,
-        // unless it's designed to be a persistent background service.
-        // For this implementation, we stop it to avoid unintended logging.
         if (SecurityPreferences.isKeyloggerEnabled(requireContext())) {
             Keylogger.stop()
         }
@@ -530,7 +593,6 @@ class FeaturesFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        // Restart the keylogger if the user returns to the fragment and the feature is enabled.
         if (isRooted && SecurityPreferences.isKeyloggerEnabled(requireContext())) {
             Keylogger.start(requireContext())
         }

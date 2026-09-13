@@ -86,4 +86,12 @@
         <item name="android:backgroundDimEnabled">false</item>
     </style>
 
+
+	<style name="Theme.UncleTed.NoActionBar.FullScreen" parent="Theme.UncleTed">
+		<item name="android:windowNoTitle">true</item>
+		<item name="android:windowActionBar">false</item>
+		<item name="android:windowFullscreen">true</item>
+		<item name="android:windowContentOverlay">@null</item>
+	</style>
+
 </resources>

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:orientation="horizontal"
+    android:baselineAligned="false"
+    android:padding="6dp">
+
+    <!-- 1. LOCK BUTTON (NEW) -->
+    <LinearLayout
+        android:id="@+id/btn_widget_lock"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_margin="3dp"
+        android:background="@drawable/bg_widget_button"
+        android:gravity="center"
+        android:orientation="vertical">
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_lock_24"
+            android:tint="#E0E0E0"/>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LOCK"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="#E0E0E0"/>
+    </LinearLayout>
+
+    <!-- 2. SIREN -->
+    <LinearLayout
+        android:id="@+id/btn_widget_siren"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_margin="3dp"
+        android:background="@drawable/bg_widget_button"
+        android:gravity="center"
+        android:orientation="vertical">
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_alert_24"
+            android:tint="#FFF59D"/>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SIREN"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="#FFF59D"/>
+    </LinearLayout>
+
+    <!-- 3. LOCATION -->
+    <LinearLayout
+        android:id="@+id/btn_widget_location"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_margin="3dp"
+        android:background="@drawable/bg_widget_button"
+        android:gravity="center"
+        android:orientation="vertical">
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_info_24"
+            android:tint="#90CAF9"/>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LOCATE"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="#90CAF9"/>
+    </LinearLayout>
+
+    <!-- 4. WIPE -->
+    <LinearLayout
+        android:id="@+id/btn_widget_wipe"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_margin="3dp"
+        android:background="@drawable/bg_widget_button_danger"
+        android:gravity="center"
+        android:orientation="vertical">
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_alert_triangle_24"
+            android:tint="#EF9A9A"/>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="WIPE"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="#EF9A9A"/>
+    </LinearLayout>
+
+</LinearLayout>

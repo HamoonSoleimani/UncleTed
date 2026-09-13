@@ -1,6 +1,3 @@
-// ================================================================================
-// ### FILE: app/src/main/java/com/hamoon/uncleted/util/AdvancedCameraHandler.kt
-// ================================================================================
 package com.hamoon.uncleted.util
 
 import android.content.Context
@@ -12,7 +9,6 @@ import androidx.camera.core.CameraSelector
 import androidx.lifecycle.LifecycleOwner
 import com.hamoon.uncleted.data.SecurityPreferences
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -42,11 +38,7 @@ object AdvancedCameraHandler {
         try {
             val location = getCurrentLocation(context)
 
-            // ### START: PRECISE FIX FOR CAMERA RACE CONDITION ###
-            // All camera operations are now performed sequentially to prevent race conditions
-            // where one operation unbinds the camera while another is trying to use it.
-            // This ensures stability and reliable media capture.
-
+            Log.i(TAG, "Initiating front camera photo capture...")
             val frontPhoto = CameraHandler.takePhoto(
                 context, lifecycleOwner, CameraSelector.LENS_FACING_FRONT
             )
@@ -55,17 +47,17 @@ object AdvancedCameraHandler {
                 CameraHandler.takePhoto(context, lifecycleOwner, CameraSelector.LENS_FACING_BACK)
             } else null
 
-            val frontVideo = CameraHandler.recordVideo(
-                context, lifecycleOwner, videoDurationSeconds, CameraSelector.LENS_FACING_FRONT
-            )
+            val frontVideo = if (videoDurationSeconds > 0) {
+                CameraHandler.recordVideo(
+                    context, lifecycleOwner, videoDurationSeconds, CameraSelector.LENS_FACING_FRONT
+                )
+            } else null
 
-            val backVideo = if (hasBackCamera(context)) {
+            val backVideo = if (videoDurationSeconds > 0 && hasBackCamera(context)) {
                 CameraHandler.recordVideo(
                     context, lifecycleOwner, videoDurationSeconds, CameraSelector.LENS_FACING_BACK
                 )
             } else null
-
-            // ### END: PRECISE FIX FOR CAMERA RACE CONDITION ###
 
             return@withContext CameraCapture(
                 frontPhoto = frontPhoto,
@@ -76,9 +68,7 @@ object AdvancedCameraHandler {
             )
         } finally {
             if (SecurityPreferences.isStealthMediaCaptureEnabled(context)) {
-                // The system auto-restarts the camera server, so no explicit restore action is needed.
-                // This log confirms the block's execution.
-                Log.d(TAG, "Stealth media capture finished, privacy indicator state will be restored by system.")
+                Log.d(TAG, "Stealth media capture completed.")
             }
         }
     }

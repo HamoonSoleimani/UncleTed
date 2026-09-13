@@ -56,6 +56,15 @@
                     android:padding="16dp"
                     android:text="@string/feature_wipe_device" />
 
+                <!-- Hardware Wipe Switch -->
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_hardware_wipe"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="16dp"
+                    android:text="Hardware Wipe (Vol UP-DOWN-UP-DOWN)"
+                    android:textColor="?attr/colorError" />
+
                 <com.google.android.material.divider.MaterialDivider
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -136,6 +145,15 @@
                     android:layout_marginEnd="16dp"
                     android:layout_marginBottom="16dp"
                     android:text="@string/feature_set_geofence_button" />
+
+                <!-- NEW: Geofence Suicide (Evin Prison) -->
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_geofence_suicide"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="16dp"
+                    android:text="No-Go Zone: Evin Prison (Auto-Wipe)"
+                    android:textColor="?attr/colorError" />
 
                 <com.google.android.material.divider.MaterialDivider
                     android:layout_width="match_parent"
@@ -392,6 +410,15 @@
                             android:layout_height="wrap_content"
                             android:hint="@string/remote_apk_url_hint" />
                     </com.google.android.material.textfield.TextInputLayout>
+
+                    <!-- NEW: USB Tripwire Switch -->
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switch_usb_tripwire"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:padding="16dp"
+                        android:text="USB Kill Switch (Kernel Monitor)"
+                        android:textColor="?attr/colorError" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switch_root_firewall_tripwire"

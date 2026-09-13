@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- LSPosed Scope: Target system_server (android) and SystemUI -->
+    <string-array name="xposed_scope">
+        <item>android</item>
+        <item>com.android.systemui</item>
+    </string-array>
+
     <!-- Values for the Theme preference -->
     <string-array name="theme_entries">
         <item>Light</item>
@@ -15,7 +21,7 @@
         <item>system</item>
     </string-array>
 
-    <!-- ### NEW: Values for the Language preference ### -->
+    <!-- Values for the Language preference -->
     <string-array name="language_entries" translatable="false">
         <item>System Default</item>
         <item>English</item>

@@ -7,8 +7,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.*
+import javax.activation.CommandMap
 import javax.activation.DataHandler
 import javax.activation.FileDataSource
+import javax.activation.MailcapCommandMap
 import javax.mail.*
 import javax.mail.internet.InternetAddress
 import javax.mail.internet.MimeBodyPart
@@ -49,7 +51,20 @@ object AdvancedEmailSender {
             return@withContext false
         }
 
+        val originalClassLoader = Thread.currentThread().contextClassLoader
         try {
+            // Fix 1: Ensure Thread Context ClassLoader has access to APK classes (JavaMail provider lookup)
+            Thread.currentThread().contextClassLoader = context.classLoader
+
+            // Fix 2: Register mailcap command map handlers to prevent "No content handler" errors
+            val mc = CommandMap.getDefaultCommandMap() as MailcapCommandMap
+            mc.addMailcap("text/html;; x-java-content-handler=com.sun.mail.handlers.text_html")
+            mc.addMailcap("text/xml;; x-java-content-handler=com.sun.mail.handlers.text_xml")
+            mc.addMailcap("text/plain;; x-java-content-handler=com.sun.mail.handlers.text_plain")
+            mc.addMailcap("multipart/*;; x-java-content-handler=com.sun.mail.handlers.multipart_mixed")
+            mc.addMailcap("message/rfc822;; x-java-content-handler=com.sun.mail.handlers.message_rfc822")
+            CommandMap.setDefaultCommandMap(mc)
+
             val props = createEmailProperties(config)
             val session = Session.getInstance(props, object : Authenticator() {
                 override fun getPasswordAuthentication(): PasswordAuthentication {
@@ -91,11 +106,18 @@ object AdvancedEmailSender {
             Log.e(TAG, "Failed to send advanced email", e)
             EventLogger.log(context, "ERROR: Failed to send email alert. Check credentials and connection.")
             false
+        } finally {
+            // Restore original ClassLoader
+            Thread.currentThread().contextClassLoader = originalClassLoader
         }
     }
 
     private fun createEmailProperties(config: EmailSender.EmailConfig): Properties {
         return Properties().apply {
+            // Fix 3: Explicitly bind the transport protocol and class to avoid META-INF lookup failures
+            put("mail.transport.protocol", "smtp")
+            put("mail.smtp.class", "com.sun.mail.smtp.SMTPTransport")
+
             put("mail.smtp.host", config.host)
             put("mail.smtp.port", config.port.toString())
             put("mail.smtp.auth", "true")
@@ -153,16 +175,55 @@ object AdvancedEmailSender {
 
     fun getEmailTemplates(): Map<String, EmailTemplate> {
         return mapOf(
-            "INTRUDER" to EmailTemplate(subject = "Security Alert: Intruder Detected", body = "Multiple failed authentication attempts detected on your secured device. Evidence is attached.", isUrgent = true),
-            "DURESS" to EmailTemplate(subject = "Emergency Alert: Duress Code Activated", body = "The duress code has been entered on your device. This may indicate the owner is in distress or under coercion. Evidence is attached.", isUrgent = true),
-            "SIM_CHANGE" to EmailTemplate(subject = "Security Alert: SIM Card Changed", body = "The SIM card in your secured device has been replaced. This may indicate theft or unauthorized access.", isUrgent = true),
-            "DEVICE_MOVED" to EmailTemplate(subject = "Security Alert: Device Left Safe Zone", body = "Your secured device has been moved from its designated safe zone."),
-            "SYSTEM_BREACH" to EmailTemplate(subject = "CRITICAL Alert: Security System Compromised", body = "An attempt to disable or tamper with the Uncle Ted security system has been detected.", isUrgent = true),
-            "SYSTEM_TAMPER" to EmailTemplate(subject = "Security Alert: System Tampering Detected", body = "A potential attempt to tamper with the device (e.g., fake shutdown) has been detected.", isUrgent = true),
-            "REMOTE_ACTION" to EmailTemplate(subject = "Security Alert: Remote Action Triggered", body = "A remote action (e.g., siren) was successfully triggered on the device.", isUrgent = false),
-            "GENERIC_MEDIUM" to EmailTemplate(subject = "Security Alert: Medium Priority Event", body = "A medium priority security event was detected.", isUrgent = false),
-            "GENERIC_HIGH" to EmailTemplate(subject = "URGENT Security Alert: High Priority Event", body = "A high priority security event was detected.", isUrgent = true),
-            "URGENT_PREAMBLE" to EmailTemplate(subject = "CRITICAL ALERT", body = "This is an urgent preliminary alert.", isUrgent = true)
+            "INTRUDER" to EmailTemplate(
+                subject = "Security Alert: Intruder Detected",
+                body = "Multiple failed authentication attempts detected on your secured device. Evidence is attached.",
+                isUrgent = true
+            ),
+            "DURESS" to EmailTemplate(
+                subject = "Emergency Alert: Duress Code Activated",
+                body = "The duress code has been entered on your device. This may indicate the owner is in distress or under coercion. Evidence is attached.",
+                isUrgent = true
+            ),
+            "SIM_CHANGE" to EmailTemplate(
+                subject = "Security Alert: SIM Card Removed or Changed",
+                body = "The SIM card in your secured device has been removed or replaced. This may indicate theft or unauthorized access.",
+                isUrgent = true
+            ),
+            "DEVICE_MOVED" to EmailTemplate(
+                subject = "Security Alert: Device Left Safe Zone",
+                body = "Your secured device has been moved from its designated safe zone."
+            ),
+            "SYSTEM_BREACH" to EmailTemplate(
+                subject = "CRITICAL Alert: Security System Compromised",
+                body = "An attempt to disable or tamper with the Uncle Ted security system has been detected.",
+                isUrgent = true
+            ),
+            "SYSTEM_TAMPER" to EmailTemplate(
+                subject = "Security Alert: System Tampering Detected",
+                body = "A potential attempt to tamper with the device (e.g., fake shutdown) has been detected.",
+                isUrgent = true
+            ),
+            "REMOTE_ACTION" to EmailTemplate(
+                subject = "Security Alert: Remote Action Triggered",
+                body = "A remote action (e.g., siren) was successfully triggered on the device.",
+                isUrgent = false
+            ),
+            "GENERIC_MEDIUM" to EmailTemplate(
+                subject = "Security Alert: Medium Priority Event",
+                body = "A medium priority security event was detected.",
+                isUrgent = false
+            ),
+            "GENERIC_HIGH" to EmailTemplate(
+                subject = "URGENT Security Alert: High Priority Event",
+                body = "A high priority security event was detected.",
+                isUrgent = true
+            ),
+            "URGENT_PREAMBLE" to EmailTemplate(
+                subject = "CRITICAL ALERT",
+                body = "This is an urgent preliminary alert.",
+                isUrgent = true
+            )
         )
     }
 }

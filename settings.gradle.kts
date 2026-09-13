@@ -10,6 +10,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Xposed API Repository
+        maven("https://api.xposed.info/")
     }
 }
 

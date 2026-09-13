@@ -2,17 +2,23 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- We declare that our app uses a camera -->
+    <!-- Camera and Telephony Features -->
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="true" />
-
-    <!-- Feature for telephony (SMS) which is optional -->
     <uses-feature
         android:name="android.hardware.telephony"
         android:required="false" />
 
-    <!-- PERMISSIONS - The powers our app needs -->
+    <!-- SYSTEM-LEVEL PRIV-APP PERMISSIONS -->
+    <uses-permission android:name="android.permission.MASTER_CLEAR" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.REBOOT" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.STATUS_BAR_SERVICE" tools:ignore="ProtectedPermissions" />
+
+    <!-- STANDARD RUNTIME & SECURITY PERMISSIONS -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -36,18 +42,19 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
-    <!-- Specific Foreground Service Permissions for newer Android versions -->
+    <!-- FOREGROUND SERVICE SUBTYPES (ANDROID 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-    <!-- THIS IS THE FIX: Add the missing microphone FGS permission -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
@@ -63,14 +70,26 @@
         tools:targetApi="34"
         android:enableOnBackInvokedCallback="true">
 
-        <!-- Main settings screen. This is the app's core activity but NOT the launcher entry. -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="Enables OS-level Duress PIN interception, native lockscreen wipe, and instant cryptographic destruction." />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
+
+        <!-- Main UI Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:excludeFromRecents="true">
-        </activity>
+            android:excludeFromRecents="true" />
 
-        <!-- THIS ALIAS IS THE SOLE LAUNCHER ICON. We can disable this to "hide" the app -->
+        <!-- Launcher Alias for Stealth Hiding -->
         <activity-alias
             android:name=".Launcher"
             android:enabled="true"
@@ -82,29 +101,61 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- Our custom lock screen -->
+        <!-- Lockscreen & Trap Activities -->
         <activity
             android:name=".LockScreenActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleInstance"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:showOnLockScreen="true"
+            android:theme="@style/Theme.UncleTed.NoActionBar.FullScreen" />
 
-        <!-- The fake shutdown screen -->
         <activity
             android:name=".FakeShutdownActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleInstance"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:showOnLockScreen="true"
+            android:theme="@style/Theme.UncleTed.NoActionBar.FullScreen" />
 
-        <!-- The invisible broker activity for camera access -->
+        <!-- Honeypot Activities -->
+        <activity
+            android:name=".honeypot.HoneypotLauncherActivity"
+            android:theme="@style/Theme.UncleTed.NoActionBar.FullScreen"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".honeypot.FakeBankingActivity"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".honeypot.FakeNotesActivity"
+            android:theme="@style/Theme.Material3.DayNight"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".honeypot.FakeGalleryActivity"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:screenOrientation="portrait" />
+
+        <!-- Foreground Launch Broker Activity -->
         <activity
             android:name=".CameraPermissionBrokerActivity"
             android:exported="false"
+            android:showOnLockScreen="true"
             android:theme="@style/Theme.UncleTed.Transparent" />
 
-        <!-- SERVICES - Background workers -->
+        <!-- Background Services -->
         <service
             android:name=".services.PanicActionService"
             android:exported="false"
@@ -117,7 +168,7 @@
         <service
             android:name=".services.MonitoringService"
             android:exported="false"
-            android:foregroundServiceType="dataSync"/>
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".services.PowerButtonService"
@@ -132,12 +183,75 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- RECEIVERS - Listeners for system events -->
-        <receiver
-            android:name=".receivers.BootCompletedReceiver"
+        <service
+            android:name=".services.ZoneWipeService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <service
+            android:name=".services.UsbTripwireService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <meta-data
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="security_monitoring" />
+        </service>
+
+        <!-- Quick Settings Tiles -->
+        <service
+            android:name=".services.LockTileService"
+            android:label="Uncle Ted: Lock"
+            android:icon="@drawable/ic_lock_24"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".services.SirenTileService"
+            android:label="Uncle Ted: Siren"
+            android:icon="@drawable/ic_alert_24"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".services.LocationTileService"
+            android:label="Uncle Ted: Location"
+            android:icon="@drawable/ic_info_24"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".services.WipeTileService"
+            android:label="Uncle Ted: WIPE"
+            android:icon="@drawable/ic_alert_triangle_24"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- System Event Receivers -->
+        <receiver
+            android:name=".receivers.BootCompletedReceiver"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 
@@ -172,6 +286,17 @@
         </receiver>
 
         <receiver
+            android:name=".receivers.DuressHookReceiver"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="com.hamoon.uncleted.ACTION_DURESS_TRIGGERED" />
+                <action android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_FAILED_ATTEMPT" />
+                <action android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_SUCCESS" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".receivers.SecretCodeReceiver"
             android:exported="true">
             <intent-filter>
@@ -193,7 +318,24 @@
             android:enabled="true"
             android:exported="true" />
 
-        <!-- FileProvider for securely sharing files (e.g., camera outputs) -->
+        <!-- Widgets -->
+        <receiver
+            android:name=".widgets.PanicWidgetProvider"
+            android:exported="true"
+            android:label="Uncle Ted Controls">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/panic_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".receivers.WidgetActionReceiver"
+            android:exported="false" />
+
+        <!-- FileProvider -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -203,5 +345,13 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
     </application>
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
 </manifest>

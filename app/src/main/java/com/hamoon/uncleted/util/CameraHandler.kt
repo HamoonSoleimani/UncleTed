@@ -2,12 +2,12 @@ package com.hamoon.uncleted.util
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.*
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import android.util.Log
 import kotlinx.coroutines.*
 import java.io.File
 import java.text.SimpleDateFormat
@@ -19,12 +19,14 @@ object CameraHandler {
     private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
 
     private suspend fun getCameraProvider(context: Context): ProcessCameraProvider = suspendCancellableCoroutine { continuation ->
-        ProcessCameraProvider.getInstance(context).addListener({
+        val providerFuture = ProcessCameraProvider.getInstance(context)
+        providerFuture.addListener({
             try {
                 if (continuation.isActive) {
-                    continuation.resume(ProcessCameraProvider.getInstance(context).get())
+                    continuation.resume(providerFuture.get())
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to get camera provider", e)
                 if (continuation.isActive) {
                     continuation.cancel(e)
                 }
@@ -33,13 +35,25 @@ object CameraHandler {
     }
 
     suspend fun takePhoto(context: Context, lifecycleOwner: LifecycleOwner, lensFacing: Int): File? = withContext(Dispatchers.Main) {
-        return@withContext try {
+        try {
             val cameraProvider = getCameraProvider(context)
             val imageCapture = ImageCapture.Builder().build()
 
-            val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
+            // Safe unbind to prevent use-case conflicts
+            try { cameraProvider.unbindAll() } catch (_: Exception) {}
 
-            cameraProvider.unbindAll()
+            val cameraSelector = try {
+                CameraSelector.Builder().requireLensFacing(lensFacing).build()
+            } catch (e: Exception) {
+                Log.e(TAG, "Camera lens $lensFacing not available.", e)
+                return@withContext null
+            }
+
+            if (!cameraProvider.hasCamera(cameraSelector)) {
+                Log.e(TAG, "No camera found for selector.")
+                return@withContext null
+            }
+
             cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, imageCapture)
 
             val photoFile = File(
@@ -47,7 +61,7 @@ object CameraHandler {
                 "IMG_${SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())}.jpg"
             )
 
-            suspendCancellableCoroutine { continuation ->
+            return@withContext suspendCancellableCoroutine { continuation ->
                 imageCapture.takePicture(
                     ImageCapture.OutputFileOptions.Builder(photoFile).build(),
                     ContextCompat.getMainExecutor(context),
@@ -66,26 +80,39 @@ object CameraHandler {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Could not take photo", e)
-            null
+            return@withContext null
         } finally {
-            getCameraProvider(context).unbindAll()
+            // Cleanup
+            try { getCameraProvider(context).unbindAll() } catch (_: Exception) {}
         }
     }
 
     @SuppressLint("MissingPermission")
     suspend fun recordVideo(context: Context, lifecycleOwner: LifecycleOwner, durationSeconds: Int, lensFacing: Int): File? = withContext(Dispatchers.Main) {
-        return@withContext try {
+        try {
             val cameraProvider = getCameraProvider(context)
 
-            val qualitySelector = QualitySelector.from(Quality.HIGHEST, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))
+            // Safe unbind
+            try { cameraProvider.unbindAll() } catch (_: Exception) {}
+
+            val qualitySelector = QualitySelector.from(Quality.SD, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))
             val recorder = Recorder.Builder()
                 .setQualitySelector(qualitySelector)
                 .build()
             val videoCapture = VideoCapture.withOutput(recorder)
 
-            val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
+            val cameraSelector = try {
+                CameraSelector.Builder().requireLensFacing(lensFacing).build()
+            } catch (e: Exception) {
+                Log.e(TAG, "Camera lens $lensFacing not available for video.", e)
+                return@withContext null
+            }
 
-            cameraProvider.unbindAll()
+            if (!cameraProvider.hasCamera(cameraSelector)) {
+                Log.e(TAG, "No camera found for video selector.")
+                return@withContext null
+            }
+
             cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, videoCapture)
 
             val videoFile = File(
@@ -93,37 +120,58 @@ object CameraHandler {
                 "VID_${SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())}.mp4"
             )
 
-            suspendCancellableCoroutine { continuation ->
-                val recording = videoCapture.output.prepareRecording(context, FileOutputOptions.Builder(videoFile).build())
-                    .withAudioEnabled()
-                    .start(ContextCompat.getMainExecutor(context)) { recordEvent ->
-                        when (recordEvent) {
-                            is VideoRecordEvent.Start -> {
-                                Log.i(TAG, "Video recording started.")
-                            }
-                            is VideoRecordEvent.Finalize -> {
-                                if (recordEvent.hasError()) {
-                                    Log.e(TAG, "Video capture error: ${recordEvent.error}", recordEvent.cause)
-                                    if (continuation.isActive) continuation.resume(null)
-                                } else {
-                                    Log.i(TAG, "Video capture succeeded: ${recordEvent.outputResults.outputUri}")
-                                    if (continuation.isActive) continuation.resume(videoFile)
-                                }
+            return@withContext suspendCancellableCoroutine { continuation ->
+                var recording: Recording? = null
+
+                val listener = androidx.core.util.Consumer<VideoRecordEvent> { recordEvent ->
+                    when (recordEvent) {
+                        is VideoRecordEvent.Start -> {
+                            Log.i(TAG, "Video recording started. Timer set for ${durationSeconds}s.")
+                        }
+                        is VideoRecordEvent.Finalize -> {
+                            if (recordEvent.hasError()) {
+                                Log.e(TAG, "Video capture error: ${recordEvent.error}", recordEvent.cause)
+                                if (continuation.isActive) continuation.resume(null)
+                            } else {
+                                Log.i(TAG, "Video capture succeeded: ${recordEvent.outputResults.outputUri}")
+                                if (continuation.isActive) continuation.resume(videoFile)
                             }
                         }
                     }
+                }
+
+                try {
+                    recording = videoCapture.output
+                        .prepareRecording(context, FileOutputOptions.Builder(videoFile).build())
+                        .withAudioEnabled()
+                        .start(ContextCompat.getMainExecutor(context), listener)
+                } catch (se: SecurityException) {
+                    Log.e(TAG, "Missing permission for video recording", se)
+                    if (continuation.isActive) continuation.resume(null)
+                    return@suspendCancellableCoroutine
+                }
 
                 // Stop recording after the specified duration
-                launch {
+                CoroutineScope(Dispatchers.Main).launch {
                     delay(durationSeconds * 1000L)
-                    recording.stop()
+                    try {
+                        recording?.stop()
+                        Log.d(TAG, "Stop signal sent to recorder.")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error stopping recording", e)
+                    }
+                }
+
+                // Ensure recording stops if the coroutine is cancelled externally
+                continuation.invokeOnCancellation {
+                    try { recording?.stop() } catch (_: Exception) {}
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Could not record video", e)
-            null
+            return@withContext null
         } finally {
-            getCameraProvider(context).unbindAll()
+            try { getCameraProvider(context).unbindAll() } catch (_: Exception) {}
         }
     }
 }

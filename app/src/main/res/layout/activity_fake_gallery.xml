@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<GridView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/grid_gallery"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:numColumns="3"
+    android:verticalSpacing="4dp"
+    android:horizontalSpacing="4dp"
+    android:stretchMode="columnWidth"
+    android:background="@android:color/black"/>
+    <!-- Note: You can populate this with dummy ImageViews if desired, 
+         but for a trap, a "Loading..." spinner or empty black screen 
+         that triggers the camera is often enough to confuse the thief. -->

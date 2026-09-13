@@ -3,6 +3,7 @@ package com.hamoon.uncleted.receivers
 import android.app.admin.DeviceAdminReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.UserHandle
 import android.util.Log
 import com.hamoon.uncleted.LockScreenActivity
 import com.hamoon.uncleted.R
@@ -14,6 +15,46 @@ class AdminReceiver : DeviceAdminReceiver() {
 
     private val TAG = "AdminReceiver"
 
+    override fun onPasswordFailed(context: Context, intent: Intent) {
+        super.onPasswordFailed(context, intent)
+        handleFailedAttempt(context)
+    }
+
+    override fun onPasswordFailed(context: Context, intent: Intent, user: UserHandle) {
+        super.onPasswordFailed(context, intent, user)
+        handleFailedAttempt(context)
+    }
+
+    override fun onPasswordSucceeded(context: Context, intent: Intent) {
+        super.onPasswordSucceeded(context, intent)
+        Log.d(TAG, "Device unlocked successfully. Resetting failed attempts.")
+        SecurityPreferences.resetFailedAttempts(context)
+    }
+
+    override fun onPasswordSucceeded(context: Context, intent: Intent, user: UserHandle) {
+        super.onPasswordSucceeded(context, intent, user)
+        Log.d(TAG, "Device unlocked successfully. Resetting failed attempts.")
+        SecurityPreferences.resetFailedAttempts(context)
+    }
+
+    private fun handleFailedAttempt(context: Context) {
+        SecurityPreferences.incrementFailedAttempts(context)
+        val attempts = SecurityPreferences.getFailedAttempts(context)
+        val isSelfieEnabled = SecurityPreferences.isIntruderSelfieEnabled(context)
+
+        Log.w(TAG, "Native lockscreen PIN failed! Attempt count: $attempts (Selfie enabled: $isSelfieEnabled)")
+        EventLogger.log(context, "Failed lockscreen PIN attempt #$attempts")
+
+        if (isSelfieEnabled && attempts >= 3) {
+            Log.e(TAG, "Triggering INTRUDER_SELFIE after $attempts failed attempts.")
+            PanicActionService.trigger(
+                context,
+                "INTRUDER_SELFIE",
+                PanicActionService.Severity.MEDIUM
+            )
+        }
+    }
+
     override fun onDisableRequested(context: Context, intent: Intent): CharSequence {
         if (SecurityPreferences.isMaintenanceMode(context)) {
             Log.i(TAG, "Deactivation requested while in maintenance mode. Allowing action.")
@@ -24,7 +65,6 @@ class AdminReceiver : DeviceAdminReceiver() {
         Log.w(TAG, "HOSTILE: Deactivation of Device Admin requested! Intercepting action.")
         EventLogger.log(context, "ALERT: Hostile deactivation of Device Admin detected.")
 
-        // THE FIX IS HERE: Use the full path PanicActionService.Severity
         PanicActionService.trigger(context, "UNINSTALL_ATTEMPT", PanicActionService.Severity.HIGH)
 
         val lockIntent = Intent(context, LockScreenActivity::class.java).apply {
@@ -44,7 +84,7 @@ class AdminReceiver : DeviceAdminReceiver() {
 
     override fun onDisabled(context: Context, intent: Intent) {
         super.onDisabled(context, intent)
-        Log.e(TAG, "CRITICAL: Device Admin has been disabled. The app's security is now compromised.")
+        Log.e(TAG, "CRITICAL: Device Admin has been disabled.")
         EventLogger.log(context, "CRITICAL: Device Admin has been disabled.")
     }
 }

@@ -25,23 +25,23 @@
                  <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Remote Control"
+                    android:text="@string/remote_category_title"
                     android:textAppearance="?attr/textAppearanceTitleMedium"
                     android:layout_marginBottom="16dp"/>
 
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                    app:startIconDrawable="@drawable/ic_smartphone_24"
+                    app:startIconDrawable="@drawable/ic_contact_24"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/et_emergency_contact"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="Emergency Contact (Phone or Email)"/>
+                        android:hint="@string/remote_emergency_contact_hint"/>
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- ### NEW: Master Password Input ### -->
+                <!-- SMS Master Password Input -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:layout_marginTop="16dp"
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -57,10 +57,7 @@
                         android:inputType="textPassword"/>
                 </com.google.android.material.textfield.TextInputLayout>
 
-
-                <!-- ### REMOVED: Obsolete SMS code inputs ### -->
-
-
+                <!-- Root Install Code -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/layout_remote_install_code"
                     android:layout_marginTop="16dp"
@@ -81,30 +78,31 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
-                    android:text="Set Email Credentials"/>
+                    android:text="@string/set_email_credentials_button"/>
                 <Button
                     android:id="@+id/btn_send_test_email"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="Send Test Email"/>
+                    android:text="@string/send_test_email"/>
                     
                 <Button
                     android:id="@+id/btn_save_remote"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:text="Save Remote Settings" />
+                    android:text="@string/remote_save_button" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ### NEW: SMS Command Guide Card ### -->
+        <!-- SMS Command Guide Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp">
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="32dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -146,12 +144,13 @@
                     android:layout_marginTop="16dp"
                     android:layout_marginBottom="16dp"/>
 
-                <!-- WIPE Command -->
+				<!-- WIPE -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/sms_command_wipe"
                     android:fontFamily="monospace"
+                    android:textColor="@color/status_red"
                     android:textAppearance="?attr/textAppearanceBodyLarge"
                     android:textStyle="bold"/>
                 <TextView
@@ -162,11 +161,28 @@
                     android:textAppearance="?attr/textAppearanceBodyMedium"
                     android:textColor="?attr/colorOnSurfaceVariant"/>
 
-                <!-- SIREN Command -->
+                <!-- EVIDENCE (New) -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/sms_command_evidence"
+                    android:fontFamily="monospace"
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/sms_command_evidence_desc"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
+
+                <!-- SIREN -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
                     android:text="@string/sms_command_siren"
                     android:fontFamily="monospace"
                     android:textAppearance="?attr/textAppearanceBodyLarge"
@@ -179,11 +195,11 @@
                     android:textAppearance="?attr/textAppearanceBodyMedium"
                     android:textColor="?attr/colorOnSurfaceVariant"/>
 
-                <!-- LOCK Command -->
+                <!-- LOCK -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="16dp"
                     android:text="@string/sms_command_lock"
                     android:fontFamily="monospace"
                     android:textAppearance="?attr/textAppearanceBodyLarge"
@@ -195,6 +211,76 @@
                     android:text="@string/sms_command_lock_desc"
                     android:textAppearance="?attr/textAppearanceBodyMedium"
                     android:textColor="?attr/colorOnSurfaceVariant"/>
+
+                <!-- LOCATE (New) -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/sms_command_locate"
+                    android:fontFamily="monospace"
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/sms_command_locate_desc"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
+
+                <!-- AUDIO (New) -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/sms_command_audio"
+                    android:fontFamily="monospace"
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/sms_command_audio_desc"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
+
+                <!-- SPEAK (New) -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/sms_command_speak"
+                    android:fontFamily="monospace"
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/sms_command_speak_desc"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
+
+                <!-- REBOOT (New) -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/sms_command_reboot"
+                    android:fontFamily="monospace"
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textColor="@color/status_yellow"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/sms_command_reboot_desc"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

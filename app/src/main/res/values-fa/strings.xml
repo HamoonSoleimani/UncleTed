@@ -130,6 +130,19 @@
     <string name="sms_command_siren_desc">یک هشدار سطح بالا را فعال، شواهد را ارسال و یک آژیر بلند را در دستگاه فعال می‌کند.</string>
     <string name="sms_command_lock">UNCLETED LOCK [password]</string>
     <string name="sms_command_lock_desc">بلافاصله دستگاه را قفل کرده و صفحه ورود پین امن را نمایش می‌دهد.</string>
+
+    <!-- NEW COMMANDS -->
+    <string name="sms_command_locate">UNCLETED LOCATE [password]</string>
+    <string name="sms_command_locate_desc">یک موقعیت‌یابی دقیق GPS انجام داده و آن را بلافاصله از طریق پیامک یا ایمیل ارسال می‌کند.</string>
+
+    <string name="sms_command_audio">UNCLETED AUDIO [password] [seconds]</string>
+    <string name="sms_command_audio_desc">صدای محیط را برای مدت زمان مشخص شده (پیش‌فرض ۶۰ ثانیه) به صورت مخفی ضبط و ایمیل می‌کند. مثال: UNCLETED AUDIO 1234 30</string>
+
+    <string name="sms_command_speak">UNCLETED SPEAK [password] [message]</string>
+    <string name="sms_command_speak_desc">پیام مشخص شده را با استفاده از تبدیل متن به گفتار با حداکثر صدا می‌خواند. مثال: UNCLETED SPEAK 1234 DROP THE PHONE</string>
+
+    <string name="sms_command_reboot">UNCLETED REBOOT [password]</string>
+    <string name="sms_command_reboot_desc">(فقط روت) دستگاه را مجبور به راه‌اندازی مجدد فوری می‌کند. مفید برای زمانی که سیستم پاسخگو نیست.</string>
     <string name="remote_install_code_hint">کد پیامکی نصب از راه دور</string>
 
     <!-- Features Screen -->
@@ -297,6 +310,17 @@
     <string name="about_website">وب‌سایت</string>
     <string name="about_quotes_title">تد کزینسکی</string>
 
+<!-- Manual Actions Screen -->
+    <string name="manual_actions_title">اقدامات دستی</string>
+    <string name="manual_action_location">ارسال هشدار موقعیت</string>
+    <string name="manual_action_lock">قفل کردن دستگاه</string>
+    <string name="manual_action_siren">فعال‌سازی آژیر</string>
+    <string name="manual_action_wipe">پاک‌سازی داده‌ها (بحرانی)</string>
+    <string name="manual_wipe_confirmation_title">تایید پاک‌سازی داده‌ها</string>
+    <string name="manual_wipe_confirmation_message">آیا کاملاً مطمئن هستید؟ این کار بلافاصله تمام اطلاعات دستگاه را برای همیشه حذف می‌کند.</string>
+    <string name="manual_wipe_confirm_button">بله، دستگاه را پاک کن</string>
+    <string name="menu_manual_actions">اقدامات دستی</string>
+	
     <!-- Services & Notifications -->
     <string name="accessibility_service_label">ناظر دکمه پاور عمو تد</string>
     <string name="accessibility_service_description">برای فعال‌سازی قابلیت «خاموشی ساختگی»، عمو تد نیاز دارد تا زمان ظاهر شدن منوی پاور سیستم را تشخیص دهد. این کار به برنامه اجازه می‌دهد تا منوی واقعی را با یک صفحه ساختگی بپوشاند و از خاموش شدن دستگاه توسط سارق در حین ارسال هشدارهای اضطراری جلوگیری کند. این سرویس هیچ‌گونه محتوای دیگری را از روی صفحه نمی‌خواند یا ذخیره نمی‌کند.</string>

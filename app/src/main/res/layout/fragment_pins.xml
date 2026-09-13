@@ -149,5 +149,38 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+		<com.google.android.material.textfield.TextInputLayout
+			android:layout_marginTop="16dp"
+			style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+			app:startIconDrawable="@drawable/ic_lock_24"
+			app:startIconTint="?attr/colorSecondary"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content">
+			<com.google.android.material.textfield.TextInputEditText
+				android:id="@+id/et_honeypot_pin"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content"
+				android:hint="Honeypot PIN (Launches Fake Home)"
+				android:inputType="numberPassword"/>
+		</com.google.android.material.textfield.TextInputLayout>
+
+		<!-- Add guide text in the guide card below -->
+		<TextView
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="12dp"
+			android:text="Honeypot PIN"
+			android:textColor="?attr/colorSecondary"
+			android:textAppearance="?attr/textAppearanceTitleSmall"
+			android:textStyle="bold" />
+		<TextView
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="2dp"
+			android:text="Unlocks to a fake home screen. Includes bait apps (Banking, Notes) to capture thief's credentials and actions."
+			android:textColor="?attr/colorOnSurfaceVariant"
+			android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+
     </LinearLayout>
 </ScrollView>
