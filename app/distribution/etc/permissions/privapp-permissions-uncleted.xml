@@ -14,6 +14,9 @@
         <permission name="android.permission.INTERACT_ACROSS_USERS"/>
         <permission name="android.permission.INTERACT_ACROSS_USERS_FULL"/>
 
+        <!-- Allows native multi-user profile creation and honeypot provisioning -->
+        <permission name="android.permission.MANAGE_USERS"/>
+
         <!-- Allows expanding/collapsing system bars and status bar services -->
         <permission name="android.permission.STATUS_BAR_SERVICE"/>
 

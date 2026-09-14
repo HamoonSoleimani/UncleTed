@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Process
+import android.os.UserHandle
 import android.util.Log
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
@@ -20,6 +21,8 @@ class LockscreenHook : IXposedHookLoadPackage {
         private const val TARGET_PACKAGE = "android"
         private const val LOCK_SETTINGS_CLASS = "com.android.server.locksettings.LockSettingsService"
         private const val CREDENTIALS_FILE = "/data/system/uncleted/credentials.cfg"
+        private const val RECEIVER_CLASS = "com.hamoon.uncleted.receivers.DuressHookReceiver"
+        private const val TARGET_APP_PKG = "com.hamoon.uncleted"
 
         private const val COOLDOWN_MS = 1500L
 
@@ -283,29 +286,21 @@ class LockscreenHook : IXposedHookLoadPackage {
         }
     }
 
-    /**
-     * Cross-Version Return Type Safety:
-     * Handles methods returning boolean (Android 9/10/custom ROMs) vs VerifyCredentialResponse (Android 11–14).
-     * Prevents fatal ClassCastExceptions and ART type mismatch crashes.
-     */
     private fun abortAuthenticationFlow(param: XC_MethodHook.MethodHookParam) {
         try {
             val returnType = (param.method as? java.lang.reflect.Method)?.returnType
             if (returnType != null && returnType != Void.TYPE) {
 
-                // Legacy Android 9/10 boolean method signature check
                 if (returnType == Boolean::class.javaPrimitiveType || returnType == java.lang.Boolean::class.java) {
                     param.result = false
                     return
                 }
 
-                // Integer response code check
                 if (returnType == Int::class.javaPrimitiveType || returnType == java.lang.Integer::class.java) {
-                    param.result = 1 // Non-zero indicates auth failure
+                    param.result = 1
                     return
                 }
 
-                // Modern Android 10-14 VerifyCredentialResponse check
                 try {
                     val responseClass = XposedHelpers.findClass(
                         "com.android.internal.widget.VerifyCredentialResponse",
@@ -368,59 +363,55 @@ class LockscreenHook : IXposedHookLoadPackage {
         }.start()
     }
 
-    private fun dispatchDuressBroadcast(context: Context?) {
+    private fun sendExplicitBroadcast(context: Context?, intent: Intent) {
         if (context == null) return
         try {
-            val intent = Intent("com.hamoon.uncleted.ACTION_DURESS_TRIGGERED").apply {
-                setPackage("com.hamoon.uncleted")
-                putExtra("REASON", "DURESS_PIN_LOCKSCREEN")
-                putExtra("SEVERITY", "HIGH")
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+            val userAll = XposedHelpers.getStaticObjectField(UserHandle::class.java, "ALL") as? UserHandle
+            if (userAll != null) {
+                XposedHelpers.callMethod(context, "sendBroadcastAsUser", intent, userAll)
+                return
             }
+        } catch (_: Throwable) {}
+        try {
             context.sendBroadcast(intent)
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed dispatching duress broadcast: ${t.message}", t)
+            Log.e(TAG, "Failed sending broadcast: ${t.message}", t)
         }
+    }
+
+    private fun dispatchDuressBroadcast(context: Context?) {
+        val intent = Intent("com.hamoon.uncleted.ACTION_DURESS_TRIGGERED").apply {
+            setClassName(TARGET_APP_PKG, RECEIVER_CLASS)
+            putExtra("REASON", "DURESS_PIN_LOCKSCREEN")
+            putExtra("SEVERITY", "HIGH")
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+        }
+        sendExplicitBroadcast(context, intent)
     }
 
     private fun dispatchHoneypotBroadcast(context: Context?) {
-        if (context == null) return
-        try {
-            val intent = Intent("com.hamoon.uncleted.ACTION_HONEYPOT_TRIGGERED").apply {
-                setPackage("com.hamoon.uncleted")
-                putExtra("REASON", "HONEYPOT_PIN_LOCKSCREEN")
-                putExtra("SEVERITY", "HIGH")
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-            }
-            context.sendBroadcast(intent)
-        } catch (t: Throwable) {
-            Log.e(TAG, "Failed dispatching honeypot broadcast: ${t.message}", t)
+        val intent = Intent("com.hamoon.uncleted.ACTION_HONEYPOT_TRIGGERED").apply {
+            setClassName(TARGET_APP_PKG, RECEIVER_CLASS)
+            putExtra("REASON", "HONEYPOT_PIN_LOCKSCREEN")
+            putExtra("SEVERITY", "HIGH")
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
         }
+        sendExplicitBroadcast(context, intent)
     }
 
     private fun dispatchFailedAttemptBroadcast(context: Context?) {
-        if (context == null) return
-        try {
-            val intent = Intent("com.hamoon.uncleted.ACTION_LOCKSCREEN_FAILED_ATTEMPT").apply {
-                setPackage("com.hamoon.uncleted")
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-            }
-            context.sendBroadcast(intent)
-        } catch (t: Throwable) {
-            Log.e(TAG, "Failed dispatching failure broadcast: ${t.message}", t)
+        val intent = Intent("com.hamoon.uncleted.ACTION_LOCKSCREEN_FAILED_ATTEMPT").apply {
+            setClassName(TARGET_APP_PKG, RECEIVER_CLASS)
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
         }
+        sendExplicitBroadcast(context, intent)
     }
 
     private fun dispatchSuccessAttemptBroadcast(context: Context?) {
-        if (context == null) return
-        try {
-            val intent = Intent("com.hamoon.uncleted.ACTION_LOCKSCREEN_SUCCESS").apply {
-                setPackage("com.hamoon.uncleted")
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-            }
-            context.sendBroadcast(intent)
-        } catch (t: Throwable) {
-            Log.e(TAG, "Failed dispatching success broadcast: ${t.message}", t)
+        val intent = Intent("com.hamoon.uncleted.ACTION_LOCKSCREEN_SUCCESS").apply {
+            setClassName(TARGET_APP_PKG, RECEIVER_CLASS)
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
         }
+        sendExplicitBroadcast(context, intent)
     }
 }

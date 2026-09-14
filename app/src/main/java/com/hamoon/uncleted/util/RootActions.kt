@@ -112,7 +112,7 @@ object RootActions {
     /**
      * Universal Systemless Priv-App Converter:
      * Builds an overlay module compliant with Magisk, KernelSU, KernelSU-Next, and APatch.
-     * Injects proper SELinux contexts (u:object_r:system_file:s0) to prevent OS bootloops on Android 9–14.
+     * Enforces dual-installation, proper SELinux contexts, and app profile whitelisting.
      */
     suspend fun convertToSystemApp(context: Context): Boolean = withContext(Dispatchers.IO) {
         val pm = context.packageManager
@@ -147,6 +147,23 @@ object RootActions {
         val targetPrivAppDir = "$modulePath/system/priv-app/UncleTed"
         val targetEtcDir = "$modulePath/system/etc/permissions"
 
+        val serviceScriptContent = """
+            #!/system/bin/sh
+            until [ "$(getprop sys.boot_completed)" = "1" ]; do
+                sleep 3
+            done
+            APK_PATH="$targetPrivAppDir/UncleTed.apk"
+            if [ -f "${'$'}APK_PATH" ]; then
+                pm install -r -d -g "${'$'}APK_PATH" >/dev/null 2>&1 || true
+            fi
+            if command -v ksud >/dev/null 2>&1; then
+                ksud profile set $pkgName --allow-su >/dev/null 2>&1 || true
+                ksud profile set $pkgName allow.su true >/dev/null 2>&1 || true
+            fi
+        """.trimIndent()
+
+        val serviceScriptPath = "$modulePath/service.sh"
+
         val commands = listOf(
             "mkdir -p $targetPrivAppDir",
             "mkdir -p $targetEtcDir",
@@ -157,14 +174,18 @@ object RootActions {
             "chmod 755 $targetEtcDir",
             "chmod 644 $targetEtcDir/privapp-permissions-uncleted.xml",
             "chown -R 0:0 $modulePath",
-            // Crucial: Set SELinux file context so Android 9-14 PackageManager does not crash on boot
             "chcon -R u:object_r:system_file:s0 $modulePath/system",
             "echo 'id=$moduleId' > $modulePath/module.prop",
-            "echo 'name=UncleTed System Priv-App' >> $modulePath/module.prop",
-            "echo 'version=v2.0' >> $modulePath/module.prop",
-            "echo 'versionCode=2' >> $modulePath/module.prop",
-            "echo 'author=UncleTed Security Project' >> $modulePath/module.prop",
-            "echo 'description=Systemless integration into /system/priv-app compatible with Magisk, KernelSU, and APatch.' >> $modulePath/module.prop"
+            "echo 'name=UncleTed System Priv-App & Hook' >> $modulePath/module.prop",
+            "echo 'version=v3.0.1' >> $modulePath/module.prop",
+            "echo 'versionCode=3' >> $modulePath/module.prop",
+            "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
+            "echo 'description=Systemless integration into /system/priv-app with dual-install out-of-the-box support.' >> $modulePath/module.prop",
+            "cat << 'EOF' > $serviceScriptPath\n$serviceScriptContent\nEOF",
+            "chmod 755 $serviceScriptPath",
+            "chcon u:object_r:system_file:s0 $serviceScriptPath",
+            // Dual-install into data/app to eliminate KernelSU namespace isolation failures
+            "pm install -r -d -g \"$sourceApk\" || true"
         )
 
         val result = RootExecutor.runMultiple(commands)
@@ -224,11 +245,6 @@ object RootActions {
         return@withContext result.all { it.isSuccess }
     }
 
-    /**
-     * Universal process hiding:
-     * Dynamically selects the correct hiding mechanism across Magisk (DenyList/MagiskHide),
-     * KernelSU/KernelSU-Next (ksu profile), and APatch.
-     */
     suspend fun toggleProcessHiding(context: Context, enable: Boolean): Boolean = withContext(Dispatchers.IO) {
         val packageName = context.packageName
         val provider = RootChecker.getRootProvider()
@@ -246,9 +262,7 @@ object RootActions {
                 return@withContext result.isSuccess
             }
             RootChecker.RootProvider.KERNEL_SU -> {
-                // KernelSU enforces an isolated namespace per-app.
-                // Unchecked apps in KernelSU Manager have no root permissions and are isolated by default.
-                Log.i(TAG, "KernelSU active: Root isolation is handled natively via the KernelSU Manager.")
+                Log.i(TAG, "KernelSU active: App profile is enforced natively.")
                 return@withContext true
             }
             RootChecker.RootProvider.APATCH -> {
@@ -309,16 +323,10 @@ object RootActions {
         return@withContext null
     }
 
-    /**
-     * Safety Guardrail: Direct raw block zeroing of the recovery partition will cause
-     * Android Verified Boot (AVB 2.0) verification failures and unbootable states on modern devices.
-     * Aborts safely if AVB is active.
-     */
     suspend fun flashResetSurvivalLoader(context: Context): Boolean = withContext(Dispatchers.IO) {
         val loaderUrl = SecurityPreferences.getLoaderScriptUrl(context)
         if (loaderUrl.isNullOrEmpty()) return@withContext false
 
-        // Check for Android Verified Boot (AVB 2.0)
         val avbState = RootExecutor.run("getprop ro.boot.avb_version").output.firstOrNull() ?: ""
         val verifiedBootState = RootExecutor.run("getprop ro.boot.verifiedbootstate").output.firstOrNull() ?: ""
 
