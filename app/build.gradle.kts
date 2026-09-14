@@ -11,8 +11,8 @@ android {
         applicationId = "com.hamoon.uncleted"
         minSdk = 28
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.0-SYSTEM"
+        versionCode = 3
+        versionName = "3.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -41,6 +41,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 
     packaging {
@@ -55,7 +56,6 @@ android {
 
 dependencies {
     // --- XPOSED / LSPOSED HOOK API ---
-    // compileOnly ensures the library is NOT bundled in the APK binary
     compileOnly("de.robv.android.xposed:api:82")
     compileOnly("de.robv.android.xposed:api:82:sources")
 

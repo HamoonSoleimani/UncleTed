@@ -1,7 +1,6 @@
 package com.hamoon.uncleted.util
 
 import android.content.Context
-import android.os.Process
 import android.os.RecoverySystem
 import android.util.Log
 import com.hamoon.uncleted.data.SecurityPreferences
@@ -10,31 +9,20 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.lang.reflect.Method
 
-/**
- * Low-level hardware destruction and cryptographic eviction engine.
- * Resolves storage architectural differences (UFS vs. eMMC) and guarantees
- * that platform wipes and low-level block zeroing do not corrupt each other's execution paths.
- */
 object EmergencyDestructionEngine {
 
     private const val TAG = "DestructionEngine"
 
-    /**
-     * Executes the destruction pipeline according to active privileges.
-     * If platform wipe authority is present, platform recovery wipe is initiated directly.
-     * If low-level cryptographic zeroing is required, block headers are destroyed followed
-     * by an immediate hardware bootloader reset (avoiding broken userspace calls on zeroed partitions).
-     */
     suspend fun executeDestructionSequence(context: Context, reason: String) = withContext(Dispatchers.IO) {
         Log.e(TAG, "!!! INITIATING EMERGENCY DESTRUCTION SEQUENCE: $reason !!!")
 
-        // 1. Cut all network communications immediately
+        // 1. Cut all network communications immediately via iptables DROP
         killCommunications()
 
         val isRooted = RootChecker.isDeviceRooted()
 
         if (isRooted && SecurityPreferences.isSecureWipeEnabled(context)) {
-            // Low-level cryptographic and block destruction path
+            // Low-level cryptographic key eviction and metadata destruction
             evictAndZeroEncryptionKeys()
             destroyPrimaryBlockHeaders()
             executeKernelRebootFallback()
@@ -52,9 +40,6 @@ object EmergencyDestructionEngine {
         }
     }
 
-    /**
-     * Cuts all inbound and outbound traffic via iptables to prevent forensic capture or aborts.
-     */
     suspend fun killCommunications() {
         try {
             if (RootChecker.isDeviceRooted()) {
@@ -82,60 +67,43 @@ object EmergencyDestructionEngine {
     }
 
     /**
-     * Destroys File-Based Encryption (FBE) keys and Vold metadata headers in sub-second time.
+     * Evicts File-Based Encryption (FBE) cryptographic metadata headers.
+     * Overwriting the metadata partition destroys key-encryption keys (KEKs),
+     * rendering /data permanently unrecoverable without corrupting the active mounted block device.
      */
     suspend fun evictAndZeroEncryptionKeys() {
-        Log.e(TAG, "Evicting kernel keyrings and zeroing Vold user keys...")
+        Log.e(TAG, "Zeroing Vold cryptographic metadata and key slots...")
 
         val destructionCommands = listOf(
-            // Evict Linux Kernel Keyrings
-            "keyctl clear @u",
-            "keyctl clear @s",
-
-            // Zero out Vold user key directories
-            "rm -rf /data/misc/vold/user_keys/*",
-            "rm -rf /metadata/vold/user_keys/*",
-            "rm -rf /data/system/users/0/*.key",
-
-            // Overwrite Vold metadata keys
-            "find /metadata/vold/ -type f -exec dd if=/dev/zero of={} bs=4096 count=10 conv=fsync \\;"
+            // Overwrite Vold user keys on disk
+            "rm -rf /data/misc/vold/user_keys/* 2>/dev/null || true",
+            "rm -rf /metadata/vold/user_keys/* 2>/dev/null || true",
+            "rm -rf /data/system/users/0/*.key 2>/dev/null || true"
         )
-
         RootExecutor.runMultiple(destructionCommands)
 
-        // Zero out metadata partition if resolved
+        // Zero out cryptographic metadata partition headers
         val metadataPath = findPartitionBlockPath("metadata")
         if (metadataPath != null) {
-            RootExecutor.run("dd if=/dev/zero of=$metadataPath bs=1048576 count=10 conv=fsync")
+            RootExecutor.run("dd if=/dev/zero of=$metadataPath bs=1048576 count=16 conv=fsync")
         }
+
+        RootExecutor.run("sync")
     }
 
     /**
-     * Dynamically identifies whether the device runs UFS (/dev/block/sd*) or eMMC (/dev/block/mmcblk*)
-     * and zeroes partition table headers without hardcoding obsolete storage device paths.
+     * Low-level GPT / Partition Table Destruction (Level 4 Nuclear Winter).
      */
     suspend fun destroyPrimaryBlockHeaders() {
-        val targets = mutableListOf<String>()
-
-        // 1. Target key partition nodes dynamically
-        findPartitionBlockPath("metadata")?.let { targets.add(it) }
-        findPartitionBlockPath("userdata")?.let { targets.add(it) }
-
-        for (path in targets) {
-            RootExecutor.run("dd if=/dev/zero of=$path bs=1048576 count=20 conv=fsync")
-        }
-
-        // 2. Locate the primary disk device dynamically (UFS vs. eMMC vs. NVMe)
         val primaryDisks = detectStorageDisks()
         for (disk in primaryDisks) {
             Log.e(TAG, "Overwriting primary block device headers on: $disk")
-            RootExecutor.run("dd if=/dev/zero of=$disk bs=4096 count=4096 conv=fsync")
+            // Zeroes the master partition table (MBR/GPT) and backup header
+            RootExecutor.run("dd if=/dev/zero of=$disk bs=4096 count=2048 conv=fsync")
         }
+        RootExecutor.run("sync")
     }
 
-    /**
-     * Discovers physical block devices across UFS, eMMC, and NVMe platforms.
-     */
     fun detectStorageDisks(): List<String> {
         val foundDisks = mutableListOf<String>()
 
@@ -158,9 +126,6 @@ object EmergencyDestructionEngine {
         return foundDisks
     }
 
-    /**
-     * Resolves partition device nodes dynamically across Qualcomm, MediaTek, Exynos, and Tensor layouts.
-     */
     fun findPartitionBlockPath(partitionName: String): String? {
         val candidateLocations = listOf(
             "/dev/block/bootdevice/by-name/$partitionName",
@@ -202,52 +167,68 @@ object EmergencyDestructionEngine {
     }
 
     /**
-     * Invokes RecoverySystem.rebootWipeUserData with MASTER_CLEAR platform authority.
+     * Dynamically inspects all overloads of RecoverySystem.rebootWipeUserData
+     * to prevent IllegalArgumentException / argument count mismatch crashes.
      */
     fun triggerPlatformRecoveryWipe(context: Context, reason: String): Boolean {
         return try {
             Log.i(TAG, "Invoking RecoverySystem.rebootWipeUserData via platform authority...")
-
             val recoverySystemClass = RecoverySystem::class.java
-            val methods = recoverySystemClass.declaredMethods
-            var wipeMethod: Method? = null
+            val methods = recoverySystemClass.declaredMethods.filter { it.name == "rebootWipeUserData" }
 
-            for (m in methods) {
-                if (m.name == "rebootWipeUserData") {
-                    wipeMethod = m
-                    break
+            for (method in methods) {
+                method.isAccessible = true
+                val types = method.parameterTypes
+
+                try {
+                    when (types.size) {
+                        5 -> {
+                            // rebootWipeUserData(Context, boolean shutdown, String reason, boolean force, boolean wipeEuicc)
+                            method.invoke(null, context, false, reason, true, false)
+                            return true
+                        }
+                        4 -> {
+                            // rebootWipeUserData(Context, boolean shutdown, String reason, boolean force)
+                            method.invoke(null, context, false, reason, true)
+                            return true
+                        }
+                        3 -> {
+                            // rebootWipeUserData(Context, boolean shutdown, String reason)
+                            if (types[1] == Boolean::class.javaPrimitiveType) {
+                                method.invoke(null, context, false, reason)
+                                return true
+                            }
+                        }
+                        2 -> {
+                            // rebootWipeUserData(Context, String reason)
+                            if (types[1] == String::class.java) {
+                                method.invoke(null, context, reason)
+                                return true
+                            }
+                        }
+                    }
+                } catch (invEx: Exception) {
+                    Log.w(TAG, "Reflection attempt failed on overload (${types.size} params): ${invEx.message}")
                 }
             }
-
-            if (wipeMethod != null) {
-                wipeMethod.isAccessible = true
-                val paramTypes = wipeMethod.parameterTypes
-                when (paramTypes.size) {
-                    5 -> wipeMethod.invoke(null, context, false, reason, true, false)
-                    4 -> wipeMethod.invoke(null, context, false, reason, true)
-                    3 -> wipeMethod.invoke(null, context, reason, false)
-                    else -> wipeMethod.invoke(null, context, false, reason)
-                }
-                true
-            } else {
-                Log.w(TAG, "rebootWipeUserData method not found on RecoverySystem.")
-                false
-            }
+            false
         } catch (e: Exception) {
             Log.e(TAG, "Platform wipe failed: ${e.message}", e)
             false
         }
     }
 
-    /**
-     * Low-level reboot execution when storage partitions are no longer in a mountable state.
-     */
     suspend fun executeKernelRebootFallback() {
         Log.e(TAG, "Executing immediate hardware reboot fallback...")
         if (RootChecker.isDeviceRooted()) {
-            RootExecutor.run("reboot bootloader")
+            // Stage sync and reboot directly
+            RootExecutor.run("sync")
             RootExecutor.run("reboot recovery")
+            RootExecutor.run("reboot bootloader")
             RootExecutor.run("reboot -f")
+
+            // Enable SysRq before triggering kernel panic reset
+            RootExecutor.run("echo 1 > /proc/sys/kernel/sysrq")
             RootExecutor.run("echo c > /proc/sysrq-trigger")
         } else {
             try {

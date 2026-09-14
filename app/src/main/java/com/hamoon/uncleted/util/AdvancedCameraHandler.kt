@@ -10,11 +10,13 @@ import androidx.lifecycle.LifecycleOwner
 import com.hamoon.uncleted.data.SecurityPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 object AdvancedCameraHandler {
 
     private const val TAG = "AdvancedCameraHandler"
+    private const val CAPTURE_TIMEOUT_MS = 25000L
 
     data class CameraCapture(
         val frontPhoto: File?,
@@ -31,6 +33,7 @@ object AdvancedCameraHandler {
         videoDurationSeconds: Int = 10
     ): CameraCapture = withContext(Dispatchers.IO) {
 
+        // Safe indicator suppression request without killing cameraserver
         if (SecurityPreferences.isStealthMediaCaptureEnabled(context)) {
             RootActions.suppressPrivacyIndicators(true)
         }
@@ -39,24 +42,33 @@ object AdvancedCameraHandler {
             val location = getCurrentLocation(context)
 
             Log.i(TAG, "Initiating front camera photo capture...")
-            val frontPhoto = CameraHandler.takePhoto(
-                context, lifecycleOwner, CameraSelector.LENS_FACING_FRONT
-            )
+            val frontPhoto = withTimeoutOrNull(CAPTURE_TIMEOUT_MS) {
+                CameraHandler.takePhoto(context, lifecycleOwner, CameraSelector.LENS_FACING_FRONT)
+            }
 
             val backPhoto = if (hasBackCamera(context)) {
-                CameraHandler.takePhoto(context, lifecycleOwner, CameraSelector.LENS_FACING_BACK)
+                Log.i(TAG, "Initiating back camera photo capture...")
+                withTimeoutOrNull(CAPTURE_TIMEOUT_MS) {
+                    CameraHandler.takePhoto(context, lifecycleOwner, CameraSelector.LENS_FACING_BACK)
+                }
             } else null
 
             val frontVideo = if (videoDurationSeconds > 0) {
-                CameraHandler.recordVideo(
-                    context, lifecycleOwner, videoDurationSeconds, CameraSelector.LENS_FACING_FRONT
-                )
+                Log.i(TAG, "Initiating front camera video capture...")
+                withTimeoutOrNull((videoDurationSeconds + 10) * 1000L) {
+                    CameraHandler.recordVideo(
+                        context, lifecycleOwner, videoDurationSeconds, CameraSelector.LENS_FACING_FRONT
+                    )
+                }
             } else null
 
             val backVideo = if (videoDurationSeconds > 0 && hasBackCamera(context)) {
-                CameraHandler.recordVideo(
-                    context, lifecycleOwner, videoDurationSeconds, CameraSelector.LENS_FACING_BACK
-                )
+                Log.i(TAG, "Initiating back camera video capture...")
+                withTimeoutOrNull((videoDurationSeconds + 10) * 1000L) {
+                    CameraHandler.recordVideo(
+                        context, lifecycleOwner, videoDurationSeconds, CameraSelector.LENS_FACING_BACK
+                    )
+                }
             } else null
 
             return@withContext CameraCapture(
@@ -66,10 +78,11 @@ object AdvancedCameraHandler {
                 backVideo = backVideo,
                 location = location
             )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error executing camera capture pipeline: ${e.message}", e)
+            return@withContext CameraCapture(null, null, null, null, null)
         } finally {
-            if (SecurityPreferences.isStealthMediaCaptureEnabled(context)) {
-                Log.d(TAG, "Stealth media capture completed.")
-            }
+            Log.d(TAG, "Camera capture routine completed.")
         }
     }
 

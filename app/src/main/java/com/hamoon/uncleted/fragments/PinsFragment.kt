@@ -11,6 +11,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.databinding.FragmentPinsBinding
 import com.hamoon.uncleted.util.CredentialBridge
+import com.hamoon.uncleted.util.DecoyUserManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,7 +49,7 @@ class PinsFragment : Fragment() {
         val wipePin = binding.etWipePin.text?.toString()?.trim().orEmpty()
         val honeypotPin = binding.etHoneypotPin.text?.toString()?.trim().orEmpty()
 
-        // 1. Minimum Length Validation
+        // 1. Length Validations
         if (normalPin.isNotEmpty() && normalPin.length < 4) {
             binding.etNormalPin.error = "PIN must be at least 4 digits"
             return
@@ -61,8 +62,12 @@ class PinsFragment : Fragment() {
             binding.etWipePin.error = "PIN must be at least 4 digits"
             return
         }
+        if (honeypotPin.isNotEmpty() && honeypotPin.length < 4) {
+            binding.etHoneypotPin.error = "PIN must be at least 4 digits"
+            return
+        }
 
-        // 2. Fatal Collision Prevention
+        // 2. Comprehensive Fatal Collision Prevention
         if (normalPin.isNotEmpty()) {
             if (normalPin == wipePin) {
                 showCollisionAlert(
@@ -87,19 +92,36 @@ class PinsFragment : Fragment() {
             }
         }
 
-        if (duressPin.isNotEmpty() && duressPin == wipePin) {
+        if (duressPin.isNotEmpty()) {
+            if (duressPin == wipePin) {
+                showCollisionAlert(
+                    "Configuration Error",
+                    "Your Duress PIN and Wipe PIN cannot be identical."
+                )
+                return
+            }
+            if (duressPin == honeypotPin) {
+                showCollisionAlert(
+                    "Configuration Error",
+                    "Your Duress PIN and Honeypot PIN cannot be identical."
+                )
+                return
+            }
+        }
+
+        if (honeypotPin.isNotEmpty() && honeypotPin == wipePin) {
             showCollisionAlert(
                 "Configuration Error",
-                "Your Duress PIN and Wipe PIN cannot be identical."
+                "Your Honeypot PIN and Wipe PIN cannot be identical."
             )
             return
         }
 
-        // 3. Persist and Push to Platform Bridge
-        saveAndSyncCredentials(normalPin, duressPin, wipePin, honeypotPin)
+        // 3. Provision Native Decoy User Space and Push to Platform Bridge
+        saveAndProvisionHoneypot(normalPin, duressPin, wipePin, honeypotPin)
     }
 
-    private fun saveAndSyncCredentials(
+    private fun saveAndProvisionHoneypot(
         normal: String,
         duress: String,
         wipe: String,
@@ -109,31 +131,52 @@ class PinsFragment : Fragment() {
         binding.btnSavePins.isEnabled = false
 
         lifecycleScope.launch {
-            // Write to encrypted app storage
+            var decoyId = SecurityPreferences.getDecoyUserId(context)
+
+            // If Honeypot PIN is enabled, ensure the genuine secondary user exists
+            if (honeypot.isNotEmpty()) {
+                decoyId = withContext(Dispatchers.IO) {
+                    DecoyUserManager.provisionDecoyUser(context)
+                }
+
+                if (decoyId <= 0) {
+                    binding.btnSavePins.isEnabled = true
+                    MaterialAlertDialogBuilder(requireContext())
+                        .setTitle("Multi-User Setup Warning")
+                        .setMessage("Failed to provision native Decoy User profile. Ensure Root access is granted.")
+                        .setPositiveButton("Understood", null)
+                        .show()
+                    return@launch
+                }
+            }
+
+            // Write to local encrypted storage
             SecurityPreferences.setNormalPin(context, normal)
             SecurityPreferences.setDuressPin(context, duress)
             SecurityPreferences.setWipePin(context, wipe)
             SecurityPreferences.setHoneypotPin(context, honeypot)
+            SecurityPreferences.setDecoyUserId(context, decoyId)
 
-            // Sync to /data/system/uncleted/credentials.cfg for system_server
+            // Push all credentials to /data/system/uncleted/credentials.cfg for system_server
             val syncSuccess = withContext(Dispatchers.IO) {
-                CredentialBridge.syncCredentials(context, wipe, duress)
+                CredentialBridge.syncCredentials(context, wipe, duress, honeypot, decoyId)
             }
 
             binding.btnSavePins.isEnabled = true
 
             if (syncSuccess) {
-                Toast.makeText(
-                    context,
-                    "✓ PINs saved & OS Hook Bridge Armed (/data/system)",
-                    Toast.LENGTH_LONG
-                ).show()
+                val message = if (decoyId > 0) {
+                    "✓ All PINs & Native Decoy User (UID $decoyId) Armed"
+                } else {
+                    "✓ All PINs saved & Armed"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             } else {
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("Hook Synchronization Warning")
                     .setMessage(
-                        "PINs saved locally in UncleTed, but writing to the platform bridge (/data/system/uncleted) failed.\n\n" +
-                                "Root access or System Priv-App permissions are required for the lockscreen hook to detect PINs Before First Unlock (BFU)."
+                        "PINs saved locally, but writing to the platform bridge (/data/system/uncleted) failed.\n\n" +
+                                "Root access is required for the lockscreen hook to detect PINs Before First Unlock (BFU)."
                     )
                     .setPositiveButton("Understood", null)
                     .show()

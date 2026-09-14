@@ -5,7 +5,6 @@ import android.app.Application
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.preference.PreferenceManager
-import com.hamoon.uncleted.util.AppLifecycleManager
 import com.hamoon.uncleted.util.LocaleManager
 
 class UncleTedApplication : Application() {
@@ -13,35 +12,18 @@ class UncleTedApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // ### NEW: Apply the selected language at the very beginning ###
         val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
         val languageValue = sharedPreferences.getString("language", "system") ?: "system"
         LocaleManager.setLocale(languageValue)
-        // ### END NEW ###
 
-
-        // ### START: PRECISE FIX FOR CONSTANT ANALYSIS ###
-        // Register a global lifecycle callback to track when the app moves to the
-        // foreground or background. This state is used by the AI and Quantum
-        // security layers to pause their intensive analysis loops when the app is not visible.
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
-            override fun onActivityStarted(activity: Activity) {
-                AppLifecycleManager.onActivityStarted()
-            }
-
-            override fun onActivityStopped(activity: Activity) {
-                AppLifecycleManager.onActivityStopped()
-            }
-            // ### END: PRECISE FIX FOR CONSTANT ANALYSIS ###
-
-
             override fun onActivityPreCreated(activity: Activity, savedInstanceState: Bundle?) {
-                val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this@UncleTedApplication)
-                val themeValue = sharedPreferences.getString("theme", "system")
+                val prefs = PreferenceManager.getDefaultSharedPreferences(this@UncleTedApplication)
+                val themeValue = prefs.getString("theme", "system")
                 applyNightModeForActivity(themeValue)
                 if (themeValue == "amoled") {
                     when (activity) {
-                        is MainActivity, is LockScreenActivity, is FakeShutdownActivity -> {
+                        is MainActivity, is LockScreenActivity -> {
                             activity.setTheme(R.style.Theme_UncleTed_Amoled)
                         }
                         is CameraPermissionBrokerActivity -> {
@@ -52,8 +34,10 @@ class UncleTedApplication : Application() {
             }
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityStarted(activity: Activity) {}
             override fun onActivityResumed(activity: Activity) {}
             override fun onActivityPaused(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}
         })

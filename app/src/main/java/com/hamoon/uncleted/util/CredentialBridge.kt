@@ -2,6 +2,7 @@ package com.hamoon.uncleted.util
 
 import android.content.Context
 import android.util.Log
+import com.hamoon.uncleted.data.SecurityPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -14,17 +15,24 @@ object CredentialBridge {
     private const val CONFIG_FILE = "$CONFIG_DIR/credentials.cfg"
 
     /**
-     * Synchronizes Wipe and Duress PINs to the platform storage partition
+     * Synchronizes Wipe, Duress, Honeypot PINs and native Decoy User ID to the platform storage partition
      * accessible by system_server before and after first unlock.
      */
-    suspend fun syncCredentials(context: Context, wipePin: String?, duressPin: String?): Boolean = withContext(Dispatchers.IO) {
+    suspend fun syncCredentials(
+        context: Context,
+        wipePin: String?,
+        duressPin: String?,
+        honeypotPin: String? = null,
+        decoyUserId: Int = -1
+    ): Boolean = withContext(Dispatchers.IO) {
         val content = buildString {
             append("wipe_pin=").append(wipePin ?: "").append("\n")
             append("duress_pin=").append(duressPin ?: "").append("\n")
+            append("honeypot_pin=").append(honeypotPin ?: "").append("\n")
+            append("decoy_user_id=").append(decoyUserId).append("\n")
             append("updated_at=").append(System.currentTimeMillis()).append("\n")
         }
 
-        // 1. Write file locally in the app's private cache first (avoids shell heredoc issues)
         val tempFile = File(context.cacheDir, "credentials.tmp")
         try {
             FileOutputStream(tempFile).use { out ->
@@ -36,7 +44,6 @@ object CredentialBridge {
             return@withContext false
         }
 
-        // 2. Transfer to /data/system/uncleted/ via Root
         if (RootChecker.isDeviceRooted()) {
             val script = listOf(
                 "mkdir -p $CONFIG_DIR",
@@ -53,15 +60,14 @@ object CredentialBridge {
             val success = results.any { it.isSuccess }
 
             if (success) {
-                Log.i(TAG, "Successfully synced credentials to $CONFIG_FILE via Root.")
-                EventLogger.log(context, "Lockscreen hook credentials synchronized to platform partition.")
+                Log.i(TAG, "Successfully synced credentials and Decoy User ID to $CONFIG_FILE.")
+                EventLogger.log(context, "Credentials and Decoy User ID synced to platform partition.")
                 return@withContext true
             } else {
                 Log.w(TAG, "Root copy command failed.")
             }
         }
 
-        // 3. Fallback: Direct platform write (if running as platform system UID)
         try {
             val dir = File(CONFIG_DIR)
             if (!dir.exists()) dir.mkdirs()
@@ -80,7 +86,22 @@ object CredentialBridge {
         return@withContext false
     }
 
+    suspend fun syncCredentials(context: Context): Boolean {
+        val wipe = SecurityPreferences.getWipePin(context)
+        val duress = SecurityPreferences.getDuressPin(context)
+        val honeypot = SecurityPreferences.getHoneypotPin(context)
+        val decoyId = SecurityPreferences.getDecoyUserId(context)
+        return syncCredentials(context, wipe, duress, honeypot, decoyId)
+    }
+
     suspend fun clearCredentials(context: Context): Boolean = withContext(Dispatchers.IO) {
+        // Explicitly utilize context to clear temporary artifacts and log the action
+        EventLogger.log(context, "Platform credentials bridge cleared.")
+        val tempFile = File(context.cacheDir, "credentials.tmp")
+        if (tempFile.exists()) {
+            tempFile.delete()
+        }
+
         if (RootChecker.isDeviceRooted()) {
             RootExecutor.run("rm -f $CONFIG_FILE")
             return@withContext true

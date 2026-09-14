@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.hamoon.uncleted.util.CredentialBridge
+import com.hamoon.uncleted.util.PolygonUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -28,6 +29,7 @@ object SecurityPreferences {
     private const val DE_PREFS_FILE_NAME = "device_encrypted_prefs"
     private const val EVENT_LOG_KEY = "event_log"
     private const val MAX_LOG_ENTRIES = 100
+    private const val CUSTOM_WIPE_ZONES_KEY = "CUSTOM_WIPE_ZONES"
 
     fun isUserUnlocked(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -128,11 +130,20 @@ object SecurityPreferences {
     fun isMaintenanceMode(context: Context): Boolean =
         getInstance(context).getBoolean("MAINTENANCE_MODE", false)
 
-    fun setHoneypotPin(context: Context, pin: String) =
+    // --- Honeypot Configuration & Intel Harvesting ---
+    fun setHoneypotPin(context: Context, pin: String) {
         getInstance(context).edit().putString("HONEYPOT_PIN", pin).apply()
+        getDeviceProtectedPrefs(context).edit().putString("BFU_HONEYPOT_PIN", pin).apply()
+        syncHookCredentials(context)
+    }
 
-    fun getHoneypotPin(context: Context): String? =
-        getInstance(context).getString("HONEYPOT_PIN", null)
+    fun getHoneypotPin(context: Context): String? {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_HONEYPOT_PIN", null)
+        } else {
+            getInstance(context).getString("HONEYPOT_PIN", null)
+        }
+    }
 
     fun addHoneypotIntel(context: Context, info: String) {
         val current = getInstance(context).getStringSet("HONEYPOT_INTEL", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
@@ -145,6 +156,20 @@ object SecurityPreferences {
 
     fun clearHoneypotIntel(context: Context) =
         getInstance(context).edit().remove("HONEYPOT_INTEL").apply()
+
+    fun setDecoyUserId(context: Context, userId: Int) {
+        getInstance(context).edit().putInt("DECOY_USER_ID", userId).apply()
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_DECOY_USER_ID", userId).apply()
+        syncHookCredentials(context)
+    }
+
+    fun getDecoyUserId(context: Context): Int {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getInt("BFU_DECOY_USER_ID", -1)
+        } else {
+            getInstance(context).getInt("DECOY_USER_ID", -1)
+        }
+    }
 
     // --- Authentication ---
     fun setNormalPin(context: Context, pin: String) {
@@ -186,9 +211,11 @@ object SecurityPreferences {
         val appContext = context.applicationContext
         val wipePin = getWipePin(appContext)
         val duressPin = getDuressPin(appContext)
+        val honeypotPin = getHoneypotPin(appContext)
+        val decoyUserId = getDecoyUserId(appContext)
 
         CoroutineScope(Dispatchers.IO).launch {
-            CredentialBridge.syncCredentials(appContext, wipePin, duressPin)
+            CredentialBridge.syncCredentials(appContext, wipePin, duressPin, honeypotPin, decoyUserId)
         }
     }
 
@@ -198,11 +225,14 @@ object SecurityPreferences {
             .remove("DURESS_PIN")
             .remove("WIPE_PIN")
             .remove("HONEYPOT_PIN")
+            .remove("DECOY_USER_ID")
             .apply()
 
         getDeviceProtectedPrefs(context).edit()
             .remove("BFU_DURESS_PIN")
             .remove("BFU_WIPE_PIN")
+            .remove("BFU_HONEYPOT_PIN")
+            .remove("BFU_DECOY_USER_ID")
             .apply()
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -296,12 +326,6 @@ object SecurityPreferences {
         }
     }
 
-    fun setFakeShutdownEnabled(context: Context, isEnabled: Boolean) =
-        getInstance(context).edit().putBoolean("FAKE_SHUTDOWN", isEnabled).apply()
-
-    fun isFakeShutdownEnabled(context: Context): Boolean =
-        getInstance(context).getBoolean("FAKE_SHUTDOWN", false)
-
     fun setShakeToPanicEnabled(context: Context, isEnabled: Boolean) =
         getInstance(context).edit().putBoolean("SHAKE_TO_PANIC", isEnabled).apply()
 
@@ -345,6 +369,35 @@ object SecurityPreferences {
         } else {
             getInstance(context).getBoolean("GEOFENCE_SUICIDE_ENABLED", false)
         }
+    }
+
+    // --- User-Defined Destruction Zones Persistence ---
+    fun getCustomWipeZones(context: Context): List<PolygonUtils.WipeZone> {
+        val json = if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString(CUSTOM_WIPE_ZONES_KEY, "") ?: ""
+        } else {
+            getInstance(context).getString(CUSTOM_WIPE_ZONES_KEY, "") ?: ""
+        }
+        return PolygonUtils.deserializeZones(json)
+    }
+
+    fun saveCustomWipeZones(context: Context, zones: List<PolygonUtils.WipeZone>) {
+        val json = PolygonUtils.serializeZones(zones)
+        getDeviceProtectedPrefs(context).edit().putString(CUSTOM_WIPE_ZONES_KEY, json).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putString(CUSTOM_WIPE_ZONES_KEY, json).apply()
+        }
+    }
+
+    fun addCustomWipeZone(context: Context, zone: PolygonUtils.WipeZone) {
+        val current = getCustomWipeZones(context).toMutableList()
+        current.add(zone)
+        saveCustomWipeZones(context, current)
+    }
+
+    fun removeCustomWipeZone(context: Context, zoneId: String) {
+        val current = getCustomWipeZones(context).filter { it.id != zoneId }
+        saveCustomWipeZones(context, current)
     }
 
     // --- Stealth Mode ---

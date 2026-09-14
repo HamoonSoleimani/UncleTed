@@ -16,6 +16,7 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.MANAGE_USERS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.STATUS_BAR_SERVICE" tools:ignore="ProtectedPermissions" />
 
     <!-- STANDARD RUNTIME & SECURITY PERMISSIONS -->
@@ -75,7 +76,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Enables OS-level Duress PIN interception, native lockscreen wipe, and instant cryptographic destruction." />
+            android:value="Enables OS-level Duress PIN interception, native multi-user honeypot switching, and instant cryptographic destruction." />
         <meta-data
             android:name="xposedminversion"
             android:value="93" />
@@ -101,7 +102,7 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- Lockscreen & Trap Activities -->
+        <!-- Lockscreen Activity -->
         <activity
             android:name=".LockScreenActivity"
             android:excludeFromRecents="true"
@@ -109,44 +110,6 @@
             android:launchMode="singleInstance"
             android:showOnLockScreen="true"
             android:theme="@style/Theme.UncleTed.NoActionBar.FullScreen" />
-
-        <activity
-            android:name=".FakeShutdownActivity"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:launchMode="singleInstance"
-            android:showOnLockScreen="true"
-            android:theme="@style/Theme.UncleTed.NoActionBar.FullScreen" />
-
-        <!-- Honeypot Activities -->
-        <activity
-            android:name=".honeypot.HoneypotLauncherActivity"
-            android:theme="@style/Theme.UncleTed.NoActionBar.FullScreen"
-            android:launchMode="singleTask"
-            android:excludeFromRecents="true"
-            android:showOnLockScreen="true"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".honeypot.FakeBankingActivity"
-            android:theme="@style/Theme.Material3.DayNight.NoActionBar"
-            android:excludeFromRecents="true"
-            android:showOnLockScreen="true"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".honeypot.FakeNotesActivity"
-            android:theme="@style/Theme.Material3.DayNight"
-            android:excludeFromRecents="true"
-            android:showOnLockScreen="true"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".honeypot.FakeGalleryActivity"
-            android:theme="@style/Theme.Material3.DayNight.NoActionBar"
-            android:excludeFromRecents="true"
-            android:showOnLockScreen="true"
-            android:screenOrientation="portrait" />
 
         <!-- Foreground Launch Broker Activity -->
         <activity
@@ -295,6 +258,7 @@
             android:directBootAware="true">
             <intent-filter>
                 <action android:name="com.hamoon.uncleted.ACTION_DURESS_TRIGGERED" />
+                <action android:name="com.hamoon.uncleted.ACTION_HONEYPOT_TRIGGERED" />
                 <action android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_FAILED_ATTEMPT" />
                 <action android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_SUCCESS" />
             </intent-filter>

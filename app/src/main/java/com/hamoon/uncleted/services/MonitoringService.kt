@@ -20,13 +20,8 @@ import com.hamoon.uncleted.MainActivity
 import com.hamoon.uncleted.R
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.receivers.WidgetActionReceiver
-import com.hamoon.uncleted.util.AISecurityOrchestrator
-import com.hamoon.uncleted.util.BehavioralAnalysisEngine
-import com.hamoon.uncleted.util.QuantumSecurityLayer
 import com.hamoon.uncleted.util.ShakeDetector
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -35,7 +30,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
     private lateinit var shakeDetector: ShakeDetector
-    private val serviceScope = CoroutineScope(Dispatchers.Default)
 
     companion object {
         private const val NOTIFICATION_ID = 2
@@ -44,18 +38,13 @@ class MonitoringService : LifecycleService(), SensorEventListener {
 
     override fun onCreate() {
         super.onCreate()
-        // Defer all heavy initialization to a background thread to prevent app startup lag
         lifecycleScope.launch(Dispatchers.IO) {
             initializeComponents()
         }
     }
 
-    /**
-     * Handles all setup for the service on a background thread.
-     */
     private suspend fun initializeComponents() {
         try {
-            // --- Shake Detector Initialization ---
             sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
             accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
             val sensitivity = SecurityPreferences.getShakeSensitivity(this@MonitoringService)
@@ -76,7 +65,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 sensitivityLevel = sensitivity
             )
 
-            // Registering a sensor listener must be done on the main thread
             withContext(Dispatchers.Main) {
                 if (accelerometer != null) {
                     sensorManager.registerListener(
@@ -89,23 +77,7 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 }
             }
 
-            // --- Advanced Security Initialization ---
-
-            // Initialize Behavioral Analysis Engine
-            BehavioralAnalysisEngine.initialize(this@MonitoringService)
-            // Observers must be added on the main thread
-            withContext(Dispatchers.Main) {
-                lifecycle.addObserver(BehavioralAnalysisEngine)
-            }
-
-            // Initialize Quantum Security Layer
-            QuantumSecurityLayer.initializeQuantumSecurity(this@MonitoringService)
-
-            // Initialize AI Security Orchestrator
-            AISecurityOrchestrator.initialize(this@MonitoringService)
-
-            Log.i("MonitoringService", "All monitoring components initialized successfully.")
-
+            Log.i("MonitoringService", "MonitoringService sensor initialized successfully.")
         } catch (e: Exception) {
             Log.e("MonitoringService", "Failed to initialize monitoring components", e)
         }
@@ -115,7 +87,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
         super.onStartCommand(intent, flags, startId)
         Log.d("MonitoringService", "MonitoringService started.")
 
-        // Create the notification with all 4 Lock Screen Shortcuts
         val notification = createNotification()
         startForeground(NOTIFICATION_ID, notification)
 
@@ -133,7 +104,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
 
-        // 1. Main Intent (Opens App when tapping the body of notification)
         val pendingIntent: PendingIntent =
             Intent(this, MainActivity::class.java).let { notificationIntent ->
                 PendingIntent.getActivity(
@@ -142,9 +112,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 )
             }
 
-        // --- Action Intents for Shortcuts (Lock, Siren, Location, Wipe) ---
-
-        // Action 1: LOCK
         val lockIntent = Intent(this, WidgetActionReceiver::class.java).apply {
             action = "ACTION_LOCK"
         }
@@ -152,7 +119,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
             this, 101, lockIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // Action 2: SIREN
         val sirenIntent = Intent(this, WidgetActionReceiver::class.java).apply {
             action = "ACTION_SIREN"
         }
@@ -160,7 +126,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
             this, 102, sirenIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // Action 3: LOCATION
         val locationIntent = Intent(this, WidgetActionReceiver::class.java).apply {
             action = "ACTION_LOCATION"
         }
@@ -168,7 +133,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
             this, 103, locationIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // Action 4: WIPE
         val wipeIntent = Intent(this, WidgetActionReceiver::class.java).apply {
             action = "ACTION_WIPE"
         }
@@ -182,13 +146,10 @@ class MonitoringService : LifecycleService(), SensorEventListener {
             .setSmallIcon(R.drawable.ic_shield_check_24)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            // Add all 4 actions
             .addAction(R.drawable.ic_lock_24, "LOCK", lockPendingIntent)
             .addAction(R.drawable.ic_alert_24, "SIREN", sirenPendingIntent)
             .addAction(R.drawable.ic_info_24, "LOCATE", locationPendingIntent)
             .addAction(R.drawable.ic_alert_triangle_24, "WIPE", wipePendingIntent)
-            // Use MediaStyle to show actions in compact view (requires androidx.media dependency or standard view)
-            // We use standard style with PRIORITY_LOW to keep it collapsed but visible on lockscreen
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setStyle(androidx.media.app.NotificationCompat.MediaStyle().setShowActionsInCompactView(0, 1, 2))
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
@@ -201,31 +162,17 @@ class MonitoringService : LifecycleService(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
-        // Check if shakeDetector is initialized before using it to avoid crashes during startup
         if (::shakeDetector.isInitialized && event?.sensor?.type == Sensor.TYPE_ACCELEROMETER) {
             shakeDetector.updateShake(event.values[0], event.values[1], event.values[2])
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Not used
-    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onDestroy() {
-        // Check for initialization before trying to unregister
         if (::sensorManager.isInitialized) {
             sensorManager.unregisterListener(this)
         }
-        serviceScope.cancel()
-
-        // Shutdown advanced security components
-        try {
-            AISecurityOrchestrator.shutdown()
-            QuantumSecurityLayer.shutdown()
-        } catch (e: Exception) {
-            Log.e("MonitoringService", "Error shutting down advanced security", e)
-        }
-
         Log.d("MonitoringService", "MonitoringService stopped.")
         super.onDestroy()
     }

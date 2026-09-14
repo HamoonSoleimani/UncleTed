@@ -42,15 +42,6 @@
                     app:iconTint="#FFFFFF"
                     app:icon="@drawable/ic_lock_24"/>
 
-                <Button
-                    android:id="@+id/btn_fake_shutdown"
-                    style="@style/Widget.Material3.Button.OutlinedButton.Icon"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Trigger Fake Shutdown"
-                    app:icon="@drawable/ic_power_off_24"/>
-
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -187,7 +178,6 @@
                     android:layout_marginTop="16dp"
                     android:layout_marginBottom="16dp"/>
 
-                <!-- Level 1: Standard Wipe -->
                 <Button
                     android:id="@+id/btn_manual_wipe"
                     style="@style/Widget.Material3.Button.OutlinedButton.Icon"
@@ -199,7 +189,6 @@
                     app:iconTint="?attr/colorError"
                     app:strokeColor="?attr/colorError"/>
 
-                <!-- Level 2: Secure Wipe (Root) -->
                 <Button
                     android:id="@+id/btn_manual_wipe_secure"
                     style="@style/Widget.Material3.Button.TonalButton.Icon"
@@ -212,7 +201,6 @@
                     app:icon="@drawable/ic_alert_triangle_24"
                     app:iconTint="?attr/colorOnErrorContainer"/>
 
-                <!-- Level 3: System Destruction (Root) -->
                 <Button
                     android:id="@+id/btn_manual_wipe_system"
                     style="@style/Widget.Material3.Button.TonalButton.Icon"
@@ -225,7 +213,6 @@
                     app:icon="@drawable/ic_alert_triangle_24"
                     app:iconTint="#B71C1C"/>
 
-                <!-- Level 4: Nuclear Winter (Root) -->
                 <Button
                     android:id="@+id/btn_manual_wipe_nuclear"
                     android:layout_width="match_parent"

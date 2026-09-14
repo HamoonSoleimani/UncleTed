@@ -26,6 +26,15 @@ class AboutFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        val resolvedVersionName = try {
+            val pInfo = requireContext().packageManager.getPackageInfo(requireContext().packageName, 0)
+            pInfo.versionName ?: "3.0.1"
+        } catch (_: Exception) {
+            "3.0.1"
+        }
+
+        binding.tvAppVersion.text = "Version $resolvedVersionName"
+
         binding.btnGithub.setOnClickListener {
             openUrl("https://github.com/HamoonSoleimani")
         }
@@ -34,20 +43,13 @@ class AboutFragment : Fragment() {
             openUrl("https://hamoon.net/")
         }
 
-        // ### NEW: Logic to display a random quote ###
         displayRandomQuote()
     }
 
     private fun displayRandomQuote() {
-        // Get the array of quotes from resources
         val quotes = resources.getStringArray(R.array.kaczynski_quotes)
-
-        // Check if the array is not empty to avoid a crash
         if (quotes.isNotEmpty()) {
-            // Select a random quote
-            val randomQuote = quotes.random()
-            // Set the text of the TextView
-            binding.tvRandomQuote.text = randomQuote
+            binding.tvRandomQuote.text = quotes.random()
         }
     }
 

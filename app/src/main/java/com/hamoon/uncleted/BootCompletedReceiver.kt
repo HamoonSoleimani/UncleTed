@@ -24,11 +24,10 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "Device boot event received: $action (User unlocked: $isUnlocked)")
 
-        // 1. Direct Boot / BFU Execution Phase
-        // Always safe to execute because SecurityPreferences now operates on Device-Protected (DE) storage if locked.
+        // 1. Direct Boot / BFU (Before First Unlock) Phase
+        // Always safe to execute because SecurityPreferences operates on Device-Protected (DE) storage
         SecurityPreferences.syncHookCredentials(context)
 
-        // Tripwire check-in re-arm or verification
         if (SecurityPreferences.isUsbTripwireEnabled(context)) {
             val usbIntent = Intent(context, UsbTripwireService::class.java)
             try {
@@ -49,8 +48,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
             }
         }
 
-        // 2. Credential-Encrypted (CE) Execution Phase
-        // WorkManager and full user services should only initialize once the user credentials have unlocked storage.
+        // 2. Credential-Encrypted (CE) Phase
+        // WorkManager and user services initialize only once the user credentials decrypt CE storage
         if (isUnlocked) {
             if (SecurityPreferences.isProtectionEnabled(context)) {
                 val serviceIntent = Intent(context, MonitoringService::class.java)

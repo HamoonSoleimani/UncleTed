@@ -120,7 +120,6 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                         startServiceInternal(context, reason, severity)
                     }
                 } else {
-                    // Non-Root Pathway
                     if (isImmediateWipe) {
                         Log.i(SERVICE_TAG, "NON-ROOT: Initiating Immediate Wipe.")
                         DeviceAdminHelper.wipeDeviceImmediately(context)
@@ -394,7 +393,8 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
         val template = when (reason) {
             "INTRUDER_SELFIE" -> AdvancedEmailSender.getEmailTemplates()["INTRUDER"]!!
             "SIM_CHANGED", "SIM_REMOVED" -> AdvancedEmailSender.getEmailTemplates()["SIM_CHANGE"]!!
-            "MANUAL_HONEYPOT" -> AdvancedEmailSender.EmailTemplate("Honeypot Deployed", "Honeypot mode manually activated. Monitoring for interactions.")
+            "MANUAL_HONEYPOT", "HONEYPOT_ACTIVATED", "HONEYPOT_PIN_LOCKSCREEN" ->
+                AdvancedEmailSender.EmailTemplate("Honeypot Deployed", "Honeypot mode activated. Covert monitoring engaged.")
             else -> AdvancedEmailSender.getEmailTemplates()["GENERIC_MEDIUM"]!!
         }
 
@@ -432,7 +432,8 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
             return
         }
 
-        val sirenJob = if (reason == "DURESS_PIN" || reason == "SHAKE_TRIGGERED") {
+        // Silent duress: Siren is ONLY triggered by deliberate physical shake
+        val sirenJob = if (reason == "SHAKE_TRIGGERED") {
             serviceScope.async { startSiren(30) }
         } else null
 
@@ -442,22 +443,14 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
         val audioFile = if (SecurityPreferences.isAmbientAudioEnabled(this) && PermissionUtils.hasRecordAudioPermission(this))
             AudioRecorder.recordAudio(this, 30) else null
 
-        if (reason == "DURESS_PIN" && RootChecker.isDeviceRooted()) {
+        if ((reason == "DURESS_PIN" || reason == "DURESS_PIN_LOCKSCREEN") && RootChecker.isDeviceRooted()) {
             RootActions.setMockLocationConfig(this, true)
         }
 
         val template = when (reason) {
-            "DURESS_PIN", "SHAKE_TRIGGERED" -> AdvancedEmailSender.getEmailTemplates()["DURESS"]!!
+            "DURESS_PIN", "DURESS_PIN_LOCKSCREEN", "SHAKE_TRIGGERED" -> AdvancedEmailSender.getEmailTemplates()["DURESS"]!!
             "UNINSTALL_ATTEMPT" -> AdvancedEmailSender.getEmailTemplates()["SYSTEM_BREACH"]!!
-            "AI_INITIATED_LOCKDOWN" -> {
-                withContext(Dispatchers.Main) {
-                    startActivity(Intent(this@PanicActionService, LockScreenActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                        putExtra("REASON", "AI_LOCKDOWN")
-                    })
-                }
-                AdvancedEmailSender.getEmailTemplates()["SYSTEM_BREACH"]!!.copy(subject = "AI Lockdown")
-            }
+            "HONEYPOT_PIN_LOCKSCREEN" -> AdvancedEmailSender.EmailTemplate("Honeypot Triggered", "Honeypot PIN entered on Keyguard. Decoy deployed.")
             else -> AdvancedEmailSender.getEmailTemplates()["GENERIC_HIGH"]!!
         }
 

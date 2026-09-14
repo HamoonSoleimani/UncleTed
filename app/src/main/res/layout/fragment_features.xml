@@ -12,7 +12,6 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- All Other Features Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -56,7 +55,6 @@
                     android:padding="16dp"
                     android:text="@string/feature_wipe_device" />
 
-                <!-- Hardware Wipe Switch -->
                 <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/switch_hardware_wipe"
                     android:layout_width="match_parent"
@@ -108,13 +106,6 @@
                     android:text="@string/feature_sim_change" />
 
                 <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/switch_fake_shutdown"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:padding="16dp"
-                    android:text="@string/feature_fake_shutdown" />
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/switch_shake_to_panic"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -146,7 +137,6 @@
                     android:layout_marginBottom="16dp"
                     android:text="@string/feature_set_geofence_button" />
 
-                <!-- NEW: Geofence Suicide (Evin Prison) -->
                 <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/switch_geofence_suicide"
                     android:layout_width="match_parent"
@@ -154,6 +144,17 @@
                     android:padding="16dp"
                     android:text="No-Go Zone: Evin Prison (Auto-Wipe)"
                     android:textColor="?attr/colorError" />
+
+                <!-- User-Defined Destruction Zones Button -->
+                <Button
+                    android:id="@+id/btn_manage_wipe_zones"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:layout_marginBottom="16dp"
+                    android:text="Manage Destruction No-Go Zones" />
 
                 <com.google.android.material.divider.MaterialDivider
                     android:layout_width="match_parent"
@@ -289,7 +290,6 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Root-Exclusive Features Card -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_root_features"
             android:layout_width="match_parent"
@@ -411,7 +411,6 @@
                             android:hint="@string/remote_apk_url_hint" />
                     </com.google.android.material.textfield.TextInputLayout>
 
-                    <!-- NEW: USB Tripwire Switch -->
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switch_usb_tripwire"
                         android:layout_width="match_parent"
@@ -580,7 +579,6 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Global Action Buttons -->
         <Button
             android:id="@+id/btn_view_event_log"
             style="@style/Widget.Material3.Button.OutlinedButton"

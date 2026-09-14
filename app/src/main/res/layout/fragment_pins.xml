@@ -12,6 +12,7 @@
         android:orientation="vertical"
         android:padding="16dp">
 
+        <!-- AUTHENTICATION CARD -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
@@ -29,6 +30,7 @@
                     android:textAppearance="?attr/textAppearanceTitleMedium"
                     android:layout_marginBottom="16dp"/>
 
+                <!-- 1. Normal PIN -->
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     app:startIconDrawable="@drawable/ic_pin_24"
@@ -42,6 +44,7 @@
                         android:inputType="numberPassword"/>
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- 2. Duress PIN -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:layout_marginTop="16dp"
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -56,7 +59,7 @@
                         android:inputType="numberPassword"/>
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- ### NEW: Wipe PIN Input Field ### -->
+                <!-- 3. Wipe PIN -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:layout_marginTop="16dp"
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -71,21 +74,41 @@
                         android:hint="@string/wipe_pin_hint"
                         android:inputType="numberPassword"/>
                 </com.google.android.material.textfield.TextInputLayout>
-                
-                 <Button
+
+                <!-- 4. Honeypot PIN (Moved directly under Wipe PIN) -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_marginTop="16dp"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    app:startIconDrawable="@drawable/ic_lock_24"
+                    app:startIconTint="?attr/colorSecondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_honeypot_pin"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Honeypot PIN (Decoy Space)"
+                        android:inputType="numberPassword"/>
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- Save Button (Saves all 4 PINs) -->
+                <Button
                     android:id="@+id/btn_save_pins"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
                     android:text="Save PINs" />
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ### NEW: PIN Guide Card ### -->
+        <!-- PIN FUNCTION GUIDE CARD -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp">
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp">
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -126,7 +149,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/pin_guide_duress_desc"
+                    android:text="Rejects unlock (shows 'Wrong PIN'), but silently gathers covert front/back camera photos, audio, and GPS coordinates."
                     android:textColor="?attr/colorOnSurfaceVariant"
                     android:textAppearance="?attr/textAppearanceBodyMedium" />
 
@@ -146,41 +169,26 @@
                     android:text="@string/pin_guide_wipe_desc"
                     android:textColor="?attr/colorOnSurfaceVariant"
                     android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                <!-- Honeypot PIN Guide -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Honeypot PIN (Decoy Space)"
+                    android:textColor="?attr/colorSecondary"
+                    android:textAppearance="?attr/textAppearanceTitleSmall"
+                    android:textStyle="bold" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Intercepted at the lockscreen to immediately switch the OS into an isolated native secondary user space."
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
-		<com.google.android.material.textfield.TextInputLayout
-			android:layout_marginTop="16dp"
-			style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-			app:startIconDrawable="@drawable/ic_lock_24"
-			app:startIconTint="?attr/colorSecondary"
-			android:layout_width="match_parent"
-			android:layout_height="wrap_content">
-			<com.google.android.material.textfield.TextInputEditText
-				android:id="@+id/et_honeypot_pin"
-				android:layout_width="match_parent"
-				android:layout_height="wrap_content"
-				android:hint="Honeypot PIN (Launches Fake Home)"
-				android:inputType="numberPassword"/>
-		</com.google.android.material.textfield.TextInputLayout>
-
-		<!-- Add guide text in the guide card below -->
-		<TextView
-			android:layout_width="wrap_content"
-			android:layout_height="wrap_content"
-			android:layout_marginTop="12dp"
-			android:text="Honeypot PIN"
-			android:textColor="?attr/colorSecondary"
-			android:textAppearance="?attr/textAppearanceTitleSmall"
-			android:textStyle="bold" />
-		<TextView
-			android:layout_width="wrap_content"
-			android:layout_height="wrap_content"
-			android:layout_marginTop="2dp"
-			android:text="Unlocks to a fake home screen. Includes bait apps (Banking, Notes) to capture thief's credentials and actions."
-			android:textColor="?attr/colorOnSurfaceVariant"
-			android:textAppearance="?attr/textAppearanceBodyMedium" />
-
 
     </LinearLayout>
 </ScrollView>

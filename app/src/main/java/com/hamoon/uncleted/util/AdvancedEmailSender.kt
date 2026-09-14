@@ -53,10 +53,8 @@ object AdvancedEmailSender {
 
         val originalClassLoader = Thread.currentThread().contextClassLoader
         try {
-            // Fix 1: Ensure Thread Context ClassLoader has access to APK classes (JavaMail provider lookup)
             Thread.currentThread().contextClassLoader = context.classLoader
 
-            // Fix 2: Register mailcap command map handlers to prevent "No content handler" errors
             val mc = CommandMap.getDefaultCommandMap() as MailcapCommandMap
             mc.addMailcap("text/html;; x-java-content-handler=com.sun.mail.handlers.text_html")
             mc.addMailcap("text/xml;; x-java-content-handler=com.sun.mail.handlers.text_xml")
@@ -93,7 +91,10 @@ object AdvancedEmailSender {
             capture?.backPhoto?.let { addAttachment(multipart, it, "back_camera.jpg") }
             capture?.frontVideo?.let { addAttachment(multipart, it, "front_video.mp4") }
             capture?.backVideo?.let { addAttachment(multipart, it, "back_video.mp4") }
-            audioFile?.let { addAttachment(multipart, it, "ambient_audio.mp3") }
+            audioFile?.let {
+                val fileName = if (it.name.endsWith(".m4a")) "ambient_audio.m4a" else "ambient_audio.mp4"
+                addAttachment(multipart, it, fileName)
+            }
             screenshotFile?.let { addAttachment(multipart, it, "stealth_screenshot.png") }
 
             message.setContent(multipart)
@@ -107,17 +108,14 @@ object AdvancedEmailSender {
             EventLogger.log(context, "ERROR: Failed to send email alert. Check credentials and connection.")
             false
         } finally {
-            // Restore original ClassLoader
             Thread.currentThread().contextClassLoader = originalClassLoader
         }
     }
 
     private fun createEmailProperties(config: EmailSender.EmailConfig): Properties {
         return Properties().apply {
-            // Fix 3: Explicitly bind the transport protocol and class to avoid META-INF lookup failures
             put("mail.transport.protocol", "smtp")
             put("mail.smtp.class", "com.sun.mail.smtp.SMTPTransport")
-
             put("mail.smtp.host", config.host)
             put("mail.smtp.port", config.port.toString())
             put("mail.smtp.auth", "true")
@@ -182,7 +180,7 @@ object AdvancedEmailSender {
             ),
             "DURESS" to EmailTemplate(
                 subject = "Emergency Alert: Duress Code Activated",
-                body = "The duress code has been entered on your device. This may indicate the owner is in distress or under coercion. Evidence is attached.",
+                body = "The duress code has been entered on your device. Covert surveillance evidence is attached.",
                 isUrgent = true
             ),
             "SIM_CHANGE" to EmailTemplate(
@@ -201,12 +199,12 @@ object AdvancedEmailSender {
             ),
             "SYSTEM_TAMPER" to EmailTemplate(
                 subject = "Security Alert: System Tampering Detected",
-                body = "A potential attempt to tamper with the device (e.g., fake shutdown) has been detected.",
+                body = "A potential attempt to tamper with the device has been detected.",
                 isUrgent = true
             ),
             "REMOTE_ACTION" to EmailTemplate(
                 subject = "Security Alert: Remote Action Triggered",
-                body = "A remote action (e.g., siren) was successfully triggered on the device.",
+                body = "A remote action was successfully triggered on the device.",
                 isUrgent = false
             ),
             "GENERIC_MEDIUM" to EmailTemplate(

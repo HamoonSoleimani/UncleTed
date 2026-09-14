@@ -14,6 +14,7 @@ class DuressHookReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "DuressHookReceiver"
         const val ACTION_DURESS_TRIGGERED = "com.hamoon.uncleted.ACTION_DURESS_TRIGGERED"
+        const val ACTION_HONEYPOT_TRIGGERED = "com.hamoon.uncleted.ACTION_HONEYPOT_TRIGGERED"
         const val ACTION_LOCKSCREEN_FAILED_ATTEMPT = "com.hamoon.uncleted.ACTION_LOCKSCREEN_FAILED_ATTEMPT"
         const val ACTION_LOCKSCREEN_SUCCESS = "com.hamoon.uncleted.ACTION_LOCKSCREEN_SUCCESS"
 
@@ -25,17 +26,24 @@ class DuressHookReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             ACTION_DURESS_TRIGGERED -> {
-                Log.w(TAG, "Duress PIN detected by native hook. Triggering emergency protocol.")
-                EventLogger.log(context, "OS Hook: Duress PIN intercepted on lockscreen.")
+                Log.w(TAG, "Duress PIN detected by native hook. Triggering covert emergency protocol.")
+                EventLogger.log(context, "OS Hook: Duress PIN intercepted on Keyguard.")
                 PanicActionService.trigger(
                     context,
-                    "DURESS_PIN",
+                    "DURESS_PIN_LOCKSCREEN",
+                    PanicActionService.Severity.HIGH
+                )
+            }
+            ACTION_HONEYPOT_TRIGGERED -> {
+                Log.w(TAG, "Honeypot PIN detected by native hook. Triggering covert surveillance protocol.")
+                EventLogger.log(context, "OS Hook: Honeypot PIN entered. Switched to native Decoy space.")
+                PanicActionService.trigger(
+                    context,
+                    "HONEYPOT_PIN_LOCKSCREEN",
                     PanicActionService.Severity.HIGH
                 )
             }
             ACTION_LOCKSCREEN_FAILED_ATTEMPT -> {
-                // If Device Admin is active, AdminReceiver handles OS failure events natively.
-                // Discard duplicate broadcasts from the hook if AdminReceiver is already handling it.
                 if (PermissionUtils.isDeviceAdminActive(context)) {
                     Log.d(TAG, "Device Admin active; delegating failure tracking to AdminReceiver.")
                     return

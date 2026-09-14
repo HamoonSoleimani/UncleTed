@@ -1,5 +1,6 @@
 package com.hamoon.uncleted.hooks
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Process
@@ -32,7 +33,7 @@ class LockscreenHook : IXposedHookLoadPackage {
         private var lastSuccessBroadcastTime = 0L
 
         @Volatile
-        private var lastAttemptWasDuressOrWipe = false
+        private var lastAttemptWasSpecialPin = false
 
         @Volatile
         private var systemContext: Context? = null
@@ -44,7 +45,7 @@ class LockscreenHook : IXposedHookLoadPackage {
         try {
             val lockSettingsClass = XposedHelpers.findClass(LOCK_SETTINGS_CLASS, lpparam.classLoader)
             hookCredentialVerification(lockSettingsClass)
-            Log.i(TAG, "LockSettingsService hooked in system_server.")
+            Log.i(TAG, "LockSettingsService hooked successfully in system_server.")
         } catch (t: Throwable) {
             Log.e(TAG, "Failed hooking LockSettingsService: ${t.message}", t)
         }
@@ -63,7 +64,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                     return
                 }
                 lastInterceptTime = now
-                lastAttemptWasDuressOrWipe = false
+                lastAttemptWasSpecialPin = false
 
                 Log.d(TAG, "Credential verification intercepted: [length=${enteredPin.length}]")
 
@@ -75,27 +76,58 @@ class LockscreenHook : IXposedHookLoadPackage {
                 val config = loadTargetCredentials()
                 val wipePin = config["wipe_pin"]
                 val duressPin = config["duress_pin"]
+                val honeypotPin = config["honeypot_pin"]
+                val decoyUserId = config["decoy_user_id"]?.toIntOrNull() ?: -1
 
                 // 1. WIPE PIN INTERCEPTION
                 if (!wipePin.isNullOrEmpty() && enteredPin == wipePin) {
-                    lastAttemptWasDuressOrWipe = true
-                    Log.e(TAG, "WIPE PIN matched at OS level. Aborting auth and initiating wipe.")
+                    lastAttemptWasSpecialPin = true
+                    Log.e(TAG, "WIPE PIN matched at OS level. Aborting auth and initiating emergency destruction.")
                     abortAuthenticationFlow(param)
                     executeSystemServerWipe(context ?: systemContext)
                     return
                 }
 
-                // 2. DURESS PIN INTERCEPTION
+                // 2. DURESS PIN INTERCEPTION (Silent Trap: Show incorrect PIN on lockscreen & alert)
                 if (!duressPin.isNullOrEmpty() && enteredPin == duressPin) {
-                    lastAttemptWasDuressOrWipe = true
-                    Log.e(TAG, "DURESS PIN matched at OS level. Dispatching duress broadcast.")
+                    lastAttemptWasSpecialPin = true
+                    Log.w(TAG, "DURESS PIN matched at OS level. Rejecting unlock & dispatching silent duress broadcast.")
                     dispatchDuressBroadcast(context ?: systemContext)
+                    abortAuthenticationFlow(param)
+                    return
+                }
+
+                // 3. MASTERCLASS HONEYPOT: Native Android Multi-User Switch
+                if (!honeypotPin.isNullOrEmpty() && enteredPin == honeypotPin) {
+                    lastAttemptWasSpecialPin = true
+                    Log.w(TAG, "HONEYPOT PIN matched at OS level! Executing native multi-user switch to Decoy (UID $decoyUserId)...")
+
+                    dispatchHoneypotBroadcast(context ?: systemContext)
+
+                    val currentCtx = context ?: systemContext
+                    if (currentCtx != null && decoyUserId > 0) {
+                        try {
+                            val am = currentCtx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                            XposedHelpers.callMethod(am, "switchUser", decoyUserId)
+                            Log.i(TAG, "Native switchUser($decoyUserId) called successfully from system_server.")
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "Failed calling switchUser directly. Executing shell fallback.", t)
+                            Thread {
+                                try {
+                                    Runtime.getRuntime().exec(arrayOf("am", "switch-user", decoyUserId.toString()))
+                                } catch (_: Throwable) {}
+                            }.start()
+                        }
+                    }
+
+                    abortAuthenticationFlow(param)
+                    return
                 }
             }
 
             @Throws(Throwable::class)
             override fun afterHookedMethod(param: MethodHookParam) {
-                if (lastAttemptWasDuressOrWipe) return
+                if (lastAttemptWasSpecialPin) return
 
                 val result = param.result ?: return
                 var isFailed = false
@@ -191,10 +223,12 @@ class LockscreenHook : IXposedHookLoadPackage {
         for (arg in args) {
             if (arg == null) continue
 
+            // Android 9 (Pie) legacy string format
             if (arg is String && arg.isNotEmpty()) {
                 return arg
             }
 
+            // Android 9 (Pie) raw byte format
             if (arg is ByteArray && arg.isNotEmpty()) {
                 return String(arg, StandardCharsets.UTF_8).trim { it <= ' ' || it == '\u0000' }
             }
@@ -203,6 +237,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                 return arg.toString()
             }
 
+            // Android 10 - 14 LockscreenCredential class
             if (arg.javaClass.name.contains("LockscreenCredential")) {
                 try {
                     val credentialObj = XposedHelpers.callMethod(arg, "getCredential")
@@ -248,10 +283,29 @@ class LockscreenHook : IXposedHookLoadPackage {
         }
     }
 
+    /**
+     * Cross-Version Return Type Safety:
+     * Handles methods returning boolean (Android 9/10/custom ROMs) vs VerifyCredentialResponse (Android 11–14).
+     * Prevents fatal ClassCastExceptions and ART type mismatch crashes.
+     */
     private fun abortAuthenticationFlow(param: XC_MethodHook.MethodHookParam) {
         try {
             val returnType = (param.method as? java.lang.reflect.Method)?.returnType
             if (returnType != null && returnType != Void.TYPE) {
+
+                // Legacy Android 9/10 boolean method signature check
+                if (returnType == Boolean::class.javaPrimitiveType || returnType == java.lang.Boolean::class.java) {
+                    param.result = false
+                    return
+                }
+
+                // Integer response code check
+                if (returnType == Int::class.javaPrimitiveType || returnType == java.lang.Integer::class.java) {
+                    param.result = 1 // Non-zero indicates auth failure
+                    return
+                }
+
+                // Modern Android 10-14 VerifyCredentialResponse check
                 try {
                     val responseClass = XposedHelpers.findClass(
                         "com.android.internal.widget.VerifyCredentialResponse",
@@ -272,25 +326,37 @@ class LockscreenHook : IXposedHookLoadPackage {
             try {
                 Log.e(TAG, "Invoking platform wipe from system_server UID=${Process.myUid()}")
                 val recoverySystemClass = Class.forName("android.os.RecoverySystem")
-                val methods = recoverySystemClass.declaredMethods
-                var wipeMethod: java.lang.reflect.Method? = null
+                val methods = recoverySystemClass.declaredMethods.filter { it.name == "rebootWipeUserData" }
 
                 for (m in methods) {
-                    if (m.name == "rebootWipeUserData") {
-                        wipeMethod = m
-                        break
+                    m.isAccessible = true
+                    val paramTypes = m.parameterTypes
+                    try {
+                        when (paramTypes.size) {
+                            5 -> {
+                                m.invoke(null, context, false, "UncleTed_Duress_Wipe", true, false)
+                                return@Thread
+                            }
+                            4 -> {
+                                m.invoke(null, context, false, "UncleTed_Duress_Wipe", true)
+                                return@Thread
+                            }
+                            3 -> {
+                                if (paramTypes[1] == Boolean::class.javaPrimitiveType) {
+                                    m.invoke(null, context, false, "UncleTed_Duress_Wipe")
+                                    return@Thread
+                                }
+                            }
+                            2 -> {
+                                if (paramTypes[1] == String::class.java) {
+                                    m.invoke(null, context, "UncleTed_Duress_Wipe")
+                                    return@Thread
+                                }
+                            }
+                        }
+                    } catch (invEx: Throwable) {
+                        Log.w(TAG, "Platform wipe reflection failed on overload (${paramTypes.size} args): ${invEx.message}")
                     }
-                }
-
-                if (wipeMethod != null && context != null) {
-                    wipeMethod.isAccessible = true
-                    when (wipeMethod.parameterTypes.size) {
-                        5 -> wipeMethod.invoke(null, context, false, "UncleTed_Duress_Wipe", true, false)
-                        4 -> wipeMethod.invoke(null, context, false, "UncleTed_Duress_Wipe", true)
-                        3 -> wipeMethod.invoke(null, context, "UncleTed_Duress_Wipe", false)
-                        else -> wipeMethod.invoke(null, context, false, "UncleTed_Duress_Wipe")
-                    }
-                    return@Thread
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "RecoverySystem execution error: ${t.message}", t)
@@ -314,6 +380,21 @@ class LockscreenHook : IXposedHookLoadPackage {
             context.sendBroadcast(intent)
         } catch (t: Throwable) {
             Log.e(TAG, "Failed dispatching duress broadcast: ${t.message}", t)
+        }
+    }
+
+    private fun dispatchHoneypotBroadcast(context: Context?) {
+        if (context == null) return
+        try {
+            val intent = Intent("com.hamoon.uncleted.ACTION_HONEYPOT_TRIGGERED").apply {
+                setPackage("com.hamoon.uncleted")
+                putExtra("REASON", "HONEYPOT_PIN_LOCKSCREEN")
+                putExtra("SEVERITY", "HIGH")
+                addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+            }
+            context.sendBroadcast(intent)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed dispatching honeypot broadcast: ${t.message}", t)
         }
     }
 

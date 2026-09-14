@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/Made%20with-Kotlin-blueviolet.svg" alt="Made with Kotlin">
+  <img src="https://img.shields.io/badge/Version-v3.0.1-brightgreen.svg" alt="Version">
   <img src="https://img.shields.io/badge/Target%20SDK-34%20(Android%2014)-green.svg" alt="Target SDK">
   <img src="https://img.shields.io/badge/Min%20SDK-28%20(Android%209)-orange.svg" alt="Min SDK">
   <img src="https://img.shields.io/badge/Framework-LSPosed%20%2F%20Xposed-red.svg" alt="LSPosed">
@@ -28,15 +28,14 @@
 - [⚠️ Legal & Ethical Disclaimer](#️-legal--ethical-disclaimer)
 - [📊 Architectural Comparison: Standalone APK vs. Flashed System Module](#-architectural-comparison-standalone-apk-vs-flashed-system-module)
 - [🏗️ System Architecture (The 3-Tier Model)](#️-system-architecture-the-3-tier-model)
-- [🖼️ Interface & Architecture Preview](#️-interface--architecture-preview)
 - [✨ Core Capabilities](#-core-capabilities)
   - [1. Lockscreen Authentication & Anti-Coercion (LSPosed Native Hooks)](#1-lockscreen-authentication--anti-coercion-lsposed-native-hooks)
   - [2. Storage Architecture & Emergency Destruction Pipeline](#2-storage-architecture--emergency-destruction-pipeline)
   - [3. Hardware & Environmental Tripwires](#3-hardware--environmental-tripwires)
-  - [4. Deception Matrix & Decoy Sandbox Environment](#4-deception-matrix--decoy-sandbox-environment)
-  - [5. Surveillance & Multi-Modal Evidence Gathering](#5-surveillance--multi-modal-evidence-gathering)
+  - [4. Native Multi-User Honeypot Decoy Space](#4-native-multi-user-honeypot-decoy-space)
+  - [5. Covert Surveillance & Multi-Modal Evidence Gathering](#5-covert-surveillance--multi-modal-evidence-gathering)
   - [6. Remote Command & Control (SMS & SMTP Pipeline)](#6-remote-command--control-sms--smtp-pipeline)
-  - [7. Deterministic Behavioral Analysis & Cryptographic Integrity](#7-deterministic-behavioral-analysis--cryptographic-integrity)
+  - [7. Hardware-Backed Direct Boot & Platform Integrity](#7-hardware-backed-direct-boot--platform-integrity)
 - [📡 Remote SMS Command Reference](#-remote-sms-command-reference)
 - [🛠️ Technology Stack](#️-technology-stack)
 - [📂 Project Directory Structure](#-project-directory-structure)
@@ -61,7 +60,7 @@
 
 ## 📊 Architectural Comparison: Standalone APK vs. Flashed System Module
 
-On modern Android (Android 10 through 14+), Google's security sandbox imposes rigid boundaries on third-party userspace applications. Understanding the functional gulf between installing Uncle Ted as a standard sideloaded APK versus flashing it as a **Systemless Priv-App Module with LSPosed hooks** is critical for threat modeling.
+On modern Android (Android 10 through 14+), Google's security model strictly restricts userspace applications. Uncle Ted overcomes these boundaries by deploying as a **Systemless Priv-App Module with native LSPosed hooks** running in `system_server`.
 
 | Security Vector / Feature | Standalone APK (Stock OS / Non-Root) | Flashed Systemless ZIP (`/system/priv-app/` + LSPosed) | Technical Root Cause / Mechanism |
 | :--- | :---: | :---: | :--- |
@@ -73,8 +72,8 @@ On modern Android (Android 10 through 14+), Google's security sandbox imposes ri
 | **Background Media Capture** | 🟡 **Requires Fullscreen Intent** | 🟢 **Root / Foreground Service** | Android 14+ blocks background camera access. Priv-app status combined with Root shell dispatch (`am start`) bypasses BAL restrictions completely. |
 | **Anti-Tamper & Anti-Uninstall** | 🔴 **Low** | 🟢 **System-Locked** | Standard apps can be uninstalled from Settings. Priv-apps cannot be removed without root manager or custom recovery access. |
 | **Hardware Volume Key Sequence** | 🟡 **Restricted Accessibility** | 🟢 **Unconstrained Service** | Android 13+ restricts accessibility services for sideloaded APKs. System integration runs with unconstrained input filtering. |
-| **Kernel USB Tripwire** | 🔴 **Impossible** | 🟢 **Kernel SysFS Monitor** | Reading `/sys/class/power_supply/` and `/sys/class/udc/*` data attributes requires root or system-level filesystem permissions. |
-| **Overall Defense Capability** | **3.5 / 10** | **9.5 / 10** | Sideloaded APKs provide a false sense of security under physical coercion. Flashing the module guarantees operating system-level enforcement. |
+| **Kernel USB Tripwire** | 🔴 **Impossible** | 🟢 **Kernel UDC Monitor** | Inspecting `/sys/class/udc/*/state` data attributes requires root or system-level filesystem permissions. |
+| **Overall Defense Capability** | **3.5 / 10** | **9.8 / 10** | Sideloaded APKs provide a false sense of security under physical coercion. Flashing the module guarantees operating system-level enforcement. |
 
 ---
 
@@ -89,6 +88,7 @@ Uncle Ted operates across three integrated levels of the Android operating syste
  │ - Intercepts native Keyguard inputs Before First Unlock (BFU)               │
  │ - Reads credentials from platform bridge: /data/system/uncleted/            │
  │ - Dispatches deduplicated foreground intents to Uncle Ted subsystems        │
+ │ - Switches to native isolated decoy user space on Honeypot PIN              │
  └──────────────────────────────────────┬──────────────────────────────────────┘
                                         │ IPC Broadcast / Bridge
  ┌──────────────────────────────────────▼──────────────────────────────────────┐
@@ -102,21 +102,11 @@ Uncle Ted operates across three integrated levels of the Android operating syste
  ┌──────────────────────────────────────▼──────────────────────────────────────┐
  │ TIER 1: USERSPACE DEFENSE APPS & SERVICES (com.hamoon.uncleted)             │
  │ - Foreground Sentinel Services (MonitoringService, UsbTripwireService)      │
+ │ - Native Multi-User Provisioning & Decoy Space Management                   │
  │ - Full-Screen Intent Broker & CameraX dual-camera capture pipeline          │
- │ - Deception Matrix (Honeypot Launcher, Fake Banking, Fake Notes)            │
- │ - Deterministic Bayesian Risk Engine & CSPRNG Hardware Keystore Auditing    │
+ │ - Multi-zone geofence monitors (Evin Prison + Custom User-Defined Zones)    │
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## 🖼️ Interface & Architecture Preview
-
-<p align="center">
-  <img width="1049" height="721" alt="Uncle Ted Main Dashboard" src="https://github.com/user-attachments/assets/173c3b9d-5bd0-47a1-92f3-aeb342d44cef" />
-  <img width="1063" height="629" alt="Uncle Ted System Configuration" src="https://github.com/user-attachments/assets/846b51eb-c9ba-4201-87f2-cbf70132839c" />
-  <img width="1045" height="795" alt="Uncle Ted Security Controls" src="https://github.com/user-attachments/assets/2a1ebc67-19c3-475f-af07-6674d02fc4e6" />
-</p>
 
 ---
 
@@ -125,52 +115,53 @@ Uncle Ted operates across three integrated levels of the Android operating syste
 ### 1. Lockscreen Authentication & Anti-Coercion (LSPosed Native Hooks)
 Instead of relying on fragile overlay screens (`SYSTEM_ALERT_WINDOW`) that can be bypassed with system gesture glitches or task killers, Uncle Ted hooks directly into AOSP's core `com.android.server.locksettings.LockSettingsService`:
 - **Normal PIN:** Standard device unlock; resets failed attempt counters.
-- **Duress PIN:** Transparently unlocks the device so an adversary suspects nothing, while silently dispatching an urgent alert with front/back photos, audio recordings, and GPS coordinates to emergency contacts.
-- **Wipe PIN:** Immediately halts Keyguard authentication, blocks access to the launcher, evicts cryptographic keys from RAM, and executes irreversible factory data destruction.
-- **Honeypot PIN:** Unlocks the device into an isolated decoy sandbox environment populated with trap applications designed to harvest attacker credentials.
+- **Duress PIN (Silent Canary Trap):** Intercepts the PIN at the OS level, aborts authentication to keep the device locked (displaying a realistic "Wrong PIN" feedback on Keyguard), and silently triggers covert front/back camera photo, audio, and high-accuracy GPS capture. **Zero alarms, zero sirens, and zero UI flickers.**
+- **Wipe PIN:** Immediately halts Keyguard authentication, evicts cryptographic keys from RAM, clears metadata headers, and executes irreversible factory data destruction.
+- **Honeypot PIN (Native Multi-User Switch):** Unlocks the device by dynamically switching the operating system session to an authentic, fully functional secondary Android user profile (`UserHandle(10)`).
 - **BFU (Before First Unlock) Persistence:** Credentials synchronize directly to `/data/system/uncleted/credentials.cfg` (SELinux context `u:object_r:system_data_file:s0`), allowing interception even when the phone has just rebooted and remains fully encrypted.
-- **Deduplicated Event Bus:** Dedicated debouncing logic eliminates dual-counting between Android DevicePolicyManager callbacks and Xposed hook dispatches, ensuring intruder alerts fire on exact thresholds.
+- **Deduplicated Event Bus:** Dedicated debouncing logic eliminates dual-counting between Android `DevicePolicyManager` callbacks and Xposed hook dispatches, ensuring intruder alerts fire on exact thresholds.
 
 ---
 
 ### 2. Storage Architecture & Emergency Destruction Pipeline
-Uncle Ted features a calibrated, sequential destruction engine (`EmergencyDestructionEngine`) that dynamically recognizes modern storage architectures (UFS vs. eMMC vs. NVMe) and separates userspace platform wipes from low-level block zeroing to avoid self-corrupting recovery execution:
+Uncle Ted features a sequential destruction engine (`EmergencyDestructionEngine`) that dynamically recognizes modern storage architectures (UFS vs. eMMC vs. NVMe) and separates userspace platform wipes from low-level block zeroing to prevent filesystem lockups:
 - **Instant Radio Killswitch:** Flushes and sets default drop policies across all `iptables` and `ip6tables` chains (`INPUT`, `OUTPUT`, `FORWARD`) within milliseconds to stop remote aborts or forensic network sniffing.
-- **Cryptographic Key Eviction:** Clears Linux kernel keyrings (`keyctl clear @u`, `keyctl clear @s`) and zeros out Vold user keys (`/data/misc/vold/user_keys/` and `/metadata/vold/`).
+- **Cryptographic Key Eviction:** Destroys Vold user keys (`/data/misc/vold/user_keys/` and `/metadata/vold/`) and zeros out cryptographic metadata headers (`/dev/block/by-name/metadata`).
 - **Dynamic Partition Resolution:** Locates `/dev/block/by-name/` block targets across Qualcomm, MediaTek, Exynos, and Tensor SoC layouts without hardcoded paths.
 - **Four Destruction Tiers:**
   1. *Level 1 - Standard Factory Reset:* Platform `MASTER_CLEAR` wipe via `RecoverySystem.rebootWipeUserData()` or Bootloader Control Block (BCB) `--wipe_data` staging under `/cache/recovery/command`.
-  2. *Level 2 - Secure Data Shred:* Zeros cryptographic metadata headers (`/dev/block/by-name/metadata`) and overwrites the first 64MB of `userdata` storage before rebooting into recovery for hardware re-formatting.
+  2. *Level 2 - Secure Data Shred:* Zeros cryptographic metadata headers (`/dev/block/by-name/metadata`), clears Vold user keys, and stages BCB reformatting before cleanly rebooting into recovery.
   3. *Level 3 - OS Suicide (Soft Brick):* Overwrites kernel and initial ramdisk partitions (`boot`, `vendor_boot`, `init_boot`) with zeros, immediately rendering the device unbootable without firmware reflashing.
   4. *Level 4 - Nuclear Winter (Hard Brick):* Dynamically identifies physical disk controllers (`/dev/block/sda` on UFS devices, `/dev/block/mmcblk0` on eMMC devices) and zeroes master GUID Partition Tables (GPT) and bootloader headers before issuing a kernel crash trigger (`sysrq-trigger`).
 
 ---
 
 ### 3. Hardware & Environmental Tripwires
-- **Hardware Volume Sequence Wipe:** Intercepts hardware keys via `PowerButtonService`. Entering the rapid sequence `[VOL UP] -> [VOL DOWN] -> [VOL UP] -> [VOL DOWN]` instantly triggers emergency data erasure even while the screen is off.
-- **Kernel-Level USB Tripwire:** Continuously monitors kernel SysFS paths (`/sys/class/power_supply/usb/type`, `/sys/class/udc/*`) and ADB properties via `UsbTripwireService`. If a data-capable cable (SDP/CDP) or forensic extraction workstation (Cellebrite, GrayKey) is connected while the device is locked, an immediate wipe is executed.
-- **Geographic Suicide (Evin Prison Boundary):** Leverages a numerically stable Ray-Casting Polygon Algorithm in `PolygonUtils` to monitor device coordinates. Entering the defined perimeter of high-risk facilities automatically arms a zero-delay wipe. Edge singularities and vertical-boundary division errors are mathematically eliminated.
+- **Hardware Volume Sequence Wipe:** Intercepts hardware keys via `PowerButtonService`. Entering the rapid sequence `[VOL UP] -> [VOL DOWN] -> [VOL UP] -> [VOL DOWN]` instantly triggers emergency data erasure.
+- **Kernel-Level USB Tripwire:** Continuously monitors the Linux USB Device Controller (UDC) state (`/sys/class/udc/*/state`). If an active USB data host connection (`configured` state) or forensic workstation (Cellebrite, GrayKey) is negotiated while the device is locked, an immediate wipe is executed. **Immune to false-positive wipes on USB-PD and wall chargers.**
+- **Multi-Zone Geographic Suicide:** Monitors device coordinates using a numerically robust Ray-Casting Polygon and Haversine distance algorithm in `PolygonUtils`:
+  - *Evin Prison Perimeter:* Built-in perimeter boundary covering the facility.
+  - *User-Defined Wipe Zones:* Add custom circular radius zones or polygon perimeters directly from the app interface or current GPS position.
+  - *Safety Guardrails:* Enforces a maximum uncertainty radius of $\le 30\text{ m}$ and requires 3 consecutive breach samples, completely eliminating accidental wipes from urban GPS drift.
 - **Network Inactivity Tripwire:** Managed by `WorkManager`. If the device cannot establish a validated network check-in within a user-configured interval (e.g., 24 or 48 hours), the tripwire activates an offline emergency wipe.
-- **SIM Card Swap Sentinel:** Detects changes in the ICC serial number of the SIM card, instantly locking the device and transmitting location packets via SMS fallback.
-- **Power Menu Interception (Fake Shutdown):** Accessibility hooks suppress the system power menu, displaying an authentic "Powering off..." animation while keeping the device operational, silent, and tracking in the background.
+- **SIM Card Swap Sentinel:** Detects changes in the hardware identity of the SIM card across Android 9 through 14+ without throwing `SecurityException`, instantly locking the device and transmitting location packets via SMS fallback.
 
 ---
 
-### 4. Deception Matrix & Decoy Sandbox Environment
-If forced to hand over an unlocked device, launching or unlocking via the Honeypot PIN presents a realistic decoy workspace:
-- **Decoy Launcher:** Mimics an authentic Android desktop layout while blocking access to the true home screen and applications.
-- **Fake Banking App:** Traps and records attacker login attempts, immediately transmitting entered credentials to the remote emergency email.
-- **Fake Notes App:** Contains decoy documents ("Crypto Keys", "Passwords") that trigger high-severity silent alerts the moment they are tapped.
-- **Decoy Gallery:** Presents dummy albums while silently triggering front-camera evidence collection.
+### 4. Native Multi-User Honeypot Decoy Space
+Rather than relying on fragile in-app fake launchers that can be bypassed with gesture navigation or the notification shade, Uncle Ted leverages **Android's native Multi-User subsystem (`UserManager`)**:
+- **Genuine Secondary Profile:** Creates an authentic, isolated secondary Android user space (`UserHandle(10)`) named `"Personal"` backed by its own independent `/data/user/10` directory.
+- **Separate Encryption Keys & Launcher:** The decoy space uses its own launcher, settings, accounts, and clean app drawer.
+- **Instant Keyguard Transition:** Entering the **Honeypot PIN** on the primary lockscreen intercepts `LockSettingsService`, halts authentication on User 0 (leaving real data encrypted), and immediately invokes `ActivityManager.switchUser(10)` to unlock directly into the decoy environment.
+- **Covert Background Alerting:** While the decoy profile smoothly loads in front of the adversary, covert camera snapshots and GPS coordinates are silently dispatched to your emergency contact.
 
 ---
 
-### 5. Surveillance & Multi-Modal Evidence Gathering
-- **Sequential Dual-Camera Capture:** Uses `Jetpack CameraX` with a headless `FakeLifecycleOwner` to capture high-resolution front- and back-camera photos, followed by front- and back-camera video clips.
+### 5. Covert Surveillance & Multi-Modal Evidence Gathering
+- **Sequential Dual-Camera Capture:** Uses `Jetpack CameraX` with a headless `FakeLifecycleOwner` running in `RESUMED` state to capture high-resolution front- and back-camera photos, followed by front- and back-camera video clips.
 - **Android 14 Background Launch Compliance:** Employs a full-screen intent broker (`CameraPermissionBrokerActivity`) paired with system shell invocation (`am start`) to bypass Android 10–14 Background Activity Launch (BAL) restrictions cleanly.
 - **Hybrid Input Surveillance:** Intercepts physical hardware inputs (Volume, Power) via `/dev/input/` events (`getevent -l`) while capturing software keyboard typing and text input dynamically through the Accessibility event bus.
-- **Ambient Audio Surveillance:** Direct-to-disk MP3 audio capture using `MediaRecorder` at user-configurable recording intervals.
-- **Anti-Green Dot Suppression (Root):** Suppresses Android 12+ privacy indicators during evidence capture by resetting and managing camera server instances.
+- **Ambient Audio Surveillance:** Direct-to-disk MPEG-4 AAC audio capture (`.m4a`) using `MediaRecorder` at user-configurable recording intervals.
 - **Stealth Screenshot (Root):** Directly reads surface buffers via `/system/bin/screencap` without generating UI flashes or notification badges.
 
 ---
@@ -182,11 +173,10 @@ When mobile data or Wi-Fi is lost, Uncle Ted falls back to a broadcast-intercept
 
 ---
 
-### 7. Deterministic Behavioral Analysis & Cryptographic Integrity
-- **Sliding-Window Behavioral Biometrics:** Evaluates typing cadence (dwell and flight times), device orientation stability, and walking step frequency using thread-safe, rolling time-window sensor buffers in `BehavioralAnalysisEngine`.
-- **Hardware-Backed Keystore Auditing:** Replaces pseudo-random heuristics with active AndroidKeyStore validation, ensuring master keys reside inside secure hardware (TEE/StrongBox).
-- **NIST SP 800-22 Entropy Testing:** Regularly tests the platform Cryptographically Secure Pseudo-Random Number Generator (CSPRNG) using Monobit frequency evaluations to detect entropy pool degradation.
-- **Calibrated Bayesian Threat Orchestrator:** Evaluates threat assessments, biometric stability, and keystore state through an evidence-weighted heuristic model, completely avoiding uncalibrated lockouts or false positives.
+### 7. Hardware-Backed Direct Boot & Platform Integrity
+- **Unified Root Support:** Fully compatible with **Magisk**, **KernelSU**, **KernelSU-Next**, and **APatch**.
+- **Direct Boot (BFU) Operation:** Stores critical operational flags, tripwire states, and platform bridge files in Device-Protected (DE) storage (`createDeviceProtectedStorageContext()`), allowing defense services to execute before the initial PIN unlock.
+- **SELinux Compliance:** Ensures platform bridge files and systemless priv-app directories enforce strict SELinux contexts (`u:object_r:system_file:s0` and `u:object_r:system_data_file:s0`) to prevent bootloops on modern Android builds.
 
 ---
 
@@ -217,8 +207,9 @@ UNCLETED [COMMAND] [SMS_MASTER_PASSWORD] [OPTIONAL_ARGS]
 
 - **Language:** 100% Modern Kotlin (Coroutines, Flow, StateFlow)
 - **Target OS:** Android 14 (API 34) | **Minimum OS:** Android 9 (API 28)
-- **Framework Hooks:** Xposed API v82 / LSPosed Framework
-- **System Privileges:** Android Privileged Permission Allowlist (`android.permission.MASTER_CLEAR`, `WRITE_SECURE_SETTINGS`, `REBOOT`)
+- **Framework Hooks:** Xposed API v82 / LSPosed Framework (Zygisk Release or JingMatrix fork)
+- **Root Environments:** Magisk, KernelSU, KernelSU-Next, APatch
+- **System Privileges:** Android Privileged Permission Allowlist (`android.permission.MASTER_CLEAR`, `WRITE_SECURE_SETTINGS`, `REBOOT`, `MANAGE_USERS`)
 - **Camera Pipeline:** AndroidX CameraX (Core, Camera2, Lifecycle, Video)
 - **Background Architecture:** AndroidX WorkManager & Android Foreground Services (compliant with Android 14 FGS types)
 - **Security & Cryptography:** AndroidX Security Crypto (`EncryptedSharedPreferences`, MasterKey AES-256-GCM, DeviceProtectedStorageContext)
@@ -232,7 +223,7 @@ UNCLETED [COMMAND] [SMS_MASTER_PASSWORD] [OPTIONAL_ARGS]
 UncleTed-main/
 ├── app/
 │   ├── build_output/
-│   │   └── UncleTed-PrivApp-v2.0.zip              <-- Pre-packaged systemless flashable module
+│   │   └── UncleTed-PrivApp-v3.0.1.zip            <-- Universal systemless flashable module
 │   ├── distribution/
 │   │   └── etc/permissions/
 │   │       └── privapp-permissions-uncleted.xml  <-- System priv-app allowlist (MASTER_CLEAR)
@@ -244,29 +235,31 @@ UncleTed-main/
 │   │   │   │   ├── data/
 │   │   │   │   │   └── SecurityPreferences.kt    <-- Dual DE/CE persistent storage manager
 │   │   │   │   ├── fragments/                    <-- UI Views (Dashboard, PINs, Features, etc.)
-│   │   │   │   ├── honeypot/                     <-- Decoy Launcher & Bait Activities
 │   │   │   │   ├── hooks/
 │   │   │   │   │   └── LockscreenHook.kt         <-- Core system_server LSPosed hook
 │   │   │   │   ├── receivers/                    <-- Boot, SMS, Admin, & Duress Receivers
 │   │   │   │   ├── services/
 │   │   │   │   │   ├── MonitoringService.kt      <-- Core sentinel service
 │   │   │   │   │   ├── PanicActionService.kt     <-- Emergency dispatch orchestrator
-│   │   │   │   │   ├── PowerButtonService.kt     <-- Accessibility key & input monitor
-│   │   │   │   │   ├── UsbTripwireService.kt     <-- Kernel SysFS data line tripwire
-│   │   │   │   │   └── ZoneWipeService.kt        <-- Perimeter geofence suicide service
+│   │   │   │   │   ├── PowerButtonService.kt     <-- Input filtering & sequence monitor
+│   │   │   │   │   ├── UsbTripwireService.kt     <-- Kernel UDC SysFS data line tripwire
+│   │   │   │   │   └── ZoneWipeService.kt        <-- Multi-zone perimeter geofence suicide service
 │   │   │   │   ├── util/
-│   │   │   │   │   ├── AISecurityOrchestrator.kt <-- Deterministic Bayesian risk engine
-│   │   │   │   │   ├── BehavioralAnalysisEngine.kt <-- Sliding-window biometric analyzer
+│   │   │   │   │   ├── AdvancedCameraHandler.kt  <-- Dual camera photo/video capture pipeline
+│   │   │   │   │   ├── AudioRecorder.kt          <-- Ambient AAC (.m4a) audio recorder
 │   │   │   │   │   ├── CredentialBridge.kt       <-- Cross-process BFU platform bridge
+│   │   │   │   │   ├── DecoyUserManager.kt       <-- Native Android Multi-User manager
 │   │   │   │   │   ├── EmergencyDestructionEngine.kt <-- UFS/eMMC block zeroing engine
 │   │   │   │   │   ├── Keylogger.kt              <-- Hardware & soft-keyboard logger
-│   │   │   │   │   ├── PolygonUtils.kt           <-- Numerically robust Ray-Casting algorithm
-│   │   │   │   │   ├── QuantumSecurityLayer.kt   <-- CSPRNG & Keystore integrity auditor
-│   │   │   │   │   └── RootActions.kt            <-- Kernel commands & Magisk operations
+│   │   │   │   │   ├── PolygonUtils.kt           <-- Ray-Casting algorithm & zone serializer
+│   │   │   │   │   ├── RootActions.kt            <-- Universal Magisk/KernelSU/APatch commands
+│   │   │   │   │   ├── RootChecker.kt            <-- Universal root provider detector
+│   │   │   │   │   └── UsbDetector.kt            <-- Linux UDC gadget state analyzer
 │   │   │   │   └── workers/                      <-- WorkManager tasks (Watchdog, Tripwire)
 │   │   │   ├── AndroidManifest.xml
 │   │   │   └── CameraPermissionBrokerActivity.kt <-- Android 14 BAL permission broker
 │   │   └── build.gradle.kts
+│   ├── package_module.py                         <-- Universal module packager
 │   └── proguard-rules.pro
 └── settings.gradle.kts
 ```
@@ -276,32 +269,35 @@ UncleTed-main/
 ## 🚀 Deployment & Installation Guide
 
 ### Prerequisites
-- A rooted Android device running Android 10 through 14 (rooted via **Magisk**, **KernelSU**, or **APatch**).
-- **LSPosed (Zygisk release)** installed and verified operational in your root manager.
-- A custom recovery (**TWRP** or **OrangeFox**) installed (optional, but recommended for recovery-based installs).
+- A rooted Android device running Android 9 through 14 (rooted via **Magisk**, **KernelSU**, **KernelSU-Next**, or **APatch**).
+- **LSPosed (Zygisk release)** or an actively maintained fork (such as JingMatrix for Android 14+) installed and verified operational.
+- A custom recovery (**TWRP** or **OrangeFox**) installed (optional, for recovery installs).
 
 ---
 
 ### Phase 1: Build or Acquire the Release Artifacts
-You can either download the pre-packaged module `UncleTed-PrivApp-v2.0.zip` directly from the repository's `app/build_output/` folder or build the project yourself:
+You can package the flashable module `UncleTed-PrivApp-v3.0.1.zip` directly:
 1. Open the project inside Android Studio.
 2. Select **Build** -> **Select Build Variant...** -> Set to `release`.
 3. Select **Build** -> **Build Bundle(s) / APK(s)** -> **Build APK(s)**.
-4. Package the flashable zip using `python app/package_module.py`.
+4. Run the universal packager:
+   ```bash
+   python app/package_module.py
+   ```
 
 ---
 
 ### Phase 2: Flashing the Systemless Module (.zip)
-The flashable module `UncleTed-PrivApp-v2.0.zip` installs UncleTed into `/system/priv-app/`, injects the `privapp-permissions-uncleted.xml` whitelist into `/system/etc/permissions/`, and sets all file permissions (`0644`) and ownership (`0:0 root:root`) systemlessly via `overlayfs`.
+The flashable module `UncleTed-PrivApp-v3.0.1.zip` installs UncleTed into `/system/priv-app/`, injects the `privapp-permissions-uncleted.xml` whitelist into `/system/etc/permissions/`, sets all file permissions (`0644`) and ownership (`0:0 root:root`), and applies proper SELinux contexts systemlessly.
 
-#### Option A: Flash via Magisk / KernelSU App (Recommended)
-1. Transfer `app/build_output/UncleTed-PrivApp-v2.0.zip` to your device's internal storage:
+#### Option A: Flash via Magisk / KernelSU / APatch Manager (Recommended)
+1. Transfer `app/build_output/UncleTed-PrivApp-v3.0.1.zip` to your device's internal storage:
    ```bash
-   adb push app/build_output/UncleTed-PrivApp-v2.0.zip /sdcard/
+   adb push app/build_output/UncleTed-PrivApp-v3.0.1.zip /sdcard/
    ```
-2. Open **Magisk** or **KernelSU Manager**.
+2. Open **Magisk**, **KernelSU**, or **APatch Manager**.
 3. Navigate to the **Modules** tab.
-4. Tap **Install from storage**, select `UncleTed-PrivApp-v2.0.zip`, and allow the installer script to run.
+4. Tap **Install from storage**, select `UncleTed-PrivApp-v3.0.1.zip`, and allow the installer script to run.
 5. Tap **Reboot**.
 
 #### Option B: Flash via Custom Recovery (TWRP / OrangeFox)
@@ -309,7 +305,7 @@ The flashable module `UncleTed-PrivApp-v2.0.zip` installs UncleTed into `/system
    ```bash
    adb reboot recovery
    ```
-2. Tap **Install** -> Select `/sdcard/UncleTed-PrivApp-v2.0.zip`.
+2. Tap **Install** -> Select `/sdcard/UncleTed-PrivApp-v3.0.1.zip`.
 3. Swipe to confirm flash.
 4. Tap **Reboot System**.
 
@@ -317,7 +313,7 @@ The flashable module `UncleTed-PrivApp-v2.0.zip` installs UncleTed into `/system
 
 ### Phase 3: Activating the LSPosed Hook
 1. Once the phone reboots, open the **LSPosed Manager** app.
-2. Navigate to the **Modules** tab (puzzle icon).
+2. Navigate to the **Modules** tab.
 3. Tap **UncleTed System Priv-App & Hook**.
 4. Toggle **Enable Module** to **ON**.
 5. Ensure the hook scope includes:
@@ -338,7 +334,7 @@ The flashable module `UncleTed-PrivApp-v2.0.zip` installs UncleTed into `/system
 4. Tap **Save PINs**.
 5. Confirm the platform bridge synchronization notification:
    ```text
-   ✓ PINs saved & OS Hook Bridge Armed (/data/system)
+   ✓ PINs & Native Decoy User Armed (/data/system)
    ```
 
 ---
@@ -355,20 +351,20 @@ adb shell pm path com.hamoon.uncleted
 ```text
 package:/system/priv-app/UncleTed/UncleTed.apk
 ```
-*(If it returns `/data/app/...`, the module overlay has not mounted properly).*
 
-#### 2. Confirm `MASTER_CLEAR` Platform Permission
+#### 2. Confirm `MASTER_CLEAR` and `MANAGE_USERS` Platform Permissions
 ```bash
-adb shell dumpsys package com.hamoon.uncleted | grep -E "MASTER_CLEAR|WRITE_SECURE_SETTINGS"
+adb shell dumpsys package com.hamoon.uncleted | grep -E "MASTER_CLEAR|WRITE_SECURE_SETTINGS|MANAGE_USERS"
 ```
 *Expected output:*
 ```text
 android.permission.MASTER_CLEAR: granted=true
 android.permission.WRITE_SECURE_SETTINGS: granted=true
+android.permission.MANAGE_USERS: granted=true
 ```
 
 #### 3. Verify Direct-Boot Credential Synchronization
-Confirm that the platform bridge file is present in Device-Encrypted space and populated with configured PINs:
+Confirm that the platform bridge file is present in Device-Encrypted space and populated with configured PINs and the decoy user ID:
 ```bash
 adb shell su -c "cat /data/system/uncleted/credentials.cfg"
 ```
@@ -376,6 +372,8 @@ adb shell su -c "cat /data/system/uncleted/credentials.cfg"
 ```text
 wipe_pin=[YOUR_WIPE_PIN]
 duress_pin=[YOUR_DURESS_PIN]
+honeypot_pin=[YOUR_HONEYPOT_PIN]
+decoy_user_id=10
 updated_at=[TIMESTAMP]
 ```
 
@@ -387,23 +385,21 @@ adb logcat -s "UncleTed-LockHook" "PanicActionService"
 Enter your **Duress PIN** on the native Keyguard keypad. Observe:
 ```text
 UncleTed-LockHook: Credential verification intercepted: [length=4]
-UncleTed-LockHook: DURESS PIN matched at OS level. Dispatching duress broadcast.
-PanicActionService: Service executing protocol for: DURESS_PIN (Severity: HIGH)
+UncleTed-LockHook: DURESS PIN matched at OS level. Rejecting unlock & dispatching silent duress broadcast.
+PanicActionService: Service executing protocol for: DURESS_PIN_LOCKSCREEN (Severity: HIGH)
 ```
+*(The Keyguard displays "Wrong PIN" to the coercer while evidence capture runs silently in the background).*
 
-#### 5. Verify Storage Block Controller Discovery
-Confirm that the destruction engine correctly identifies storage blocks on modern devices:
+#### 5. Verify Kernel UDC USB Controller Monitoring
+Confirm that the USB subsystem monitor correctly identifies your device controller state:
 ```bash
-adb shell su -c "ls -d /sys/block/sd* /sys/block/mmcblk* 2>/dev/null"
+adb shell su -c "cat /sys/class/udc/*/state"
 ```
-*Expected output on UFS devices:*
+*Expected output when connected to PC:*
 ```text
-/sys/block/sda  /sys/block/sdb  /sys/block/sdc
+configured
 ```
-*Expected output on eMMC devices:*
-```text
-/sys/block/mmcblk0
-```
+*(When connected to a wall charger or USB-PD power source, this returns `not attached` or empty, preventing false-positive wipes).*
 
 ---
 

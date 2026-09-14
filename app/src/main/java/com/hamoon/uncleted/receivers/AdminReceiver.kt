@@ -10,12 +10,18 @@ import com.hamoon.uncleted.R
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.PanicActionService
 import com.hamoon.uncleted.util.EventLogger
+import com.hamoon.uncleted.util.GodMode
+import com.hamoon.uncleted.util.RootChecker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class AdminReceiver : DeviceAdminReceiver() {
 
     companion object {
         private const val TAG = "AdminReceiver"
         private const val ATTEMPT_DEDUPLICATION_WINDOW_MS = 1500L
+
         @Volatile
         private var lastHandledAttemptTime = 0L
     }
@@ -85,7 +91,19 @@ class AdminReceiver : DeviceAdminReceiver() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             putExtra("REASON", "UNINSTALL_ATTEMPT")
         }
-        context.startActivity(lockIntent)
+
+        // Bypass Android 10+ Background Activity Launch (BAL) restrictions cleanly
+        CoroutineScope(Dispatchers.IO).launch {
+            if (RootChecker.isDeviceRooted()) {
+                GodMode.startActivityInBackground(context, lockIntent)
+            } else {
+                try {
+                    context.startActivity(lockIntent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Standard background activity start dropped by OS BAL restrictions", e)
+                }
+            }
+        }
 
         return context.getString(R.string.admin_disable_warning)
     }

@@ -5,16 +5,15 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 
 /**
- * A simple, manually-controlled LifecycleOwner for use in background services
- * where a traditional UI lifecycle is not available. This is crucial for
- * one-off operations with CameraX in a service.
+ * Manually controlled LifecycleOwner for background services.
+ * Crucial for CameraX: transitions to RESUMED to ensure camera HAL pipes
+ * and output image buffers bind without hanging.
  */
 class FakeLifecycleOwner : LifecycleOwner {
 
     private val lifecycleRegistry = LifecycleRegistry(this)
 
     init {
-        // Start in the CREATED state.
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
     }
 
@@ -22,14 +21,23 @@ class FakeLifecycleOwner : LifecycleOwner {
         get() = lifecycleRegistry
 
     /**
-     * Moves the lifecycle to the STARTED state, allowing CameraX to bind.
+     * Moves the lifecycle to RESUMED, allowing CameraX to bind and capture frames.
      */
     fun start() {
         lifecycleRegistry.currentState = Lifecycle.State.STARTED
+        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+    }
+
+    fun pause() {
+        lifecycleRegistry.currentState = Lifecycle.State.STARTED
+    }
+
+    fun stop() {
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
     }
 
     /**
-     * Moves the lifecycle to the DESTROYED state, ensuring CameraX resources are released.
+     * Moves the lifecycle to DESTROYED, ensuring CameraX resources are cleanly released.
      */
     fun destroy() {
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED

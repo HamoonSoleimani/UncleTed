@@ -9,6 +9,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -38,7 +40,7 @@ class FeaturesFragment : Fragment() {
             if (isGranted) {
                 setCurrentLocationAsGeofence()
             } else {
-                Toast.makeText(requireContext(), "Location permission is required to set a geofence.", Toast.LENGTH_LONG).show()
+                Toast.makeText(requireContext(), "Location permission is required.", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -128,10 +130,6 @@ class FeaturesFragment : Fragment() {
             SecurityPreferences.setSimChangeAlertEnabled(requireContext(), isChecked)
         }
 
-        binding.switchFakeShutdown.setOnCheckedChangeListener { _, isChecked ->
-            SecurityPreferences.setFakeShutdownEnabled(requireContext(), isChecked)
-        }
-
         binding.switchShakeToPanic.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setShakeToPanicEnabled(requireContext(), isChecked)
         }
@@ -165,17 +163,16 @@ class FeaturesFragment : Fragment() {
             }
         }
 
-        // --- Geofence Suicide (Evin Prison) Listener with Persistence ---
         binding.switchGeofenceSuicide.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 MaterialAlertDialogBuilder(requireContext())
-                    .setTitle("ACTIVATE WAR MODE?")
-                    .setMessage("If your phone enters the GPS coordinates of Evin Prison, it will instantly self-destruct.\n\nDo not enable this if you travel near the perimeter.")
+                    .setTitle("ACTIVATE NO-GO SUICIDE?")
+                    .setMessage("If your phone enters active destruction zones, it will instantly self-destruct.\n\nEnsure you configure safe coordinates.")
                     .setPositiveButton("ARM SYSTEM") { _, _ ->
                         SecurityPreferences.setGeofenceSuicideEnabled(requireContext(), true)
                         val intent = Intent(requireContext(), ZoneWipeService::class.java)
                         ContextCompat.startForegroundService(requireContext(), intent)
-                        Toast.makeText(requireContext(), "Geographic Suicide Armed.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(requireContext(), "Geographic Destruction Armed.", Toast.LENGTH_SHORT).show()
                     }
                     .setNegativeButton("Cancel") { _, _ ->
                         binding.switchGeofenceSuicide.isChecked = false
@@ -186,8 +183,12 @@ class FeaturesFragment : Fragment() {
             } else {
                 SecurityPreferences.setGeofenceSuicideEnabled(requireContext(), false)
                 requireContext().stopService(Intent(requireContext(), ZoneWipeService::class.java))
-                Toast.makeText(requireContext(), "Geographic Suicide Disarmed.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "Geographic Destruction Disarmed.", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        binding.btnManageWipeZones.setOnClickListener {
+            showManageWipeZonesDialog()
         }
 
         binding.switchWatchdogMode.setOnCheckedChangeListener { _, isChecked ->
@@ -224,6 +225,132 @@ class FeaturesFragment : Fragment() {
         }
     }
 
+    private fun showManageWipeZonesDialog() {
+        val context = requireContext()
+        val zones = SecurityPreferences.getCustomWipeZones(context)
+        val zoneNames = zones.map { "${it.name} (${if (it.radiusMeters > 0) "${it.radiusMeters.toInt()}m radius" else "${it.polygon.size} pts"})" }.toMutableList()
+        zoneNames.add(0, "[+] Add Current Location as Wipe Zone")
+        zoneNames.add(1, "[+] Add Custom Coordinates (Lat, Lon, Radius)")
+
+        MaterialAlertDialogBuilder(context)
+            .setTitle("Destruction No-Go Zones")
+            .setItems(zoneNames.toTypedArray()) { _, which ->
+                when (which) {
+                    0 -> promptAddCurrentLocationAsWipeZone()
+                    1 -> promptAddManualWipeZone()
+                    else -> {
+                        val selectedZone = zones[which - 2]
+                        promptZoneActions(selectedZone)
+                    }
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun promptAddCurrentLocationAsWipeZone() {
+        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            return
+        }
+
+        val client = LocationServices.getFusedLocationProviderClient(requireActivity())
+        client.lastLocation.addOnSuccessListener { loc ->
+            if (loc != null) {
+                promptZoneRadiusAndName(loc.latitude, loc.longitude)
+            } else {
+                Toast.makeText(requireContext(), "Could not retrieve GPS fix. Try again outdoors.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun promptAddManualWipeZone() {
+        val layout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 24)
+        }
+        val etName = EditText(requireContext()).apply { hint = "Zone Name (e.g. Danger Area)" }
+        val etLat = EditText(requireContext()).apply { hint = "Latitude (e.g. 35.7921)" }
+        val etLon = EditText(requireContext()).apply { hint = "Longitude (e.g. 51.3814)" }
+        val etRadius = EditText(requireContext()).apply { hint = "Radius in meters (e.g. 150)" }
+
+        layout.addView(etName)
+        layout.addView(etLat)
+        layout.addView(etLon)
+        layout.addView(etRadius)
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Create Custom Wipe Zone")
+            .setView(layout)
+            .setPositiveButton("Create") { _, _ ->
+                val name = etName.text.toString().ifEmpty { "Custom Zone" }
+                val lat = etLat.text.toString().toDoubleOrNull()
+                val lon = etLon.text.toString().toDoubleOrNull()
+                val radius = etRadius.text.toString().toFloatOrNull() ?: 100f
+
+                if (lat != null && lon != null) {
+                    val zone = PolygonUtils.WipeZone(
+                        name = name,
+                        centerLat = lat,
+                        centerLon = lon,
+                        radiusMeters = radius,
+                        isEnabled = true
+                    )
+                    SecurityPreferences.addCustomWipeZone(requireContext(), zone)
+                    Toast.makeText(requireContext(), "Destruction Zone '$name' created.", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), "Invalid coordinates.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun promptZoneRadiusAndName(lat: Double, lon: Double) {
+        val layout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 24)
+        }
+        val etName = EditText(requireContext()).apply { hint = "Zone Name" }
+        val etRadius = EditText(requireContext()).apply { hint = "Radius (meters, default 100)" }
+
+        layout.addView(etName)
+        layout.addView(etRadius)
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Arm Current Location")
+            .setMessage("Lat: $lat, Lon: $lon")
+            .setView(layout)
+            .setPositiveButton("Arm Zone") { _, _ ->
+                val name = etName.text.toString().ifEmpty { "Location Zone" }
+                val radius = etRadius.text.toString().toFloatOrNull() ?: 100f
+
+                val zone = PolygonUtils.WipeZone(
+                    name = name,
+                    centerLat = lat,
+                    centerLon = lon,
+                    radiusMeters = radius,
+                    isEnabled = true
+                )
+                SecurityPreferences.addCustomWipeZone(requireContext(), zone)
+                Toast.makeText(requireContext(), "Destruction Zone '$name' armed ($radius m).", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun promptZoneActions(zone: PolygonUtils.WipeZone) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(zone.name)
+            .setMessage("Coordinates: ${zone.centerLat}, ${zone.centerLon}\nRadius: ${zone.radiusMeters}m")
+            .setNeutralButton("Delete Zone") { _, _ ->
+                SecurityPreferences.removeCustomWipeZone(requireContext(), zone.id)
+                Toast.makeText(requireContext(), "Zone '${zone.name}' deleted.", Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
     private fun setupRootListeners() {
         if (!isRooted) return
 
@@ -245,12 +372,11 @@ class FeaturesFragment : Fragment() {
             SecurityPreferences.setRemoteApkUrl(requireContext(), it.toString())
         }
 
-        // --- USB Tripwire Listener with Persistence ---
         binding.switchUsbTripwire.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("EXTREME DANGER")
-                    .setMessage("This feature runs at the KERNEL level. If you connect your locked phone to a PC, car stereo, or charger that initiates data communication, YOUR DATA WILL BE DESTROYED IMMEDIATELY.")
+                    .setMessage("This feature monitors the Kernel USB subsystem. Connecting your locked phone to a computer will erase data immediately.")
                     .setPositiveButton("I Understand") { _, _ ->
                         SecurityPreferences.setUsbTripwireEnabled(requireContext(), true)
                         val intent = Intent(requireContext(), UsbTripwireService::class.java)
@@ -353,10 +479,8 @@ class FeaturesFragment : Fragment() {
         binding.switchIntruderSelfie.isChecked = isIntruderSelfieEnabled
         binding.switchSaveSelfieToStorage.isChecked = SecurityPreferences.isSaveSelfieToStorageEnabled(context)
         binding.switchSimChangeAlert.isChecked = SecurityPreferences.isSimChangeAlertEnabled(context)
-        binding.switchFakeShutdown.isChecked = SecurityPreferences.isFakeShutdownEnabled(context)
         binding.switchShakeToPanic.isChecked = SecurityPreferences.isShakeToPanicEnabled(context)
 
-        // Persistent Geofence Suicide Switch State
         binding.switchGeofenceSuicide.isChecked = SecurityPreferences.isGeofenceSuicideEnabled(context)
 
         binding.switchStealthMode.isChecked = isStealthModeEnabled()
@@ -406,7 +530,6 @@ class FeaturesFragment : Fragment() {
             binding.etRemoteApkUrl.setText(SecurityPreferences.getRemoteApkUrl(context))
             binding.layoutRemoteApkUrl.isEnabled = isSilentInstallEnabled
 
-            // Persistent USB Tripwire Switch State
             binding.switchUsbTripwire.isChecked = SecurityPreferences.isUsbTripwireEnabled(context)
 
             binding.switchRootFirewallTripwire.isChecked = SecurityPreferences.isFirewallTripwireEnabled(context)

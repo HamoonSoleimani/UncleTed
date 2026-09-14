@@ -10,7 +10,6 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.hamoon.uncleted.FakeShutdownActivity
 import com.hamoon.uncleted.LockScreenActivity
 import com.hamoon.uncleted.R
 import com.hamoon.uncleted.databinding.FragmentManualActionsBinding
@@ -75,13 +74,6 @@ class ManualActionsFragment : Fragment() {
                     startActivity(intent)
                 }
                 .show()
-        }
-
-        binding.btnFakeShutdown.setOnClickListener {
-            val intent = Intent(requireContext(), FakeShutdownActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            }
-            startActivity(intent)
         }
 
         // =================================================================================

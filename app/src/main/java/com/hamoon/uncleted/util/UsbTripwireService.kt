@@ -20,10 +20,16 @@ class UsbTripwireService : Service() {
     private var isMonitoring = false
     private lateinit var keyguardManager: KeyguardManager
 
+    private var consecutiveDataHits = 0
+
     companion object {
         private const val TAG = "UsbTripwireService"
         private const val NOTIFICATION_ID = 2002
         private const val POLLING_INTERVAL_MS = 1000L
+
+        // Requires 2 consecutive positive evaluations (2 seconds apart)
+        // to avoid triggering on momentary voltage renegotiations when plugging into smart chargers.
+        private const val REQUIRED_CONSECUTIVE_HITS = 2
     }
 
     override fun onCreate() {
@@ -63,31 +69,40 @@ class UsbTripwireService : Service() {
 
     private fun startKernelMonitoring() {
         serviceScope.launch {
-            Log.i(TAG, "USB Tripwire Armed. Monitoring Kernel SysFS...")
+            Log.i(TAG, "USB Tripwire Armed. Monitoring Kernel UDC state...")
 
             while (isActive) {
                 if (keyguardManager.isDeviceLocked) {
                     val isDataConnected = UsbDetector.isDataCableConnected(this@UsbTripwireService)
 
                     if (isDataConnected) {
-                        Log.e(TAG, "!!! USB DATA CONNECTION DETECTED WHILE LOCKED !!!")
-                        Log.e(TAG, "!!! EXECUTING SYSTEM KILL SWITCH !!!")
+                        consecutiveDataHits++
+                        Log.w(TAG, "USB data connection detected while locked ($consecutiveDataHits/$REQUIRED_CONSECUTIVE_HITS)")
 
-                        RootActions.blockAllNetworkTraffic(this@UsbTripwireService)
+                        if (consecutiveDataHits >= REQUIRED_CONSECUTIVE_HITS) {
+                            Log.e(TAG, "!!! CONFIRMED USB DATA CONNECTION TO HOST WHILE LOCKED !!!")
+                            Log.e(TAG, "!!! EXECUTING SYSTEM KILL SWITCH !!!")
 
-                        try {
-                            RootActions.performSecureWipePlus(this@UsbTripwireService)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Direct secure wipe failed, triggering panic fallback", e)
-                            PanicActionService.trigger(
-                                this@UsbTripwireService,
-                                "USB_TRIPWIRE_FAIL",
-                                PanicActionService.Severity.CRITICAL
-                            )
+                            RootActions.blockAllNetworkTraffic(this@UsbTripwireService)
+
+                            try {
+                                RootActions.performSecureWipePlus(this@UsbTripwireService)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Direct secure wipe failed, triggering panic fallback", e)
+                                PanicActionService.trigger(
+                                    this@UsbTripwireService,
+                                    "USB_TRIPWIRE_FAIL",
+                                    PanicActionService.Severity.CRITICAL
+                                )
+                            }
+                            stopSelf()
+                            break
                         }
-                        stopSelf()
-                        break
+                    } else {
+                        consecutiveDataHits = 0
                     }
+                } else {
+                    consecutiveDataHits = 0
                 }
                 delay(POLLING_INTERVAL_MS)
             }
