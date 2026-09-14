@@ -39,7 +39,6 @@ object CameraHandler {
             val cameraProvider = getCameraProvider(context)
             val imageCapture = ImageCapture.Builder().build()
 
-            // Safe unbind to prevent use-case conflicts
             try { cameraProvider.unbindAll() } catch (_: Exception) {}
 
             val cameraSelector = try {
@@ -54,7 +53,12 @@ object CameraHandler {
                 return@withContext null
             }
 
-            cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, imageCapture)
+            val camera = try {
+                cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, imageCapture)
+            } catch (bindEx: Exception) {
+                Log.e(TAG, "bindToLifecycle rejected by CameraService: ${bindEx.message}")
+                return@withContext null
+            }
 
             val photoFile = File(
                 context.filesDir,
@@ -62,6 +66,15 @@ object CameraHandler {
             )
 
             return@withContext suspendCancellableCoroutine { continuation ->
+                // Monitor camera state transitions to fail fast if rejected by CameraService
+                // (e.g. validateClientPermissionsLocked: Callers from device user are not allowed)
+                camera.cameraInfo.cameraState.observe(lifecycleOwner) { state ->
+                    if (state.type == CameraState.Type.CLOSED && state.error != null) {
+                        Log.e(TAG, "Camera closed with error: ${state.error?.code}. Aborting capture.")
+                        if (continuation.isActive) continuation.resume(null)
+                    }
+                }
+
                 imageCapture.takePicture(
                     ImageCapture.OutputFileOptions.Builder(photoFile).build(),
                     ContextCompat.getMainExecutor(context),
@@ -79,10 +92,9 @@ object CameraHandler {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Could not take photo", e)
+            Log.e(TAG, "Could not take photo: ${e.message}", e)
             return@withContext null
         } finally {
-            // Cleanup
             try { getCameraProvider(context).unbindAll() } catch (_: Exception) {}
         }
     }
@@ -92,7 +104,6 @@ object CameraHandler {
         try {
             val cameraProvider = getCameraProvider(context)
 
-            // Safe unbind
             try { cameraProvider.unbindAll() } catch (_: Exception) {}
 
             val qualitySelector = QualitySelector.from(Quality.SD, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))
@@ -113,7 +124,12 @@ object CameraHandler {
                 return@withContext null
             }
 
-            cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, videoCapture)
+            val camera = try {
+                cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, videoCapture)
+            } catch (bindEx: Exception) {
+                Log.e(TAG, "bindToLifecycle for video rejected: ${bindEx.message}")
+                return@withContext null
+            }
 
             val videoFile = File(
                 context.filesDir,
@@ -121,6 +137,13 @@ object CameraHandler {
             )
 
             return@withContext suspendCancellableCoroutine { continuation ->
+                camera.cameraInfo.cameraState.observe(lifecycleOwner) { state ->
+                    if (state.type == CameraState.Type.CLOSED && state.error != null) {
+                        Log.e(TAG, "Camera closed during video init: ${state.error?.code}")
+                        if (continuation.isActive) continuation.resume(null)
+                    }
+                }
+
                 var recording: Recording? = null
 
                 val listener = androidx.core.util.Consumer<VideoRecordEvent> { recordEvent ->
@@ -151,7 +174,6 @@ object CameraHandler {
                     return@suspendCancellableCoroutine
                 }
 
-                // Stop recording after the specified duration
                 CoroutineScope(Dispatchers.Main).launch {
                     delay(durationSeconds * 1000L)
                     try {
@@ -162,13 +184,12 @@ object CameraHandler {
                     }
                 }
 
-                // Ensure recording stops if the coroutine is cancelled externally
                 continuation.invokeOnCancellation {
                     try { recording?.stop() } catch (_: Exception) {}
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Could not record video", e)
+            Log.e(TAG, "Could not record video: ${e.message}", e)
             return@withContext null
         } finally {
             try { getCameraProvider(context).unbindAll() } catch (_: Exception) {}

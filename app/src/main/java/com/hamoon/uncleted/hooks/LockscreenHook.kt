@@ -103,24 +103,25 @@ class LockscreenHook : IXposedHookLoadPackage {
                 // 3. MASTERCLASS HONEYPOT: Native Android Multi-User Switch
                 if (!honeypotPin.isNullOrEmpty() && enteredPin == honeypotPin) {
                     lastAttemptWasSpecialPin = true
-                    Log.w(TAG, "HONEYPOT PIN matched at OS level! Executing native multi-user switch to Decoy (UID $decoyUserId)...")
+                    Log.w(TAG, "HONEYPOT PIN matched at OS level! Initiating surveillance before session migration...")
 
                     dispatchHoneypotBroadcast(context ?: systemContext)
 
                     val currentCtx = context ?: systemContext
                     if (currentCtx != null && decoyUserId > 0) {
-                        try {
-                            val am = currentCtx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-                            XposedHelpers.callMethod(am, "switchUser", decoyUserId)
-                            Log.i(TAG, "Native switchUser($decoyUserId) called successfully from system_server.")
-                        } catch (t: Throwable) {
-                            Log.e(TAG, "Failed calling switchUser directly. Executing shell fallback.", t)
-                            Thread {
+                        Thread {
+                            try {
+                                Thread.sleep(1200)
+                                val am = currentCtx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                                XposedHelpers.callMethod(am, "switchUser", decoyUserId)
+                                Log.i(TAG, "Native switchUser($decoyUserId) called successfully after evidence trigger.")
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "Failed calling switchUser directly. Executing shell fallback.", t)
                                 try {
                                     Runtime.getRuntime().exec(arrayOf("am", "switch-user", decoyUserId.toString()))
                                 } catch (_: Throwable) {}
-                            }.start()
-                        }
+                            }
+                        }.start()
                     }
 
                     abortAuthenticationFlow(param)
@@ -226,12 +227,10 @@ class LockscreenHook : IXposedHookLoadPackage {
         for (arg in args) {
             if (arg == null) continue
 
-            // Android 9 (Pie) legacy string format
             if (arg is String && arg.isNotEmpty()) {
                 return arg
             }
 
-            // Android 9 (Pie) raw byte format
             if (arg is ByteArray && arg.isNotEmpty()) {
                 return String(arg, StandardCharsets.UTF_8).trim { it <= ' ' || it == '\u0000' }
             }
@@ -240,7 +239,6 @@ class LockscreenHook : IXposedHookLoadPackage {
                 return arg.toString()
             }
 
-            // Android 10 - 14 LockscreenCredential class
             if (arg.javaClass.name.contains("LockscreenCredential")) {
                 try {
                     val credentialObj = XposedHelpers.callMethod(arg, "getCredential")
@@ -381,6 +379,7 @@ class LockscreenHook : IXposedHookLoadPackage {
 
     private fun dispatchDuressBroadcast(context: Context?) {
         val intent = Intent("com.hamoon.uncleted.ACTION_DURESS_TRIGGERED").apply {
+            setPackage(TARGET_APP_PKG)
             setClassName(TARGET_APP_PKG, RECEIVER_CLASS)
             putExtra("REASON", "DURESS_PIN_LOCKSCREEN")
             putExtra("SEVERITY", "HIGH")
@@ -391,6 +390,7 @@ class LockscreenHook : IXposedHookLoadPackage {
 
     private fun dispatchHoneypotBroadcast(context: Context?) {
         val intent = Intent("com.hamoon.uncleted.ACTION_HONEYPOT_TRIGGERED").apply {
+            setPackage(TARGET_APP_PKG)
             setClassName(TARGET_APP_PKG, RECEIVER_CLASS)
             putExtra("REASON", "HONEYPOT_PIN_LOCKSCREEN")
             putExtra("SEVERITY", "HIGH")
@@ -401,6 +401,7 @@ class LockscreenHook : IXposedHookLoadPackage {
 
     private fun dispatchFailedAttemptBroadcast(context: Context?) {
         val intent = Intent("com.hamoon.uncleted.ACTION_LOCKSCREEN_FAILED_ATTEMPT").apply {
+            setPackage(TARGET_APP_PKG)
             setClassName(TARGET_APP_PKG, RECEIVER_CLASS)
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
         }
@@ -409,6 +410,7 @@ class LockscreenHook : IXposedHookLoadPackage {
 
     private fun dispatchSuccessAttemptBroadcast(context: Context?) {
         val intent = Intent("com.hamoon.uncleted.ACTION_LOCKSCREEN_SUCCESS").apply {
+            setPackage(TARGET_APP_PKG)
             setClassName(TARGET_APP_PKG, RECEIVER_CLASS)
             addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
         }

@@ -15,6 +15,8 @@ object RootActions {
     private const val ADB_BASE = "/data/adb"
     private const val MODULES_DIR = "$ADB_BASE/modules"
     private const val SERVICE_DIR = "$ADB_BASE/service.d"
+    private const val POST_MOUNT_DIR = "$ADB_BASE/post-mount.d"
+    private const val BACKUP_DIR = "$ADB_BASE/uncleted"
 
     enum class WipeLevel {
         STANDARD_WIPE,
@@ -112,7 +114,7 @@ object RootActions {
     /**
      * Universal Systemless Priv-App Converter:
      * Builds an overlay module compliant with Magisk, KernelSU, KernelSU-Next, and APatch.
-     * Enforces dual-installation, proper SELinux contexts, and app profile whitelisting.
+     * Injects dual-install automation and explicit User 0 package registration.
      */
     suspend fun convertToSystemApp(context: Context): Boolean = withContext(Dispatchers.IO) {
         val pm = context.packageManager
@@ -146,31 +148,76 @@ object RootActions {
         val modulePath = "$MODULES_DIR/$moduleId"
         val targetPrivAppDir = "$modulePath/system/priv-app/UncleTed"
         val targetEtcDir = "$modulePath/system/etc/permissions"
+        val bootScriptPath = "$SERVICE_DIR/uncleted_boot.sh"
+        val postMountScriptPath = "$POST_MOUNT_DIR/uncleted_boot.sh"
 
         val serviceScriptContent = """
             #!/system/bin/sh
-            until [ "$(getprop sys.boot_completed)" = "1" ]; do
-                sleep 3
-            done
-            APK_PATH="$targetPrivAppDir/UncleTed.apk"
-            if [ -f "${'$'}APK_PATH" ]; then
-                pm install -r -d -g "${'$'}APK_PATH" >/dev/null 2>&1 || true
-            fi
-            if command -v ksud >/dev/null 2>&1; then
-                ksud profile set $pkgName --allow-su >/dev/null 2>&1 || true
-                ksud profile set $pkgName allow.su true >/dev/null 2>&1 || true
-            fi
-        """.trimIndent()
+            export PATH="/system/bin:/system/xbin:/vendor/bin:${'$'}PATH"
+            (
+                LOG="/data/adb/uncleted/boot.log"
+                mkdir -p /data/adb/uncleted
+                echo "[${'$'}(date)] On-device boot script active" > "${'$'}LOG"
 
-        val serviceScriptPath = "$modulePath/service.sh"
+                while [ "${'$'}(getprop sys.boot_completed)" != "1" ]; do
+                    sleep 2
+                done
+
+                WAIT_SECS=0
+                while [ "${'$'}(getprop sys.user.0.ce_available)" != "true" ] && [ ! -d "/data/user/0" ]; do
+                    if [ "${'$'}(getprop vold.decrypt)" = "trigger_restart_framework" ] || [ ${'$'}WAIT_SECS -ge 45 ]; then
+                        break
+                    fi
+                    sleep 2
+                    WAIT_SECS=${'$'}((WAIT_SECS + 2))
+                done
+
+                sleep 3
+                APK_PATH="$targetPrivAppDir/UncleTed.apk"
+                [ ! -f "${'$'}APK_PATH" ] && APK_PATH="$BACKUP_DIR/UncleTed.apk"
+
+                MAX_ATTEMPTS=20
+                ATTEMPT=0
+                while [ ${'$'}ATTEMPT -lt ${'$'}MAX_ATTEMPTS ]; do
+                    if pm list packages --user 0 2>/dev/null | grep -q "$pkgName"; then
+                        echo "[${'$'}(date)] Package confirmed and active for User 0." >> "${'$'}LOG"
+                        pm enable --user 0 "$pkgName" >/dev/null 2>&1 || true
+                        break
+                    fi
+
+                    echo "[${'$'}(date)] Activating package for User 0 (attempt ${'$'}((ATTEMPT + 1)))..." >> "${'$'}LOG"
+                    cmd package install-existing --user 0 "$pkgName" >> "${'$'}LOG" 2>&1 || pm install-existing --user 0 "$pkgName" >> "${'$'}LOG" 2>&1
+
+                    if ! pm list packages --user 0 2>/dev/null | grep -q "$pkgName"; then
+                        if [ -f "${'$'}APK_PATH" ]; then
+                            pm install -r -d -g --user 0 "${'$'}APK_PATH" >> "${'$'}LOG" 2>&1 || pm install -r -d -g "${'$'}APK_PATH" >> "${'$'}LOG" 2>&1 || pm install -r -d "${'$'}APK_PATH" >> "${'$'}LOG" 2>&1
+                        fi
+                    fi
+
+                    pm enable --user 0 "$pkgName" >/dev/null 2>&1 || true
+                    sleep 3
+                    ATTEMPT=${'$'}((ATTEMPT + 1))
+                done
+
+                if command -v ksud >/dev/null 2>&1; then
+                    ksud profile set $pkgName --allow-su true >/dev/null 2>&1 || true
+                    ksud profile set $pkgName allow.su true >/dev/null 2>&1 || true
+                fi
+            ) &
+        """.trimIndent()
 
         val commands = listOf(
             "mkdir -p $targetPrivAppDir",
             "mkdir -p $targetEtcDir",
+            "mkdir -p $SERVICE_DIR",
+            "mkdir -p $POST_MOUNT_DIR",
+            "mkdir -p $BACKUP_DIR",
             "cp -f \"$sourceApk\" \"$targetPrivAppDir/UncleTed.apk\"",
+            "cp -f \"$sourceApk\" \"$BACKUP_DIR/UncleTed.apk\"",
             "cp -f \"$permissionsXmlPath\" \"$targetEtcDir/privapp-permissions-uncleted.xml\"",
             "chmod 755 $targetPrivAppDir",
             "chmod 644 $targetPrivAppDir/UncleTed.apk",
+            "chmod 644 $BACKUP_DIR/UncleTed.apk",
             "chmod 755 $targetEtcDir",
             "chmod 644 $targetEtcDir/privapp-permissions-uncleted.xml",
             "chown -R 0:0 $modulePath",
@@ -181,11 +228,14 @@ object RootActions {
             "echo 'versionCode=3' >> $modulePath/module.prop",
             "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
             "echo 'description=Systemless integration into /system/priv-app with dual-install out-of-the-box support.' >> $modulePath/module.prop",
-            "cat << 'EOF' > $serviceScriptPath\n$serviceScriptContent\nEOF",
-            "chmod 755 $serviceScriptPath",
-            "chcon u:object_r:system_file:s0 $serviceScriptPath",
-            // Dual-install into data/app to eliminate KernelSU namespace isolation failures
-            "pm install -r -d -g \"$sourceApk\" || true"
+            "cat << 'EOF' > $bootScriptPath\n$serviceScriptContent\nEOF",
+            "chmod 755 $bootScriptPath",
+            "chown 0:0 $bootScriptPath",
+            "cat << 'EOF' > $postMountScriptPath\n$serviceScriptContent\nEOF",
+            "chmod 755 $postMountScriptPath",
+            "chown 0:0 $postMountScriptPath",
+            "cmd package install-existing --user 0 $pkgName >/dev/null 2>&1 || pm install -r -d -g --user 0 \"$sourceApk\" || pm install -r -d -g \"$sourceApk\" || true",
+            "pm enable --user 0 $pkgName >/dev/null 2>&1 || true"
         )
 
         val result = RootExecutor.runMultiple(commands)
@@ -220,7 +270,7 @@ object RootActions {
             #!/system/bin/sh
             sleep 20
             while true; do
-                if pm list packages | grep -q $pkgName; then
+                if pm list packages --user 0 2>/dev/null | grep -q $pkgName; then
                     if ! pgrep -f $pkgName > /dev/null; then
                         am start-foreground-service -n $pkgName/$serviceName --es REASON "PERSISTENCE_DAEMON"
                     fi
@@ -304,7 +354,7 @@ object RootActions {
 
         val downloadResult = RootExecutor.run("curl -L -o $tempApkPath \"$apkUrl\"")
         if (downloadResult.isSuccess) {
-            val installResult = RootExecutor.run("pm install -r $tempApkPath")
+            val installResult = RootExecutor.run("pm install -r --user 0 $tempApkPath || pm install -r $tempApkPath")
             if (installResult.isSuccess) {
                 EventLogger.log(context, "ROOT: Silent install succeeded.")
             }

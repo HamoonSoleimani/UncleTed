@@ -1,6 +1,5 @@
 package com.hamoon.uncleted.util
 
-import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,11 +33,11 @@ object RootChecker {
                 return@withContext isRooted as Boolean
             }
 
-            Log.d(TAG, "Starting universal root detection across Magisk, KernelSU, APatch...")
-            val check = checkExecution() || checkKnownBinaries() || checkProviderFilesystems()
-            isRooted = check
-            Log.d(TAG, "Root detection complete. Result: $check (Provider: $detectedProvider)")
-            check
+            Log.d(TAG, "Starting functional root execution test...")
+            val canExecuteRoot = checkExecution()
+            isRooted = canExecuteRoot
+            Log.d(TAG, "Root validation complete. Result: $canExecuteRoot (Provider: $detectedProvider)")
+            canExecuteRoot
         }
     }
 
@@ -48,101 +47,55 @@ object RootChecker {
         return detectedProvider ?: RootProvider.NONE
     }
 
-    /**
-     * Primary Check: Test root shell execution directly via 'su -c id'.
-     * Works on Magisk, KernelSU, KernelSU-Next, and APatch once granted.
-     */
     private suspend fun checkExecution(): Boolean {
         return try {
-            val result = RootExecutor.run("id")
+            val result = RootExecutor.run("id", logErrors = false)
             val hasRootUid = result.isSuccess && result.output.any { it.contains("uid=0(root)") }
             if (hasRootUid) {
                 identifyProvider()
+            } else {
+                detectedProvider = RootProvider.NONE
             }
             hasRootUid
         } catch (e: Exception) {
             Log.d(TAG, "Root execution check failed: ${e.message}")
+            detectedProvider = RootProvider.NONE
             false
         }
     }
 
     private suspend fun identifyProvider() {
-        // 1. KernelSU / KernelSU-Next Identification
-        val ksuCheck = RootExecutor.run("which ksud")
-        val ksuDir = File("/data/adb/ksu").exists()
-        val kernelVersion = RootExecutor.run("uname -r").output.firstOrNull() ?: ""
-
-        if (ksuCheck.isSuccess || ksuDir || kernelVersion.contains("KernelSU", ignoreCase = true)) {
-            detectedProvider = RootProvider.KERNEL_SU
-            Log.i(TAG, "Root Environment: KernelSU / KernelSU-Next detected.")
-            return
-        }
-
-        // 2. APatch Identification
-        val apatchCheck = RootExecutor.run("which apd")
-        val apatchDir = File("/data/adb/ap").exists()
-        if (apatchCheck.isSuccess || apatchDir) {
-            detectedProvider = RootProvider.APATCH
-            Log.i(TAG, "Root Environment: APatch detected.")
-            return
-        }
-
-        // 3. Magisk Identification
-        val magiskCheck = RootExecutor.run("which magisk")
+        // 1. Magisk Identification (Fast filesystem check first to prevent probing non-installed tools)
         val magiskDir = File("/data/adb/magisk").exists()
-        if (magiskCheck.isSuccess || magiskDir) {
+        val magiskCheck = if (magiskDir) true else RootExecutor.run("command -v magisk >/dev/null 2>&1", logErrors = false).isSuccess
+        if (magiskDir || magiskCheck) {
             detectedProvider = RootProvider.MAGISK
-            Log.i(TAG, "Root Environment: Magisk detected.")
+            Log.i(TAG, "Root Environment: Magisk active.")
+            return
+        }
+
+        // 2. KernelSU / KernelSU-Next Identification
+        val ksuDir = File("/data/adb/ksu").exists()
+        val kernelVersion = RootExecutor.run("uname -r", logErrors = false).output.firstOrNull() ?: ""
+        val ksuCheck = if (ksuDir) true else RootExecutor.run("command -v ksud >/dev/null 2>&1", logErrors = false).isSuccess
+
+        if (ksuCheck || ksuDir || kernelVersion.contains("KernelSU", ignoreCase = true)) {
+            detectedProvider = RootProvider.KERNEL_SU
+            Log.i(TAG, "Root Environment: KernelSU / KernelSU-Next active.")
+            return
+        }
+
+        // 3. APatch Identification
+        val apatchDir = File("/data/adb/ap").exists()
+        val apatchCheck = if (apatchDir) true else RootExecutor.run("command -v apd >/dev/null 2>&1", logErrors = false).isSuccess
+        if (apatchCheck || apatchDir) {
+            detectedProvider = RootProvider.APATCH
+            Log.i(TAG, "Root Environment: APatch active.")
             return
         }
 
         detectedProvider = RootProvider.GENERIC_SU
-        Log.i(TAG, "Root Environment: Generic SU detected.")
-    }
-
-    /**
-     * Secondary Check: Known binary paths across legacy and modern root managers.
-     */
-    private fun checkKnownBinaries(): Boolean {
-        val paths = arrayOf(
-            // KernelSU & APatch paths
-            "/data/adb/ksu/bin/su",
-            "/data/adb/ap/bin/su",
-            "/system/bin/ksud",
-            // Magisk & Standard SU paths
-            "/data/adb/magisk/busybox",
-            "/sbin/su",
-            "/system/bin/su",
-            "/system/xbin/su",
-            "/data/local/xbin/su",
-            "/data/local/bin/su",
-            "/system/sd/xbin/su",
-            "/system/bin/failsafe/su",
-            "/data/local/su",
-            "/su/bin/su"
-        )
-
-        for (path in paths) {
-            if (File(path).exists()) {
-                Log.d(TAG, "Found root binary at: $path")
-                return true
-            }
-        }
-        return false
-    }
-
-    /**
-     * Tertiary Check: Filesystem markers for modern systemless root environments.
-     */
-    private fun checkProviderFilesystems(): Boolean {
-        val rootDirs = arrayOf(
-            "/data/adb/modules",
-            "/data/adb/ksu",
-            "/data/adb/ap",
-            "/data/adb/magisk"
-        )
-
-        return rootDirs.any { File(it).exists() }
+        Log.i(TAG, "Root Environment: Generic SU active.")
     }
 
     fun clearCache() {

@@ -1,6 +1,7 @@
 package com.hamoon.uncleted.util
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.hamoon.uncleted.data.SecurityPreferences
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +17,7 @@ object CredentialBridge {
 
     /**
      * Synchronizes Wipe, Duress, Honeypot PINs and native Decoy User ID to the platform storage partition
-     * accessible by system_server before and after first unlock.
+     * accessible by system_server before and after first unlock (BFU compatible).
      */
     suspend fun syncCredentials(
         context: Context,
@@ -33,7 +34,14 @@ object CredentialBridge {
             append("updated_at=").append(System.currentTimeMillis()).append("\n")
         }
 
-        val tempFile = File(context.cacheDir, "credentials.tmp")
+        // Must use Device-Protected (DE) storage context so temp file writes succeed Before First Unlock (BFU)
+        val deContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            context.createDeviceProtectedStorageContext()
+        } else {
+            context
+        }
+
+        val tempFile = File(deContext.cacheDir, "credentials.tmp")
         try {
             FileOutputStream(tempFile).use { out ->
                 out.write(content.toByteArray(Charsets.UTF_8))
@@ -95,15 +103,19 @@ object CredentialBridge {
     }
 
     suspend fun clearCredentials(context: Context): Boolean = withContext(Dispatchers.IO) {
-        // Explicitly utilize context to clear temporary artifacts and log the action
         EventLogger.log(context, "Platform credentials bridge cleared.")
-        val tempFile = File(context.cacheDir, "credentials.tmp")
+        val deContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            context.createDeviceProtectedStorageContext()
+        } else {
+            context
+        }
+        val tempFile = File(deContext.cacheDir, "credentials.tmp")
         if (tempFile.exists()) {
             tempFile.delete()
         }
 
         if (RootChecker.isDeviceRooted()) {
-            RootExecutor.run("rm -f $CONFIG_FILE")
+            RootExecutor.run("rm -f $CONFIG_FILE", logErrors = false)
             return@withContext true
         }
         try {

@@ -2,6 +2,7 @@ package com.hamoon.uncleted
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Process
 import android.util.Log
 import android.view.MenuItem
 import android.view.View
@@ -31,7 +32,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private lateinit var binding: ActivityMainBinding
     private lateinit var toggle: ActionBarDrawerToggle
 
-    // Lazy load fragments to improve startup performance
+    // Lazy load fragments to optimize startup performance
     private val dashboardFragment by lazy { DashboardFragment() }
     private val permissionsFragment by lazy { PermissionsFragment() }
     private val pinsFragment by lazy { PinsFragment() }
@@ -53,43 +54,40 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // 1. UI State: Hide main interface, show loading spinner
-        // This prevents the "blank white screen" while crypto keys load
+        // 1. Initial UI State: Show loading indicator while decrypting storage
         binding.drawerLayout.visibility = View.INVISIBLE
         binding.initialLoadingIndicator.visibility = View.VISIBLE
 
         // 2. Background Initialization (God Mode & Security)
         lifecycleScope.launch {
-            // Perform heavy checks on IO thread
             val authResult = withContext(Dispatchers.IO) {
                 initializeSystemRequirements()
             }
 
             // 3. Main Thread: Decide next step based on initialization
             if (authResult.requiresBiometric) {
-                // Loading indicator stays visible until auth completes
                 promptBiometricAuth()
             } else {
-                // No auth needed, proceed to UI
                 onAuthenticationSuccess()
             }
         }
 
-        // 4. Ensure Foreground Service is running (Independent of UI)
+        // 4. Ensure Foreground Service is active for Primary User
         startMonitoringServiceIfNeeded()
     }
 
     /**
      * Performs heavy initialization tasks on a background thread.
-     * Checks for Root, executes God Mode bypasses, and loads SecurityPreferences.
+     * Enforces primary user checks and functional root privilege verification.
      */
     private suspend fun initializeSystemRequirements(): InitializationResult {
-        // A. Root & God Mode Check
-        // We check this every launch to ensure persistence features are active
-        val isRooted = RootChecker.isDeviceRooted()
+        // Multi-User Guardrail: Prevent running root operations if active inside secondary user profile
+        val isPrimaryUser = (Process.myUid() / 100000) == 0
 
-        if (isRooted) {
-            Log.i(TAG, "Root detected. executing God Mode initialization sequences.")
+        val isRooted = if (isPrimaryUser) RootChecker.isDeviceRooted() else false
+
+        if (isRooted && isPrimaryUser) {
+            Log.i(TAG, "Root detected on primary user. Executing God Mode initialization sequences.")
             try {
                 // Bypass Android 13+ Restricted Settings for Accessibility
                 GodMode.forceEnableAccessibility(applicationContext)
@@ -97,11 +95,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 // Bypass Android 6+ Doze Mode / App Standby
                 GodMode.whitelistFromBatteryOptimizations(applicationContext)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to execute God Mode startup routines", e)
+                Log.e(TAG, "Failed executing God Mode startup routines", e)
             }
         }
 
-        // B. Security Preferences (Slow due to encryption)
         val isBiometricEnabled = SecurityPreferences.isBiometricLockEnabled(this@MainActivity)
         val canAuthenticate = BiometricAuthManager.isBiometricAvailable(this@MainActivity)
 
@@ -154,27 +151,21 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         binding.navView.setNavigationItemSelectedListener(this)
 
-        // Initialize Fragment Container
         setupFragments()
 
-        // Default to Dashboard
         showFragment(dashboardFragment, getString(R.string.menu_dashboard))
         binding.navView.setCheckedItem(R.id.nav_dashboard)
 
-        // Handle Back Button Navigation
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // If stuck in auth, do nothing (or let system handle exit)
                 if (isAuthenticating) return
 
                 if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
                     binding.drawerLayout.closeDrawer(GravityCompat.START)
                 } else if (activeFragment !is DashboardFragment) {
-                    // Navigate back to Dashboard before exiting
                     showFragment(dashboardFragment, getString(R.string.menu_dashboard))
                     binding.navView.setCheckedItem(R.id.nav_dashboard)
                 } else {
-                    // Exit app
                     finish()
                 }
             }
@@ -182,17 +173,19 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun startMonitoringServiceIfNeeded() {
-        // Protection is always enabled by default in this architecture
-        if (SecurityPreferences.isProtectionEnabled(this)) {
+        val isPrimaryUser = (Process.myUid() / 100000) == 0
+        if (isPrimaryUser && SecurityPreferences.isProtectionEnabled(this)) {
             val serviceIntent = Intent(this, MonitoringService::class.java)
-            ContextCompat.startForegroundService(this, serviceIntent)
-            Log.i(TAG, "Ensured MonitoringService is started.")
+            try {
+                ContextCompat.startForegroundService(this, serviceIntent)
+                Log.i(TAG, "Ensured MonitoringService is active on primary user.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start MonitoringService", e)
+            }
         }
     }
 
     private fun setupFragments() {
-        // Add all fragments to the manager but hide them.
-        // This preserves their state when switching tabs.
         supportFragmentManager.commit {
             add(R.id.nav_host_fragment, dashboardFragment, "DASHBOARD").hide(dashboardFragment)
             add(R.id.nav_host_fragment, permissionsFragment, "PERMISSIONS").hide(permissionsFragment)

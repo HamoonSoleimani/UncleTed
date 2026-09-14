@@ -25,14 +25,13 @@ object RootExecutor {
             get() = exitCode != -1
     }
 
-    suspend fun run(command: String): CommandResult = withContext(Dispatchers.IO) {
+    suspend fun run(command: String, logErrors: Boolean = true): CommandResult = withContext(Dispatchers.IO) {
         var process: Process? = null
         return@withContext try {
             Log.d(TAG, "Executing root command: '$command'")
 
             process = ProcessBuilder("su").start()
 
-            // 1. Handle Input (Write Command)
             DataOutputStream(process.outputStream).use { os ->
                 os.writeBytes("$command\n")
                 os.flush()
@@ -40,24 +39,22 @@ object RootExecutor {
                 os.flush()
             }
 
-            // 2. Handle Output asynchronously (Prevents Deadlock)
             val outputDeferred = async(Dispatchers.IO) {
                 try {
                     process.inputStream.bufferedReader().readLines()
-                } catch (e: Exception) { emptyList<String>() }
+                } catch (_: Exception) { emptyList<String>() }
             }
 
             val errorDeferred = async(Dispatchers.IO) {
                 try {
                     process.errorStream.bufferedReader().readLines()
-                } catch (e: Exception) { emptyList<String>() }
+                } catch (_: Exception) { emptyList<String>() }
             }
 
-            // 3. Wait for process
             val processCompleted = process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
 
             if (!processCompleted) {
-                Log.d(TAG, "Command timed out: '$command'")
+                if (logErrors) Log.w(TAG, "Command timed out: '$command'")
                 process.destroyForcibly()
                 CommandResult(emptyList(), listOf("Command timed out"), -1)
             } else {
@@ -65,7 +62,7 @@ object RootExecutor {
                 val output = outputDeferred.await()
                 val errorOutput = errorDeferred.await()
 
-                if (!CommandResult(output, errorOutput, exitCode).isSuccess) {
+                if (!CommandResult(output, errorOutput, exitCode).isSuccess && logErrors) {
                     Log.e(TAG, "Command failed ($exitCode): $errorOutput")
                 }
 
@@ -73,25 +70,32 @@ object RootExecutor {
             }
 
         } catch (e: IOException) {
-            Log.d(TAG, "Root command execution failed: ${e.message}")
+            if (logErrors) Log.d(TAG, "Root command execution failed: ${e.message}")
             CommandResult(emptyList(), listOf("Root not available: ${e.message}"), -1)
         } catch (e: Exception) {
-            Log.w(TAG, "Unexpected exception: ${e.message}", e)
+            if (logErrors) Log.w(TAG, "Unexpected exception: ${e.message}", e)
             CommandResult(emptyList(), listOf("Unexpected error: ${e.message}"), -1)
         } finally {
             process?.destroy()
         }
     }
 
-    suspend fun runMultiple(commands: List<String>): List<CommandResult> {
-        return commands.map { run(it) }
+    /**
+     * Executes multiple shell commands in a single su session via '&&' chaining
+     * to eliminate multi-second boot delays and dropped frames caused by spawning multiple processes.
+     */
+    suspend fun runMultiple(commands: List<String>, logErrors: Boolean = true): List<CommandResult> {
+        if (commands.isEmpty()) return emptyList()
+        val combined = commands.joinToString(" && ")
+        val result = run(combined, logErrors)
+        return listOf(result)
     }
 
     suspend fun isRootAvailable(): Boolean {
         return try {
-            val result = run("echo test")
+            val result = run("echo test", logErrors = false)
             result.isRootAvailable && result.isSuccess
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
         }
     }

@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- PROTECTED BROADCAST DECLARATIONS (Required for system_server priv-app dispatch) -->
+    <protected-broadcast android:name="com.hamoon.uncleted.ACTION_DURESS_TRIGGERED" />
+    <protected-broadcast android:name="com.hamoon.uncleted.ACTION_HONEYPOT_TRIGGERED" />
+    <protected-broadcast android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_FAILED_ATTEMPT" />
+    <protected-broadcast android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_SUCCESS" />
+
     <!-- Camera and Telephony Features -->
     <uses-feature
         android:name="android.hardware.camera.any"
@@ -84,16 +90,21 @@
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
 
-        <!-- Main UI Activity -->
+        <!-- Main UI Activity (Target for launcher alias, without redundant LAUNCHER category) -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
             android:label="@string/app_name"
-            android:excludeFromRecents="false" />
+            android:excludeFromRecents="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
-        <!-- Launcher Alias for Stealth Hiding -->
+        <!-- Launcher Alias for Stealth Mode Toggling (Single entry point for App Drawer) -->
         <activity-alias
             android:name=".Launcher"
             android:enabled="true"
@@ -105,7 +116,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity-alias>
 

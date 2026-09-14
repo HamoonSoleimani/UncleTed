@@ -17,9 +17,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // Fallback debug key ensures release builds are always validly signed
+        // preventing PackageManager INSTALL_PARSE_FAILED_NO_CERTIFICATES errors on systemless install
+        getByName("debug") {
+            storeFile = file("${rootProject.projectDir}/debug.keystore")
+            if (!storeFile!!.exists()) {
+                storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -27,6 +39,7 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

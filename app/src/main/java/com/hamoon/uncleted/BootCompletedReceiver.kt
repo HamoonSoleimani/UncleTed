@@ -3,6 +3,7 @@ package com.hamoon.uncleted.receivers
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Process
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.hamoon.uncleted.data.SecurityPreferences
@@ -20,12 +21,20 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
-        val isUnlocked = SecurityPreferences.isUserUnlocked(context)
 
+        // Multi-User Guardrail: Core security services, root routines, and platform
+        // credentials synchronization must execute exclusively under the Primary Owner (User 0).
+        val isPrimaryUser = (Process.myUid() / 100000) == 0
+        if (!isPrimaryUser) {
+            Log.d(TAG, "Running under secondary user space (UID: ${Process.myUid()}). Skipping core security daemons.")
+            return
+        }
+
+        val isUnlocked = SecurityPreferences.isUserUnlocked(context)
         Log.d(TAG, "Device boot event received: $action (User unlocked: $isUnlocked)")
 
         // 1. Direct Boot / BFU (Before First Unlock) Phase
-        // Always safe to execute because SecurityPreferences operates on Device-Protected (DE) storage
+        // Operates exclusively on Device-Protected (DE) storage
         SecurityPreferences.syncHookCredentials(context)
 
         if (SecurityPreferences.isUsbTripwireEnabled(context)) {
@@ -49,7 +58,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
         }
 
         // 2. Credential-Encrypted (CE) Phase
-        // WorkManager and user services initialize only once the user credentials decrypt CE storage
+        // WorkManager and user services initialize only once credentials decrypt CE storage
         if (isUnlocked) {
             if (SecurityPreferences.isProtectionEnabled(context)) {
                 val serviceIntent = Intent(context, MonitoringService::class.java)
