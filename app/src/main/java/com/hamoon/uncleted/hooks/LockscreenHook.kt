@@ -18,10 +18,9 @@ class LockscreenHook : IXposedHookLoadPackage {
         private const val TAG = "UncleTed-LockHook"
         private const val TARGET_PACKAGE = "android"
         private const val LOCK_SETTINGS_CLASS = "com.android.server.locksettings.LockSettingsService"
-        private const val DPM_SERVICE_CLASS = "com.android.server.devicepolicy.DevicePolicyManagerService"
         private const val CREDENTIALS_FILE = "/data/system/uncleted/credentials.cfg"
 
-        private const val COOLDOWN_MS = 1200L
+        private const val COOLDOWN_MS = 1500L
 
         @Volatile
         private var lastInterceptTime = 0L
@@ -45,17 +44,9 @@ class LockscreenHook : IXposedHookLoadPackage {
         try {
             val lockSettingsClass = XposedHelpers.findClass(LOCK_SETTINGS_CLASS, lpparam.classLoader)
             hookCredentialVerification(lockSettingsClass)
-            Log.i(TAG, ">>> LockSettingsService hooked successfully in system_server <<<")
+            Log.i(TAG, "LockSettingsService hooked in system_server.")
         } catch (t: Throwable) {
             Log.e(TAG, "Failed hooking LockSettingsService: ${t.message}", t)
-        }
-
-        try {
-            val dpmClass = XposedHelpers.findClass(DPM_SERVICE_CLASS, lpparam.classLoader)
-            hookDevicePolicyManager(dpmClass)
-            Log.i(TAG, ">>> DevicePolicyManagerService hooked successfully in system_server <<<")
-        } catch (t: Throwable) {
-            Log.e(TAG, "Failed hooking DevicePolicyManagerService: ${t.message}", t)
         }
     }
 
@@ -74,7 +65,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                 lastInterceptTime = now
                 lastAttemptWasDuressOrWipe = false
 
-                Log.d(TAG, "Lockscreen credential input intercepted: [length=${enteredPin.length}]")
+                Log.d(TAG, "Credential verification intercepted: [length=${enteredPin.length}]")
 
                 val context = getContextFromParam(param)
                 if (context != null) {
@@ -88,7 +79,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                 // 1. WIPE PIN INTERCEPTION
                 if (!wipePin.isNullOrEmpty() && enteredPin == wipePin) {
                     lastAttemptWasDuressOrWipe = true
-                    Log.e(TAG, "!!! WIPE PIN DETECTED AT OS LEVEL !!! Initiating emergency destruction.")
+                    Log.e(TAG, "WIPE PIN matched at OS level. Aborting auth and initiating wipe.")
                     abortAuthenticationFlow(param)
                     executeSystemServerWipe(context ?: systemContext)
                     return
@@ -97,7 +88,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                 // 2. DURESS PIN INTERCEPTION
                 if (!duressPin.isNullOrEmpty() && enteredPin == duressPin) {
                     lastAttemptWasDuressOrWipe = true
-                    Log.e(TAG, "!!! DURESS PIN DETECTED AT OS LEVEL !!! Dispatching panic alert.")
+                    Log.e(TAG, "DURESS PIN matched at OS level. Dispatching duress broadcast.")
                     dispatchDuressBroadcast(context ?: systemContext)
                 }
             }
@@ -150,7 +141,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                             }
                         }
                     } catch (t: Throwable) {
-                        Log.e(TAG, "Error evaluating VerifyCredentialResponse: ${t.message}")
+                        Log.e(TAG, "Error parsing VerifyCredentialResponse: ${t.message}")
                     }
                 } else if (result is Boolean) {
                     if (result) {
@@ -161,19 +152,18 @@ class LockscreenHook : IXposedHookLoadPackage {
                 }
 
                 val context = getContextFromParam(param) ?: systemContext
+                val now = System.currentTimeMillis()
 
                 if (isFailed) {
-                    val now = System.currentTimeMillis()
                     if (now - lastFailureBroadcastTime >= COOLDOWN_MS) {
                         lastFailureBroadcastTime = now
-                        Log.w(TAG, "Native lockscreen authentication failed (LockSettings). Dispatching failure event.")
+                        Log.w(TAG, "Authentication failed. Broadcasting lockscreen failure event.")
                         dispatchFailedAttemptBroadcast(context)
                     }
                 } else if (isSuccess) {
-                    val now = System.currentTimeMillis()
                     if (now - lastSuccessBroadcastTime >= COOLDOWN_MS) {
                         lastSuccessBroadcastTime = now
-                        Log.i(TAG, "Native lockscreen authentication succeeded. Dispatching success event.")
+                        Log.i(TAG, "Authentication succeeded. Broadcasting lockscreen success event.")
                         dispatchSuccessAttemptBroadcast(context)
                     }
                 }
@@ -192,47 +182,6 @@ class LockscreenHook : IXposedHookLoadPackage {
                 XposedBridge.hookAllMethods(lockSettingsClass, method, hookCallback)
                 Log.d(TAG, "Hooked LockSettingsService.$method")
             } catch (_: Throwable) {}
-        }
-    }
-
-    private fun hookDevicePolicyManager(dpmClass: Class<*>) {
-        val dpmCallback = object : XC_MethodHook() {
-            @Throws(Throwable::class)
-            override fun afterHookedMethod(param: MethodHookParam) {
-                val context = getContextFromParam(param) ?: systemContext
-
-                when (param.method.name) {
-                    "reportFailedPasswordAttempt" -> {
-                        if (lastAttemptWasDuressOrWipe) {
-                            Log.d(TAG, "Ignoring reportFailedPasswordAttempt because duress/wipe was active.")
-                            return
-                        }
-                        val now = System.currentTimeMillis()
-                        if (now - lastFailureBroadcastTime >= COOLDOWN_MS) {
-                            lastFailureBroadcastTime = now
-                            Log.w(TAG, "Native lockscreen authentication failed (DPM Hook). Dispatching failure event.")
-                            dispatchFailedAttemptBroadcast(context)
-                        }
-                    }
-                    "reportSuccessfulPasswordAttempt" -> {
-                        lastAttemptWasDuressOrWipe = false
-                        val now = System.currentTimeMillis()
-                        if (now - lastSuccessBroadcastTime >= COOLDOWN_MS) {
-                            lastSuccessBroadcastTime = now
-                            Log.i(TAG, "Native lockscreen authentication succeeded (DPM Hook). Dispatching success event.")
-                            dispatchSuccessAttemptBroadcast(context)
-                        }
-                    }
-                }
-            }
-        }
-
-        try {
-            XposedBridge.hookAllMethods(dpmClass, "reportFailedPasswordAttempt", dpmCallback)
-            XposedBridge.hookAllMethods(dpmClass, "reportSuccessfulPasswordAttempt", dpmCallback)
-            Log.d(TAG, "Hooked DevicePolicyManagerService password reporting methods.")
-        } catch (t: Throwable) {
-            Log.e(TAG, "Error hooking DPM methods: ${t.message}", t)
         }
     }
 
@@ -314,14 +263,14 @@ class LockscreenHook : IXposedHookLoadPackage {
                 }
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed aborting auth: ${t.message}")
+            Log.e(TAG, "Failed aborting authentication: ${t.message}")
         }
     }
 
     private fun executeSystemServerWipe(context: Context?) {
         Thread {
             try {
-                Log.e(TAG, "Executing platform wipe via system_server UID=${Process.myUid()}...")
+                Log.e(TAG, "Invoking platform wipe from system_server UID=${Process.myUid()}")
                 val recoverySystemClass = Class.forName("android.os.RecoverySystem")
                 val methods = recoverySystemClass.declaredMethods
                 var wipeMethod: java.lang.reflect.Method? = null
@@ -344,7 +293,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                     return@Thread
                 }
             } catch (t: Throwable) {
-                Log.e(TAG, "RecoverySystem invocation error: ${t.message}", t)
+                Log.e(TAG, "RecoverySystem execution error: ${t.message}", t)
             }
 
             try {
@@ -363,7 +312,6 @@ class LockscreenHook : IXposedHookLoadPackage {
                 addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             }
             context.sendBroadcast(intent)
-            Log.i(TAG, "Duress broadcast dispatched to UncleTed.")
         } catch (t: Throwable) {
             Log.e(TAG, "Failed dispatching duress broadcast: ${t.message}", t)
         }
@@ -377,9 +325,8 @@ class LockscreenHook : IXposedHookLoadPackage {
                 addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             }
             context.sendBroadcast(intent)
-            Log.i(TAG, "Failed attempt broadcast dispatched to UncleTed.")
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed dispatching failed attempt broadcast: ${t.message}", t)
+            Log.e(TAG, "Failed dispatching failure broadcast: ${t.message}", t)
         }
     }
 
@@ -391,7 +338,6 @@ class LockscreenHook : IXposedHookLoadPackage {
                 addFlags(Intent.FLAG_RECEIVER_FOREGROUND or Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             }
             context.sendBroadcast(intent)
-            Log.i(TAG, "Unlock success broadcast dispatched to UncleTed.")
         } catch (t: Throwable) {
             Log.e(TAG, "Failed dispatching success broadcast: ${t.message}", t)
         }

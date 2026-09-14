@@ -1,5 +1,8 @@
 package com.hamoon.uncleted.services
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -19,6 +22,7 @@ import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.telephony.SmsManager
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -27,6 +31,7 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.hamoon.uncleted.CameraPermissionBrokerActivity
 import com.hamoon.uncleted.LockScreenActivity
+import com.hamoon.uncleted.R
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.util.*
 import kotlinx.coroutines.*
@@ -35,11 +40,6 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
-/**
- * The Central Nervous System of Uncle Ted.
- * This service handles all emergency triggers, orchestrates evidence collection,
- * manages the siren, and executes safe or advanced data destruction protocols.
- */
 class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
 
     enum class Severity { LOW, MEDIUM, HIGH, CRITICAL }
@@ -63,6 +63,8 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
         private val lastTriggerTimestamps = ConcurrentHashMap<String, Long>()
         private const val TRIGGER_COOLDOWN_MS = 1500L
         private const val NOTIFICATION_ID = 1001
+        private const val BROKER_NOTIFICATION_ID = 9002
+        private const val BROKER_CHANNEL_ID = "UncleTedEmergencyBrokerChannel"
 
         var pendingTtsMessage: String? = null
         var pendingAudioDuration: Int = 60
@@ -88,7 +90,6 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                     reason == "USB_TRIPWIRE_FAIL"
 
             val isSirenOnly = reason == "REMOTE_SIREN" || reason == "MANUAL_SIREN"
-
             val requiresMedia = (severity == Severity.MEDIUM || severity == Severity.HIGH || severity == Severity.CRITICAL)
                     && !isImmediateWipe && !isSirenOnly
 
@@ -97,15 +98,12 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
 
                 if (isRooted) {
                     if (isImmediateWipe) {
-                        Log.i(SERVICE_TAG, "ROOT: Executing wipe protocol safely without bricking partitions.")
-
-                        // Safe level resolution: Never default to NUCLEAR_WINTER unless specifically intended (e.g. Evin suicide geofence)
+                        Log.i(SERVICE_TAG, "ROOT: Executing wipe protocol.")
                         val wipeLevel = when {
                             reason == "GEOFENCE_SUICIDE_EVIN" -> RootActions.WipeLevel.NUCLEAR_WINTER
                             SecurityPreferences.isSecureWipeEnabled(context) -> RootActions.WipeLevel.FAST_USERDATA
                             else -> RootActions.WipeLevel.STANDARD_WIPE
                         }
-
                         RootActions.executeWipeProtocol(context, wipeLevel)
                         return@launch
                     }
@@ -121,16 +119,17 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                     } else {
                         startServiceInternal(context, reason, severity)
                     }
-
                 } else {
+                    // Non-Root Pathway
+                    if (isImmediateWipe) {
+                        Log.i(SERVICE_TAG, "NON-ROOT: Initiating Immediate Wipe.")
+                        DeviceAdminHelper.wipeDeviceImmediately(context)
+                        return@launch
+                    }
+
                     if (requiresMedia && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        Log.d(SERVICE_TAG, "NON-ROOT: Requesting Broker Activity for permissions.")
-                        val brokerIntent = Intent(context, CameraPermissionBrokerActivity::class.java).apply {
-                            putExtra("REASON", reason)
-                            putExtra("SEVERITY", severity.name)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        context.startActivity(brokerIntent)
+                        Log.d(SERVICE_TAG, "NON-ROOT: Bypassing BAL restrictions via Full-Screen Intent.")
+                        launchBrokerViaFullScreenIntent(context, reason, severity)
                     } else {
                         startServiceInternal(context, reason, severity)
                     }
@@ -138,12 +137,59 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
             }
         }
 
+        private fun launchBrokerViaFullScreenIntent(context: Context, reason: String, severity: Severity) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    BROKER_CHANNEL_ID,
+                    "Uncle Ted Emergency Dispatch",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Used to dispatch emergency broker activities under OS restrictions"
+                    setBypassDnd(true)
+                    enableVibration(true)
+                    setSound(null, null)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val brokerIntent = Intent(context, CameraPermissionBrokerActivity::class.java).apply {
+                putExtra("REASON", reason)
+                putExtra("SEVERITY", severity.name)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                BROKER_NOTIFICATION_ID,
+                brokerIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = NotificationCompat.Builder(context, BROKER_CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("Emergency Security Dispatch")
+                .setContentText("Authenticating security session...")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setFullScreenIntent(pendingIntent, true)
+                .setAutoCancel(true)
+
+            notificationManager.notify(BROKER_NOTIFICATION_ID, builder.build())
+        }
+
         private fun startServiceInternal(context: Context, reason: String, severity: Severity) {
             val intent = Intent(context, PanicActionService::class.java).apply {
                 putExtra("REASON", reason)
                 putExtra("SEVERITY", severity.name)
             }
-            ContextCompat.startForegroundService(context, intent)
+            try {
+                ContextCompat.startForegroundService(context, intent)
+            } catch (e: Exception) {
+                Log.e(SERVICE_TAG, "Failed startServiceInternal", e)
+            }
         }
     }
 
@@ -222,11 +268,12 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                 reason == "USB_TRIPWIRE_FAIL"
 
         val isSirenOnly = reason == "REMOTE_SIREN" || reason == "MANUAL_SIREN"
+        val isBrokered = intent?.getBooleanExtra("IS_BROKERED", false) ?: false
 
         try {
             val notification = NotificationHelper.createPanicNotification(this)
 
-            if (Build.VERSION.SDK_INT >= 34) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 var fgsTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
 
                 val needsLocation = severity != Severity.LOW
@@ -248,8 +295,7 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                 }
 
                 startForeground(NOTIFICATION_ID, notification, fgsTypes)
-
-            } else if (Build.VERSION.SDK_INT >= 29) {
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 if (isImmediateWipe || isSirenOnly) {
                     startForeground(NOTIFICATION_ID, notification)
                 } else {
@@ -259,7 +305,7 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            Log.e(SERVICE_TAG, "Failed to start foreground service: ${e.message}")
+            Log.e(SERVICE_TAG, "Failed to start foreground service: ${e.message}", e)
             if (isImmediateWipe) {
                 try { DeviceAdminHelper.wipeDeviceImmediately(this) } catch (_: Exception) {}
             }
@@ -267,17 +313,11 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
             return START_NOT_STICKY
         }
 
-        val isBrokered = intent?.getBooleanExtra("IS_BROKERED", false) ?: false
         val needsMedia = (severity == Severity.MEDIUM || severity == Severity.HIGH || severity == Severity.CRITICAL) && !isImmediateWipe && !isSirenOnly
 
         if (needsMedia && !isBrokered && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !PermissionUtils.hasCameraPermission(this)) {
-            Log.w(SERVICE_TAG, "Service missing permissions. Redirecting to Broker.")
-            val brokerIntent = Intent(this, CameraPermissionBrokerActivity::class.java).apply {
-                putExtra("REASON", reason)
-                putExtra("SEVERITY", severity.name)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            try { startActivity(brokerIntent) } catch (e: Exception) { Log.e(SERVICE_TAG, "Failed to start Broker", e) }
+            Log.w(SERVICE_TAG, "Service missing camera permission. Invoking broker.")
+            launchBrokerViaFullScreenIntent(this, reason, severity)
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -441,12 +481,13 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                 withTimeout(1500) {
                     sendAlert(AdvancedEmailSender.EmailTemplate("DEVICE WIPING NOW", "Reason: $reason. Goodbye.", true))
                 }
-            } catch (e: Exception) { Log.w(SERVICE_TAG, "Could not send goodbye packet: timeout") }
+            } catch (e: Exception) {
+                Log.w(SERVICE_TAG, "Could not send goodbye packet: timeout")
+            }
 
             val isManualOverride = reason == "MANUAL_WIPE" || reason == "REMOTE_WIPE" || reason == "HARDWARE_BUTTON_WIPE" || reason == "GEOFENCE_SUICIDE_EVIN"
 
             if (isManualOverride || SecurityPreferences.isWipeDeviceEnabled(this)) {
-
                 if (pendingWipeType == "STANDARD_WIPE") {
                     Log.i(SERVICE_TAG, "Manual Action: Executing Level 1 (Safe Standard Wipe).")
                     DeviceAdminHelper.wipeDeviceImmediately(this)
@@ -456,7 +497,6 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                 if (RootChecker.isDeviceRooted()) {
                     Log.e(SERVICE_TAG, "Executing ROOT Wipe Strategy.")
 
-                    // 1. Manual user override selection from Manual Actions fragment
                     if (pendingWipeType != null) {
                         try {
                             val level = RootActions.WipeLevel.valueOf(pendingWipeType!!)
@@ -468,7 +508,6 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                         }
                     }
 
-                    // 2. Safe automated wipe: Never use NUCLEAR_WINTER unless specifically triggered by designated zone
                     if (reason == "GEOFENCE_SUICIDE_EVIN") {
                         RootActions.executeWipeProtocol(this, RootActions.WipeLevel.NUCLEAR_WINTER)
                     } else if (SecurityPreferences.isSecureWipeEnabled(this)) {
@@ -481,7 +520,7 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                     DeviceAdminHelper.wipeDeviceImmediately(this)
                 }
             } else {
-                Log.w(SERVICE_TAG, "Wipe requested but 'Wipe Device Enabled' is OFF and not a manual override. Reason: $reason")
+                Log.w(SERVICE_TAG, "Wipe requested but 'Wipe Device Enabled' is OFF. Reason: $reason")
             }
             return
         }
@@ -544,7 +583,9 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
         if (!PermissionUtils.hasSmsPermissions(this)) return
         try {
             getSystemService(SmsManager::class.java).sendTextMessage(phoneNumber, null, message, null, null)
-        } catch (e: Exception) { Log.e(SERVICE_TAG, "SMS Failed", e) }
+        } catch (e: Exception) {
+            Log.e(SERVICE_TAG, "SMS Failed", e)
+        }
     }
 
     private suspend fun startSiren(durationSeconds: Int) {
@@ -579,7 +620,6 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
             }
 
             delay(durationSeconds * 1000L)
-
         } catch (e: Exception) {
             Log.e(SERVICE_TAG, "Failed to play siren", e)
         } finally {
@@ -592,7 +632,9 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
     private fun stopSiren() {
         try {
             sirenMediaPlayer?.apply { if (isPlaying) stop(); release() }
-        } catch (e: Exception) { Log.w(SERVICE_TAG, "Error releasing media player", e) }
+        } catch (e: Exception) {
+            Log.w(SERVICE_TAG, "Error releasing media player", e)
+        }
         sirenMediaPlayer = null
         vibrator?.cancel()
     }

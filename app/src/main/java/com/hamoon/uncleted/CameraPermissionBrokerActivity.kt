@@ -1,5 +1,7 @@
 package com.hamoon.uncleted
 
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -11,16 +13,16 @@ import com.hamoon.uncleted.services.PanicActionService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/**
- * A short-lived, transparent activity used to satisfy Android's background launch restrictions.
- */
 class CameraPermissionBrokerActivity : AppCompatActivity() {
 
-    private val TAG = "CameraBrokerActivity"
+    companion object {
+        private const val TAG = "CameraBrokerActivity"
+        private const val BROKER_NOTIFICATION_ID = 9002
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "Broker activity started.")
+        Log.d(TAG, "Broker activity created.")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
@@ -34,6 +36,15 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
             )
         }
 
+        // Cancel the trigger notification that spawned this full screen intent
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(BROKER_NOTIFICATION_ID)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Log.d(TAG, "Broker activity in foreground (resumed). Initiating brokered FGS.")
+
         val originalReason = intent.getStringExtra("REASON")
         val originalSeverity = intent.getStringExtra("SEVERITY")
 
@@ -46,14 +57,14 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
 
             try {
                 startForegroundService(serviceIntent)
-                Log.d(TAG, "Re-launched PanicActionService successfully from broker.")
+                Log.d(TAG, "Dispatched PanicActionService successfully from resumed foreground broker.")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start service from broker", e)
+                Log.e(TAG, "Failed starting PanicActionService from broker", e)
             }
         }
 
         lifecycleScope.launch {
-            delay(500)
+            delay(400)
             finish()
         }
     }

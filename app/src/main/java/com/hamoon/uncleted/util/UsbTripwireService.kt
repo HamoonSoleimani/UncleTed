@@ -4,7 +4,8 @@ import android.app.KeyguardManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import com.hamoon.uncleted.data.SecurityPreferences
@@ -21,17 +22,34 @@ class UsbTripwireService : Service() {
 
     companion object {
         private const val TAG = "UsbTripwireService"
-        private const val POLLING_INTERVAL_MS = 1000L // Check every 1 second
+        private const val NOTIFICATION_ID = 2002
+        private const val POLLING_INTERVAL_MS = 1000L
     }
 
     override fun onCreate() {
         super.onCreate()
         keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        startForeground(2002, NotificationHelper.createBasicNotification(this))
+
+        val notification = NotificationHelper.createBasicNotification(this)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start UsbTripwireService in foreground", e)
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!SecurityPreferences.isFirewallTripwireEnabled(this)) { // Reuse firewall preference or create new one
+        if (!SecurityPreferences.isUsbTripwireEnabled(this)) {
+            Log.w(TAG, "UsbTripwireService started but feature is disabled. Stopping service.")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -48,35 +66,27 @@ class UsbTripwireService : Service() {
             Log.i(TAG, "USB Tripwire Armed. Monitoring Kernel SysFS...")
 
             while (isActive) {
-                // 1. Only ACT if the device is LOCKED.
-                // If unlocked, we assume the owner is using it.
                 if (keyguardManager.isDeviceLocked) {
-
-                    // 2. Check Kernel for Data Connection
                     val isDataConnected = UsbDetector.isDataCableConnected(this@UsbTripwireService)
 
                     if (isDataConnected) {
                         Log.e(TAG, "!!! USB DATA CONNECTION DETECTED WHILE LOCKED !!!")
                         Log.e(TAG, "!!! EXECUTING SYSTEM KILL SWITCH !!!")
 
-                        // 3. EXECUTE KILL
-                        // We do not send alerts. We do not take photos. We destroy.
-                        // Speed is the only variable that matters here.
+                        RootActions.blockAllNetworkTraffic(this@UsbTripwireService)
 
-                        // A. Block inputs to prevent cancellation
-                        RootActions.blockAllNetworkTraffic(this@UsbTripwireService) // Optional: Kill comms
-
-                        // B. The Nuclear Option
                         try {
-                            // Direct call to wipe mechanism
                             RootActions.performSecureWipePlus(this@UsbTripwireService)
                         } catch (e: Exception) {
-                            // Last resort fallback
-                            PanicActionService.trigger(this@UsbTripwireService, "USB_TRIPWIRE_FAIL", PanicActionService.Severity.CRITICAL)
+                            Log.e(TAG, "Direct secure wipe failed, triggering panic fallback", e)
+                            PanicActionService.trigger(
+                                this@UsbTripwireService,
+                                "USB_TRIPWIRE_FAIL",
+                                PanicActionService.Severity.CRITICAL
+                            )
                         }
-
-                        // Stop loop
                         stopSelf()
+                        break
                     }
                 }
                 delay(POLLING_INTERVAL_MS)

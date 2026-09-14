@@ -3,22 +3,22 @@ package com.hamoon.uncleted.receivers
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.Telephony
 import android.util.Log
 import com.hamoon.uncleted.LockScreenActivity
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.PanicActionService
-import com.hamoon.uncleted.util.AdvancedEmailSender
-import com.hamoon.uncleted.util.EmailSender
-import com.hamoon.uncleted.util.EventLogger
-import com.hamoon.uncleted.util.RootActions
+import com.hamoon.uncleted.util.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class SmsCommandReceiver : BroadcastReceiver() {
 
-    private val TAG = "SmsCommandReceiver"
+    companion object {
+        private const val TAG = "SmsCommandReceiver"
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
@@ -28,41 +28,44 @@ class SmsCommandReceiver : BroadcastReceiver() {
         val masterPassword = SecurityPreferences.getSmsMasterPassword(context)
         val installCode = SecurityPreferences.getRemoteInstallCode(context)
 
-        // If no master password is set, ignore everything for security.
         if (masterPassword.isNullOrEmpty()) {
-            Log.w(TAG, "SMS Master Password is not set. Ignoring all commands.")
+            Log.w(TAG, "SMS Master Password is not set. Ignoring incoming SMS.")
             return
         }
 
-        val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-        messages?.forEach { sms ->
-            val body = sms.messageBody.trim()
+        val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
+
+        for (sms in messages) {
+            val body = sms.messageBody?.trim() ?: continue
             val senderNum = sms.originatingAddress
-            // Simple space-delimited parsing
             val parts = body.split(" ")
 
-            // Standard format: UNCLETED [COMMAND] [PASSWORD] [ARGS...]
+            // Format: UNCLETED [COMMAND] [PASSWORD] [OPTIONAL_ARGS...]
             if (parts.isNotEmpty() && parts[0].equals("UNCLETED", ignoreCase = true) && parts.size >= 3) {
                 val command = parts[1].uppercase()
-                // Password is always expected as the 3rd argument (index 2)
                 val password = parts[2]
 
                 if (password == masterPassword) {
-                    abortBroadcast() // Hide SMS from inbox
-                    // Arguments are anything after the password
+                    try { abortBroadcast() } catch (_: Exception) {}
+
+                    // Purge the command SMS from the telephony database immediately to prevent cleartext exposure
+                    purgeSmsFromDatabase(context, senderNum, body)
+
                     val args = if (parts.size > 3) parts.subList(3, parts.size) else emptyList()
                     handleAuthenticatedCommand(context, command, senderNum, args)
                 } else {
-                    Log.w(TAG, "Invalid master password received from $senderNum. Command ignored.")
-                    EventLogger.log(context, "SMS command received from $senderNum with incorrect password.")
+                    Log.w(TAG, "Invalid SMS master password received from $senderNum.")
+                    EventLogger.log(context, "SMS command attempted from $senderNum with incorrect password.")
                 }
-                return@forEach
+                return
             }
 
-            // Special Case: Root Silent Install (doesn't follow standard format, uses unique code)
+            // Silent Install Trigger
             if (SecurityPreferences.isSilentInstallEnabled(context) && !installCode.isNullOrEmpty() && body.contains(installCode)) {
-                abortBroadcast()
-                Log.i(TAG, "Remote Install command received from $senderNum.")
+                try { abortBroadcast() } catch (_: Exception) {}
+                purgeSmsFromDatabase(context, senderNum, body)
+
+                Log.i(TAG, "Silent install trigger received from $senderNum.")
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
@@ -71,24 +74,40 @@ class SmsCommandReceiver : BroadcastReceiver() {
                         pendingResult.finish()
                     }
                 }
-                return@forEach
+                return
+            }
+        }
+    }
+
+    /**
+     * Deletes the secret SMS message from the Telephony provider to ensure privacy on Android 4.4+.
+     */
+    private fun purgeSmsFromDatabase(context: Context, sender: String?, bodySnippet: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            // Attempt 1: ContentResolver deletion
+            try {
+                val uri = Uri.parse("content://sms")
+                val escapedSnippet = bodySnippet.replace("'", "''")
+                context.contentResolver.delete(uri, "body LIKE ?", arrayOf("%$escapedSnippet%"))
+            } catch (_: Exception) {}
+
+            // Attempt 2: Root shell content deletion
+            if (RootChecker.isDeviceRooted()) {
+                val safeCommand = "content delete --uri content://sms --where \"body LIKE '%UNCLETED%'\""
+                RootExecutor.run(safeCommand)
             }
         }
     }
 
     private fun handleAuthenticatedCommand(context: Context, command: String, sender: String?, args: List<String>) {
-        Log.i(TAG, "Authenticated SMS command '$command' received from $sender with args: $args.")
+        Log.i(TAG, "Authenticated SMS command '$command' received from $sender.")
         EventLogger.log(context, "Authenticated SMS command '$command' received.")
 
         when (command) {
             "WIPE" -> {
-                // Critical severity ensures IMMEDIATE execution.
-                // PanicActionService logic has been updated to SKIP evidence collection for this specific trigger.
                 PanicActionService.trigger(context, "REMOTE_WIPE", PanicActionService.Severity.CRITICAL)
             }
             "EVIDENCE" -> {
-                // Triggers comprehensive evidence collection: Video, Audio, Location.
-                // High severity ensures Media (Camera/Mic) permissions are handled via Broker activity.
                 PanicActionService.trigger(context, "REMOTE_EVIDENCE", PanicActionService.Severity.HIGH)
             }
             "SIREN" -> {
@@ -101,26 +120,21 @@ class SmsCommandReceiver : BroadcastReceiver() {
                 context.startActivity(lockIntent)
             }
             "LOCATE" -> {
-                // Low severity implies no camera/mic needed, just location.
                 PanicActionService.trigger(context, "MANUAL_LOCATION", PanicActionService.Severity.LOW)
             }
             "AUDIO" -> {
-                // Usage: UNCLETED AUDIO [pass] [seconds]
-                val duration = args.firstOrNull()?.toIntOrNull() ?: 60 // Default 60 seconds if not specified
+                val duration = args.firstOrNull()?.toIntOrNull() ?: 60
                 PanicActionService.pendingAudioDuration = duration
                 PanicActionService.trigger(context, "REMOTE_AUDIO_RECORD", PanicActionService.Severity.HIGH)
             }
             "SPEAK" -> {
-                // Usage: UNCLETED SPEAK [pass] [message words...]
                 val message = args.joinToString(" ")
                 if (message.isNotEmpty()) {
                     PanicActionService.pendingTtsMessage = message
-                    // Medium severity used for general alerts/TTS
                     PanicActionService.trigger(context, "REMOTE_SPEAK", PanicActionService.Severity.MEDIUM)
                 }
             }
             "REBOOT" -> {
-                // Root only command
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
@@ -131,7 +145,6 @@ class SmsCommandReceiver : BroadcastReceiver() {
                 }
             }
             "SCREENSHOT" -> {
-                // Root only command
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
@@ -161,7 +174,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
                                 context,
                                 emergencyContact,
                                 "Remote Keylog Data",
-                                "Keylogger data retrieved via SMS command:\n\n$logs"
+                                "Keylogger buffer retrieved via SMS command:\n\n$logs"
                             )
                             SecurityPreferences.clearKeylogData(context)
                         } finally {
@@ -171,7 +184,6 @@ class SmsCommandReceiver : BroadcastReceiver() {
                 }
             }
             "EXFIL" -> {
-                // Usage: UNCLETED EXFIL [pass] [package.name] [relative_path]
                 if (args.size == 2) {
                     val packageName = args[0]
                     val path = args[1]
@@ -184,8 +196,8 @@ class SmsCommandReceiver : BroadcastReceiver() {
                                 EmailSender.sendEmail(
                                     context,
                                     emergencyContact,
-                                    "Data Exfiltration Complete",
-                                    "Successfully exfiltrated file '$path' from package '$packageName'. File is attached.",
+                                    "Data Exfiltration",
+                                    "Exfiltrated file '$path' from package '$packageName':",
                                     attachmentFile = exfilFile
                                 )
                             }
@@ -196,8 +208,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
                 }
             }
             else -> {
-                Log.w(TAG, "Unknown authenticated command '$command' from $sender.")
-                EventLogger.log(context, "Unknown authenticated SMS command '$command' from $sender.")
+                Log.w(TAG, "Unknown authenticated SMS command '$command' from $sender.")
             }
         }
     }

@@ -4,53 +4,48 @@ import android.location.Location
 
 object PolygonUtils {
 
-    // Coordinates extracted from your KML (Lat, Lon)
-    // Note: KML format is Lon,Lat - Android Location is Lat,Lon
+    // Evin Prison perimeter vertices: Pair(Latitude, Longitude)
     val EVIN_PRISON_PERIMETER = listOf(
         Pair(35.79211607672131, 51.38142755893173),
         Pair(35.79284579163674, 51.38666960999226),
         Pair(35.79839510355216, 51.38921260554878),
         Pair(35.79935648401846, 51.38327835491085)
-        // The last point in KML closes the loop to the first, implied in logic
     )
 
     /**
-     * Ray-Casting Algorithm to determine if a point is inside a polygon.
+     * Numerically robust Ray-Casting Point-in-Polygon Algorithm.
+     * Uses half-open latitude intervals to eliminate vertex double-counting
+     * and horizontal edge singularities, with linear interpolation to eliminate
+     * division by zero on vertical polygon edges.
      */
     fun isLocationInZone(location: Location, polygon: List<Pair<Double, Double>>): Boolean {
-        var intersectCount = 0
-        val lat = location.latitude
-        val lon = location.longitude
+        if (polygon.size < 3) return false
 
-        for (j in 0 until polygon.size - 1) {
-            if (rayCastIntersect(location, polygon[j], polygon[j + 1])) {
-                intersectCount++
+        var inside = false
+        val pLat = location.latitude
+        val pLon = location.longitude
+
+        var j = polygon.size - 1
+        for (i in polygon.indices) {
+            val vLatI = polygon[i].first
+            val vLonI = polygon[i].second
+            val vLatJ = polygon[j].first
+            val vLonJ = polygon[j].second
+
+            // Determine if the ray cast eastward from pLat intersects the latitude span of edge (i, j)
+            // The half-open condition ((vLatI > pLat) != (vLatJ > pLat)) guarantees that (vLatJ - vLatI) != 0
+            if ((vLatI > pLat) != (vLatJ > pLat)) {
+                // Compute the longitude coordinate of the intersection along the edge
+                val intersectLon = vLonI + (pLat - vLatI) * (vLonJ - vLonI) / (vLatJ - vLatI)
+
+                // If query longitude is to the west of the intersection, the eastward ray crosses the edge
+                if (pLon < intersectLon) {
+                    inside = !inside
+                }
             }
-        }
-        // Check the closing segment (last point to first point)
-        if (rayCastIntersect(location, polygon[polygon.size - 1], polygon[0])) {
-            intersectCount++
+            j = i
         }
 
-        return (intersectCount % 2) == 1 // Odd intersections = Inside
-    }
-
-    private fun rayCastIntersect(point: Location, vertA: Pair<Double, Double>, vertB: Pair<Double, Double>): Boolean {
-        val aY = vertA.first  // Lat
-        val aX = vertA.second // Lon
-        val bY = vertB.first
-        val bX = vertB.second
-        val pY = point.latitude
-        val pX = point.longitude
-
-        if ((aY > pY && bY > pY) || (aY < pY && bY < pY) || (aX < pX && bX < pX)) {
-            return false // The ray can't intersect
-        }
-
-        val m = (aY - bY) / (aX - bX) // Slope
-        val bee = (-aX) * m + aY      // Y-intercept
-        val x = (pY - bee) / m        // x-coordinate of intersection
-
-        return x > pX
+        return inside
     }
 }

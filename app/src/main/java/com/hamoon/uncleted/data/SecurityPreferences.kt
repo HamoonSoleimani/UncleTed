@@ -1,45 +1,77 @@
 package com.hamoon.uncleted.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import android.os.Build
+import android.os.UserManager
+import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.hamoon.uncleted.util.CredentialBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import android.content.Context
-import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import java.text.SimpleDateFormat
 import java.util.*
 
-/**
- * A secure singleton object for managing all persistent application settings.
- *
- * --- PERFORMANCE & COMPILATION FIX ---
- * - The SharedPreferences instance is now cached (singleton pattern) to prevent slow re-initialization.
- * - Uses the modern, non-deprecated `MasterKey.Builder`.
- * - Event logging logic is now handled internally to fix compilation errors and improve encapsulation.
- * - ### FIX: getInstance() changed from private to internal to be accessible within the module. ###
- */
 object SecurityPreferences {
 
+    private const val TAG = "SecurityPreferences"
+
     @Volatile
-    private var instance: SharedPreferences? = null
+    private var encryptedInstance: SharedPreferences? = null
+    @Volatile
+    private var deInstance: SharedPreferences? = null
+
     private val LOCK = Any()
     private const val PREFS_FILE_NAME = "secure_app_prefs"
+    private const val DE_PREFS_FILE_NAME = "device_encrypted_prefs"
     private const val EVENT_LOG_KEY = "event_log"
     private const val MAX_LOG_ENTRIES = 100
 
-    // ### FIX: Changed from 'private' to 'internal' ###
-    // This allows other classes in the 'app' module to get the SharedPreferences instance.
+    fun isUserUnlocked(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val userManager = context.getSystemService(UserManager::class.java)
+            userManager?.isUserUnlocked ?: true
+        } else {
+            true
+        }
+    }
+
+    private fun getDeviceProtectedPrefs(context: Context): SharedPreferences {
+        return deInstance ?: synchronized(LOCK) {
+            deInstance ?: run {
+                val deContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    context.createDeviceProtectedStorageContext()
+                } else {
+                    context
+                }
+                deContext.getSharedPreferences(DE_PREFS_FILE_NAME, Context.MODE_PRIVATE).also {
+                    deInstance = it
+                }
+            }
+        }
+    }
+
     internal fun getInstance(context: Context): SharedPreferences {
-        return instance ?: synchronized(LOCK) {
-            instance ?: createEncryptedPrefs(context.applicationContext).also {
-                instance = it
+        if (!isUserUnlocked(context)) {
+            Log.w(TAG, "Device is locked (BFU). Falling back to Device-Protected storage.")
+            return getDeviceProtectedPrefs(context)
+        }
+
+        return encryptedInstance ?: synchronized(LOCK) {
+            encryptedInstance ?: try {
+                createEncryptedPrefs(context.applicationContext).also {
+                    encryptedInstance = it
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed initializing EncryptedSharedPreferences. Falling back to DE storage.", e)
+                getDeviceProtectedPrefs(context)
             }
         }
     }
 
     private fun createEncryptedPrefs(context: Context): SharedPreferences {
-        // Use the modern, non-deprecated MasterKey.Builder
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -53,7 +85,7 @@ object SecurityPreferences {
         )
     }
 
-    // --- Event Logging (Moved from EventLogger) ---
+    // --- Event Logging ---
     fun logEvent(context: Context, message: String) {
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val newEntry = "$timestamp - $message"
@@ -61,9 +93,8 @@ object SecurityPreferences {
         val prefs = getInstance(context)
         val existingLogs = prefs.getStringSet(EVENT_LOG_KEY, mutableSetOf())?.toMutableList() ?: mutableListOf()
 
-        existingLogs.add(0, newEntry) // Add to the top
+        existingLogs.add(0, newEntry)
 
-        // Trim old logs
         while (existingLogs.size > MAX_LOG_ENTRIES) {
             existingLogs.removeAt(existingLogs.size - 1)
         }
@@ -75,53 +106,82 @@ object SecurityPreferences {
         return getInstance(context).getStringSet(EVENT_LOG_KEY, setOf())?.sortedDescending() ?: emptyList()
     }
 
-
     // --- Core Protection ---
-    // REVISED: Protection is now always enabled. The master switch has been removed from the UI.
-    // The setter is a no-op, and the getter always returns true to ensure
-    // all other parts of the app that rely on this flag behave correctly.
-    fun setProtectionEnabled(context: Context, isEnabled: Boolean) { /* No-op */ }
-    fun isProtectionEnabled(context: Context): Boolean = true
+    fun setProtectionEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("PROTECTION_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("PROTECTION_ENABLED", isEnabled).apply()
+        }
+    }
 
-    fun setMaintenanceMode(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("MAINTENANCE_MODE", isEnabled).apply()
-    fun isMaintenanceMode(context: Context): Boolean = getInstance(context).getBoolean("MAINTENANCE_MODE", false)
+    fun isProtectionEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("PROTECTION_ENABLED", true)
+        } else {
+            getInstance(context).getBoolean("PROTECTION_ENABLED", true)
+        }
+    }
 
-    fun setHoneypotPin(context: Context, pin: String) = getInstance(context).edit().putString("HONEYPOT_PIN", pin).apply()
-    fun getHoneypotPin(context: Context): String? = getInstance(context).getString("HONEYPOT_PIN", null)
+    fun setMaintenanceMode(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("MAINTENANCE_MODE", isEnabled).apply()
 
-    // Store captured honeypot data (e.g., fake bank logins)
+    fun isMaintenanceMode(context: Context): Boolean =
+        getInstance(context).getBoolean("MAINTENANCE_MODE", false)
+
+    fun setHoneypotPin(context: Context, pin: String) =
+        getInstance(context).edit().putString("HONEYPOT_PIN", pin).apply()
+
+    fun getHoneypotPin(context: Context): String? =
+        getInstance(context).getString("HONEYPOT_PIN", null)
+
     fun addHoneypotIntel(context: Context, info: String) {
         val current = getInstance(context).getStringSet("HONEYPOT_INTEL", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
         current.add("${System.currentTimeMillis()}: $info")
         getInstance(context).edit().putStringSet("HONEYPOT_INTEL", current).apply()
     }
 
-    fun getHoneypotIntel(context: Context): Set<String> = getInstance(context).getStringSet("HONEYPOT_INTEL", emptySet()) ?: emptySet()
-    fun clearHoneypotIntel(context: Context) = getInstance(context).edit().remove("HONEYPOT_INTEL").apply()
+    fun getHoneypotIntel(context: Context): Set<String> =
+        getInstance(context).getStringSet("HONEYPOT_INTEL", emptySet()) ?: emptySet()
 
+    fun clearHoneypotIntel(context: Context) =
+        getInstance(context).edit().remove("HONEYPOT_INTEL").apply()
 
     // --- Authentication ---
     fun setNormalPin(context: Context, pin: String) {
         getInstance(context).edit().putString("NORMAL_PIN", pin).apply()
     }
-    fun getNormalPin(context: Context): String? = getInstance(context).getString("NORMAL_PIN", null)
+
+    fun getNormalPin(context: Context): String? =
+        getInstance(context).getString("NORMAL_PIN", null)
 
     fun setDuressPin(context: Context, pin: String) {
         getInstance(context).edit().putString("DURESS_PIN", pin).apply()
+        getDeviceProtectedPrefs(context).edit().putString("BFU_DURESS_PIN", pin).apply()
         syncHookCredentials(context)
     }
-    fun getDuressPin(context: Context): String? = getInstance(context).getString("DURESS_PIN", null)
+
+    fun getDuressPin(context: Context): String? {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_DURESS_PIN", null)
+        } else {
+            getInstance(context).getString("DURESS_PIN", null)
+        }
+    }
 
     fun setWipePin(context: Context, pin: String) {
         getInstance(context).edit().putString("WIPE_PIN", pin).apply()
+        getDeviceProtectedPrefs(context).edit().putString("BFU_WIPE_PIN", pin).apply()
         syncHookCredentials(context)
     }
-    fun getWipePin(context: Context): String? = getInstance(context).getString("WIPE_PIN", null)
 
-    /**
-     * Pushes the current Duress and Wipe PINs to /data/system/uncleted/credentials.cfg
-     * so that the LSPosed system_server hook can read them before and after first unlock (BFU/AFU).
-     */
+    fun getWipePin(context: Context): String? {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_WIPE_PIN", null)
+        } else {
+            getInstance(context).getString("WIPE_PIN", null)
+        }
+    }
+
     fun syncHookCredentials(context: Context) {
         val appContext = context.applicationContext
         val wipePin = getWipePin(appContext)
@@ -132,9 +192,6 @@ object SecurityPreferences {
         }
     }
 
-    /**
-     * Clears credentials from both encrypted preferences and the platform hook bridge.
-     */
     fun clearAllPins(context: Context) {
         getInstance(context).edit()
             .remove("NORMAL_PIN")
@@ -143,88 +200,202 @@ object SecurityPreferences {
             .remove("HONEYPOT_PIN")
             .apply()
 
+        getDeviceProtectedPrefs(context).edit()
+            .remove("BFU_DURESS_PIN")
+            .remove("BFU_WIPE_PIN")
+            .apply()
+
         CoroutineScope(Dispatchers.IO).launch {
             CredentialBridge.clearCredentials(context.applicationContext)
         }
     }
 
     fun getFailedAttempts(context: Context): Int = getInstance(context).getInt("FAILED_ATTEMPTS", 0)
+
     fun incrementFailedAttempts(context: Context) {
         val current = getFailedAttempts(context)
         getInstance(context).edit().putInt("FAILED_ATTEMPTS", current + 1).apply()
     }
-    fun resetFailedAttempts(context: Context) = getInstance(context).edit().putInt("FAILED_ATTEMPTS", 0).apply()
+
+    fun resetFailedAttempts(context: Context) =
+        getInstance(context).edit().putInt("FAILED_ATTEMPTS", 0).apply()
+
     // --- Remote Control ---
-    fun setEmergencyContact(context: Context, contact: String) = getInstance(context).edit().putString("EMERGENCY_CONTACT", contact).apply()
-    fun getEmergencyContact(context: Context): String? = getInstance(context).getString("EMERGENCY_CONTACT", null)
+    fun setEmergencyContact(context: Context, contact: String) =
+        getInstance(context).edit().putString("EMERGENCY_CONTACT", contact).apply()
 
-    fun setSmsMasterPassword(context: Context, password: String) = getInstance(context).edit().putString("SMS_MASTER_PASSWORD", password).apply()
-    fun getSmsMasterPassword(context: Context): String? = getInstance(context).getString("SMS_MASTER_PASSWORD", null)
+    fun getEmergencyContact(context: Context): String? =
+        getInstance(context).getString("EMERGENCY_CONTACT", null)
 
-    fun setRemoteInstallCode(context: Context, code: String) = getInstance(context).edit().putString("INSTALL_CODE", code).apply()
-    fun getRemoteInstallCode(context: Context): String? = getInstance(context).getString("INSTALL_CODE", null)
+    fun setSmsMasterPassword(context: Context, password: String) {
+        getInstance(context).edit().putString("SMS_MASTER_PASSWORD", password).apply()
+        getDeviceProtectedPrefs(context).edit().putString("BFU_SMS_MASTER_PASSWORD", password).apply()
+    }
 
+    fun getSmsMasterPassword(context: Context): String? {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_SMS_MASTER_PASSWORD", null)
+        } else {
+            getInstance(context).getString("SMS_MASTER_PASSWORD", null)
+        }
+    }
+
+    fun setRemoteInstallCode(context: Context, code: String) =
+        getInstance(context).edit().putString("INSTALL_CODE", code).apply()
+
+    fun getRemoteInstallCode(context: Context): String? =
+        getInstance(context).getString("INSTALL_CODE", null)
 
     // --- Panic Features ---
-    fun setRecordVideoEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("RECORD_VIDEO", isEnabled).apply()
-    fun isRecordVideoEnabled(context: Context): Boolean = getInstance(context).getBoolean("RECORD_VIDEO", false)
+    fun setRecordVideoEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("RECORD_VIDEO", isEnabled).apply()
 
-    fun setAmbientAudioEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("AMBIENT_AUDIO_ENABLED", isEnabled).apply()
-    fun isAmbientAudioEnabled(context: Context): Boolean = getInstance(context).getBoolean("AMBIENT_AUDIO_ENABLED", false)
+    fun isRecordVideoEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("RECORD_VIDEO", false)
 
-    fun setWipeDeviceEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("WIPE_DEVICE", isEnabled).apply()
-    fun isWipeDeviceEnabled(context: Context): Boolean = getInstance(context).getBoolean("WIPE_DEVICE", false)
+    fun setAmbientAudioEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("AMBIENT_AUDIO_ENABLED", isEnabled).apply()
 
-    fun setIntruderSelfieEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("INTRUDER_SELFIE", isEnabled).apply()
-    fun isIntruderSelfieEnabled(context: Context): Boolean = getInstance(context).getBoolean("INTRUDER_SELFIE", false)
+    fun isAmbientAudioEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("AMBIENT_AUDIO_ENABLED", false)
 
-    fun setSaveSelfieToStorage(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("SAVE_SELFIE_TO_STORAGE", isEnabled).apply()
-    fun isSaveSelfieToStorageEnabled(context: Context): Boolean = getInstance(context).getBoolean("SAVE_SELFIE_TO_STORAGE", false)
+    fun setWipeDeviceEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("WIPE_DEVICE", isEnabled).apply()
 
-    fun setSimChangeAlertEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("SIM_CHANGE", isEnabled).apply()
-    fun isSimChangeAlertEnabled(context: Context): Boolean = getInstance(context).getBoolean("SIM_CHANGE", false)
+    fun isWipeDeviceEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("WIPE_DEVICE", false)
 
-    fun setInitialSimSerial(context: Context, serial: String?) = getInstance(context).edit().putString("SIM_SERIAL", serial).apply()
-    fun getInitialSimSerial(context: Context): String? = getInstance(context).getString("SIM_SERIAL", null)
+    fun setIntruderSelfieEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("INTRUDER_SELFIE", isEnabled).apply()
 
-    fun setFakeShutdownEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("FAKE_SHUTDOWN", isEnabled).apply()
-    fun isFakeShutdownEnabled(context: Context): Boolean = getInstance(context).getBoolean("FAKE_SHUTDOWN", false)
+    fun isIntruderSelfieEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("INTRUDER_SELFIE", false)
 
-    fun setShakeToPanicEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("SHAKE_TO_PANIC", isEnabled).apply()
-    fun isShakeToPanicEnabled(context: Context): Boolean = getInstance(context).getBoolean("SHAKE_TO_PANIC", false)
+    fun setSaveSelfieToStorage(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("SAVE_SELFIE_TO_STORAGE", isEnabled).apply()
 
-    fun setShakeSensitivity(context: Context, level: Int) = getInstance(context).edit().putInt("SHAKE_SENSITIVITY", level).apply()
-    fun getShakeSensitivity(context: Context): Int = getInstance(context).getInt("SHAKE_SENSITIVITY", 3) // Default middle sensitivity
+    fun isSaveSelfieToStorageEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("SAVE_SELFIE_TO_STORAGE", false)
 
-    fun setHardwareWipeEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("HARDWARE_WIPE_ENABLED", isEnabled).apply()
-    fun isHardwareWipeEnabled(context: Context): Boolean = getInstance(context).getBoolean("HARDWARE_WIPE_ENABLED", false) // Default False for safety
+    fun setSimChangeAlertEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("SIM_CHANGE", isEnabled).apply()
 
+    fun isSimChangeAlertEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("SIM_CHANGE", false)
+
+    fun setInitialSimSerial(context: Context, serial: String?) {
+        getInstance(context).edit().putString("SIM_SERIAL", serial).apply()
+        getDeviceProtectedPrefs(context).edit().putString("BFU_SIM_SERIAL", serial).apply()
+    }
+
+    fun getInitialSimSerial(context: Context): String? {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_SIM_SERIAL", null)
+        } else {
+            getInstance(context).getString("SIM_SERIAL", null)
+        }
+    }
+
+    fun setFakeShutdownEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("FAKE_SHUTDOWN", isEnabled).apply()
+
+    fun isFakeShutdownEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("FAKE_SHUTDOWN", false)
+
+    fun setShakeToPanicEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("SHAKE_TO_PANIC", isEnabled).apply()
+
+    fun isShakeToPanicEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("SHAKE_TO_PANIC", false)
+
+    fun setShakeSensitivity(context: Context, level: Int) =
+        getInstance(context).edit().putInt("SHAKE_SENSITIVITY", level).apply()
+
+    fun getShakeSensitivity(context: Context): Int =
+        getInstance(context).getInt("SHAKE_SENSITIVITY", 3)
+
+    fun setHardwareWipeEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("HARDWARE_WIPE_ENABLED", isEnabled).apply()
+
+    fun isHardwareWipeEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("HARDWARE_WIPE_ENABLED", false)
+
+    // --- Hardware & Zone Tripwires ---
+    fun setUsbTripwireEnabled(context: Context, isEnabled: Boolean) {
+        getInstance(context).edit().putBoolean("USB_TRIPWIRE_ENABLED", isEnabled).apply()
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_USB_TRIPWIRE_ENABLED", isEnabled).apply()
+    }
+
+    fun isUsbTripwireEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_USB_TRIPWIRE_ENABLED", false)
+        } else {
+            getInstance(context).getBoolean("USB_TRIPWIRE_ENABLED", false)
+        }
+    }
+
+    fun setGeofenceSuicideEnabled(context: Context, isEnabled: Boolean) {
+        getInstance(context).edit().putBoolean("GEOFENCE_SUICIDE_ENABLED", isEnabled).apply()
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_GEOFENCE_SUICIDE_ENABLED", isEnabled).apply()
+    }
+
+    fun isGeofenceSuicideEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_GEOFENCE_SUICIDE_ENABLED", false)
+        } else {
+            getInstance(context).getBoolean("GEOFENCE_SUICIDE_ENABLED", false)
+        }
+    }
 
     // --- Stealth Mode ---
-    fun setAppHidden(context: Context, isHidden: Boolean) = getInstance(context).edit().putBoolean("APP_HIDDEN", isHidden).apply()
-    fun isAppHidden(context: Context): Boolean = getInstance(context).getBoolean("APP_HIDDEN", false)
+    fun setAppHidden(context: Context, isHidden: Boolean) =
+        getInstance(context).edit().putBoolean("APP_HIDDEN", isHidden).apply()
 
-    fun setSecretDialerCode(context: Context, code: String) = getInstance(context).edit().putString("SECRET_DIALER_CODE", code).apply()
-    fun getSecretDialerCode(context: Context): String? = getInstance(context).getString("SECRET_DIALER_CODE", null)
+    fun isAppHidden(context: Context): Boolean =
+        getInstance(context).getBoolean("APP_HIDDEN", false)
 
-    // --- Advanced Automated Features ---
-    fun setWatchdogModeEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("WATCHDOG_ENABLED", isEnabled).apply()
-    fun isWatchdogModeEnabled(context: Context): Boolean = getInstance(context).getBoolean("WATCHDOG_ENABLED", false)
+    fun setSecretDialerCode(context: Context, code: String) =
+        getInstance(context).edit().putString("SECRET_DIALER_CODE", code).apply()
 
-    fun setWatchdogInterval(context: Context, intervalMinutes: Int) = getInstance(context).edit().putInt("WATCHDOG_INTERVAL", intervalMinutes).apply()
-    fun getWatchdogInterval(context: Context): Int = getInstance(context).getInt("WATCHDOG_INTERVAL", 30) // Default 30 minutes
+    fun getSecretDialerCode(context: Context): String? =
+        getInstance(context).getString("SECRET_DIALER_CODE", null)
 
-    fun setTripwireEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("TRIPWIRE_ENABLED", isEnabled).apply()
-    fun isTripwireEnabled(context: Context): Boolean = getInstance(context).getBoolean("TRIPWIRE_ENABLED", false)
+    // --- Automated Features ---
+    fun setWatchdogModeEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("WATCHDOG_ENABLED", isEnabled).apply()
 
-    fun setTripwireDuration(context: Context, durationHours: Int) = getInstance(context).edit().putInt("TRIPWIRE_DURATION", durationHours).apply()
-    fun getTripwireDuration(context: Context): Int = getInstance(context).getInt("TRIPWIRE_DURATION", 24) // Default 24 hours
+    fun isWatchdogModeEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("WATCHDOG_ENABLED", false)
 
-    fun setLastTripwireCheckIn(context: Context, timestamp: Long) = getInstance(context).edit().putLong("TRIPWIRE_LAST_CHECKIN", timestamp).apply()
-    fun getLastTripwireCheckIn(context: Context): Long = getInstance(context).getLong("TRIPWIRE_LAST_CHECKIN", 0L)
+    fun setWatchdogInterval(context: Context, intervalMinutes: Int) =
+        getInstance(context).edit().putInt("WATCHDOG_INTERVAL", intervalMinutes).apply()
 
-    fun setGeofenceEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("GEOFENCE_ENABLED", isEnabled).apply()
-    fun isGeofenceEnabled(context: Context): Boolean = getInstance(context).getBoolean("GEOFENCE_ENABLED", false)
+    fun getWatchdogInterval(context: Context): Int =
+        getInstance(context).getInt("WATCHDOG_INTERVAL", 30)
+
+    fun setTripwireEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("TRIPWIRE_ENABLED", isEnabled).apply()
+
+    fun isTripwireEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("TRIPWIRE_ENABLED", false)
+
+    fun setTripwireDuration(context: Context, durationHours: Int) =
+        getInstance(context).edit().putInt("TRIPWIRE_DURATION", durationHours).apply()
+
+    fun getTripwireDuration(context: Context): Int =
+        getInstance(context).getInt("TRIPWIRE_DURATION", 24)
+
+    fun setLastTripwireCheckIn(context: Context, timestamp: Long) =
+        getInstance(context).edit().putLong("TRIPWIRE_LAST_CHECKIN", timestamp).apply()
+
+    fun getLastTripwireCheckIn(context: Context): Long =
+        getInstance(context).getLong("TRIPWIRE_LAST_CHECKIN", 0L)
+
+    fun setGeofenceEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("GEOFENCE_ENABLED", isEnabled).apply()
+
+    fun isGeofenceEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("GEOFENCE_ENABLED", false)
 
     fun setGeofenceLocation(context: Context, lat: Double, lon: Double) {
         getInstance(context).edit()
@@ -242,77 +413,142 @@ object SecurityPreferences {
     }
 
     // --- ROOT-ONLY FEATURES ---
-    fun setGpsSpoofingEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_GPS_SPOOFING", isEnabled).apply()
-    fun isGpsSpoofingEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_GPS_SPOOFING", false)
+    fun setGpsSpoofingEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_GPS_SPOOFING", isEnabled).apply()
 
-    fun setDecoyGpsLocation(context: Context, location: String) = getInstance(context).edit().putString("ROOT_DECOY_GPS_LOCATION", location).apply()
-    fun getDecoyGpsLocation(context: Context): String? = getInstance(context).getString("ROOT_DECOY_GPS_LOCATION", null)
+    fun isGpsSpoofingEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_GPS_SPOOFING", false)
 
-    fun setSilentInstallEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_SILENT_INSTALL", isEnabled).apply()
-    fun isSilentInstallEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_SILENT_INSTALL", false)
+    fun setDecoyGpsLocation(context: Context, location: String) =
+        getInstance(context).edit().putString("ROOT_DECOY_GPS_LOCATION", location).apply()
 
-    fun setRemoteApkUrl(context: Context, url: String) = getInstance(context).edit().putString("ROOT_REMOTE_APK_URL", url).apply()
-    fun getRemoteApkUrl(context: Context): String? = getInstance(context).getString("ROOT_REMOTE_APK_URL", null)
+    fun getDecoyGpsLocation(context: Context): String? =
+        getInstance(context).getString("ROOT_DECOY_GPS_LOCATION", null)
 
-    fun setFirewallTripwireEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_FIREWALL_TRIPWIRE", isEnabled).apply()
-    fun isFirewallTripwireEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_FIREWALL_TRIPWIRE", false)
+    fun setSilentInstallEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_SILENT_INSTALL", isEnabled).apply()
 
-    fun setSecureWipeEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_SECURE_WIPE", isEnabled).apply()
-    fun isSecureWipeEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_SECURE_WIPE", false)
+    fun isSilentInstallEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_SILENT_INSTALL", false)
 
-    fun setSystemAppEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_SYSTEM_APP", isEnabled).apply()
-    fun isSystemAppEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_SYSTEM_APP", false)
+    fun setRemoteApkUrl(context: Context, url: String) =
+        getInstance(context).edit().putString("ROOT_REMOTE_APK_URL", url).apply()
 
-    // ### NEW: Ultimate Stealth & Persistence Preferences ###
-    fun setUnkillableServiceEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_UNKILLABLE_SERVICE", isEnabled).apply()
-    fun isUnkillableServiceEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_UNKILLABLE_SERVICE", false)
+    fun getRemoteApkUrl(context: Context): String? =
+        getInstance(context).getString("ROOT_REMOTE_APK_URL", null)
 
-    fun setProcessHiddenEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_PROCESS_HIDDEN", isEnabled).apply()
-    fun isProcessHiddenEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_PROCESS_HIDDEN", false)
+    fun setFirewallTripwireEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_FIREWALL_TRIPWIRE", isEnabled).apply()
 
-    fun setSurviveFactoryResetEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_SURVIVE_RESET", isEnabled).apply()
-    fun isSurviveFactoryResetEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_SURVIVE_RESET", false)
+    fun isFirewallTripwireEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_FIREWALL_TRIPWIRE", false)
 
-    fun setLoaderScriptUrl(context: Context, url: String) = getInstance(context).edit().putString("ROOT_LOADER_SCRIPT_URL", url).apply()
-    fun getLoaderScriptUrl(context: Context): String? = getInstance(context).getString("ROOT_LOADER_SCRIPT_URL", null)
+    fun setSecureWipeEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_SECURE_WIPE", isEnabled).apply()
 
+    fun isSecureWipeEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_SECURE_WIPE", false)
+
+    fun setSystemAppEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_SYSTEM_APP", isEnabled).apply()
+
+    fun isSystemAppEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_SYSTEM_APP", false)
+
+    fun setUnkillableServiceEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_UNKILLABLE_SERVICE", isEnabled).apply()
+
+    fun isUnkillableServiceEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_UNKILLABLE_SERVICE", false)
+
+    fun setProcessHiddenEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_PROCESS_HIDDEN", isEnabled).apply()
+
+    fun isProcessHiddenEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_PROCESS_HIDDEN", false)
+
+    fun setSurviveFactoryResetEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_SURVIVE_RESET", isEnabled).apply()
+
+    fun isSurviveFactoryResetEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_SURVIVE_RESET", false)
+
+    fun setLoaderScriptUrl(context: Context, url: String) =
+        getInstance(context).edit().putString("ROOT_LOADER_SCRIPT_URL", url).apply()
+
+    fun getLoaderScriptUrl(context: Context): String? =
+        getInstance(context).getString("ROOT_LOADER_SCRIPT_URL", null)
 
     // --- Email Configuration ---
-    fun setEmailHost(context: Context, host: String) = getInstance(context).edit().putString("EMAIL_HOST", host).apply()
-    fun getEmailHost(context: Context): String? = getInstance(context).getString("EMAIL_HOST", null)
+    fun setEmailHost(context: Context, host: String) =
+        getInstance(context).edit().putString("EMAIL_HOST", host).apply()
 
-    fun setEmailPort(context: Context, port: Int) = getInstance(context).edit().putInt("EMAIL_PORT", port).apply()
-    fun getEmailPort(context: Context): Int = getInstance(context).getInt("EMAIL_PORT", 0)
+    fun getEmailHost(context: Context): String? =
+        getInstance(context).getString("EMAIL_HOST", null)
 
-    fun setEmailUsername(context: Context, username: String) = getInstance(context).edit().putString("EMAIL_USERNAME", username).apply()
-    fun getEmailUsername(context: Context): String? = getInstance(context).getString("EMAIL_USERNAME", null)
+    fun setEmailPort(context: Context, port: Int) =
+        getInstance(context).edit().putInt("EMAIL_PORT", port).apply()
 
-    fun setEmailPassword(context: Context, password: String) = getInstance(context).edit().putString("EMAIL_PASSWORD", password).apply()
-    fun getEmailPassword(context: Context): String? = getInstance(context).getString("EMAIL_PASSWORD", null)
+    fun getEmailPort(context: Context): Int =
+        getInstance(context).getInt("EMAIL_PORT", 0)
 
-    fun setEnableSslTls(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("EMAIL_SSL_TLS", isEnabled).apply()
-    fun isEnableSslTls(context: Context): Boolean = getInstance(context).getBoolean("EMAIL_SSL_TLS", true) // Default to true
+    fun setEmailUsername(context: Context, username: String) =
+        getInstance(context).edit().putString("EMAIL_USERNAME", username).apply()
+
+    fun getEmailUsername(context: Context): String? =
+        getInstance(context).getString("EMAIL_USERNAME", null)
+
+    fun setEmailPassword(context: Context, password: String) =
+        getInstance(context).edit().putString("EMAIL_PASSWORD", password).apply()
+
+    fun getEmailPassword(context: Context): String? =
+        getInstance(context).getString("EMAIL_PASSWORD", null)
+
+    fun setEnableSslTls(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("EMAIL_SSL_TLS", isEnabled).apply()
+
+    fun isEnableSslTls(context: Context): Boolean =
+        getInstance(context).getBoolean("EMAIL_SSL_TLS", true)
 
     // --- App Lock ---
-    fun setBiometricLockEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("BIOMETRIC_LOCK_ENABLED", isEnabled).apply()
-    fun isBiometricLockEnabled(context: Context): Boolean = getInstance(context).getBoolean("BIOMETRIC_LOCK_ENABLED", false)
+    fun setBiometricLockEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("BIOMETRIC_LOCK_ENABLED", isEnabled).apply()
 
-    fun setTrustedVpnEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("TRUSTED_VPN_ENABLED", isEnabled).apply()
-    fun isTrustedVpnEnabled(context: Context): Boolean = getInstance(context).getBoolean("TRUSTED_VPN_ENABLED", false)
-    fun setStealthScreenshotEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_STEALTH_SCREENSHOT", isEnabled).apply()
-    fun isStealthScreenshotEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_STEALTH_SCREENSHOT", false)
+    fun isBiometricLockEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("BIOMETRIC_LOCK_ENABLED", false)
 
-    fun setKeyloggerEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_KEYLOGGER", isEnabled).apply()
-    fun isKeyloggerEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_KEYLOGGER", false)
+    fun setTrustedVpnEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("TRUSTED_VPN_ENABLED", isEnabled).apply()
 
-    fun setStealthMediaCaptureEnabled(context: Context, isEnabled: Boolean) = getInstance(context).edit().putBoolean("ROOT_STEALTH_MEDIA", isEnabled).apply()
-    fun isStealthMediaCaptureEnabled(context: Context): Boolean = getInstance(context).getBoolean("ROOT_STEALTH_MEDIA", false)
+    fun isTrustedVpnEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("TRUSTED_VPN_ENABLED", false)
+
+    fun setStealthScreenshotEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_STEALTH_SCREENSHOT", isEnabled).apply()
+
+    fun isStealthScreenshotEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_STEALTH_SCREENSHOT", false)
+
+    fun setKeyloggerEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_KEYLOGGER", isEnabled).apply()
+
+    fun isKeyloggerEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_KEYLOGGER", false)
+
+    fun setStealthMediaCaptureEnabled(context: Context, isEnabled: Boolean) =
+        getInstance(context).edit().putBoolean("ROOT_STEALTH_MEDIA", isEnabled).apply()
+
+    fun isStealthMediaCaptureEnabled(context: Context): Boolean =
+        getInstance(context).getBoolean("ROOT_STEALTH_MEDIA", false)
 
     fun appendKeylogData(context: Context, data: String) {
         val currentLogs = getKeylogData(context)
         getInstance(context).edit().putString("KEYLOG_DATA", currentLogs + data).apply()
     }
-    fun getKeylogData(context: Context): String? = getInstance(context).getString("KEYLOG_DATA", "")
-    fun clearKeylogData(context: Context) = getInstance(context).edit().remove("KEYLOG_DATA").apply()
 
+    fun getKeylogData(context: Context): String? =
+        getInstance(context).getString("KEYLOG_DATA", "")
+
+    fun clearKeylogData(context: Context) =
+        getInstance(context).edit().remove("KEYLOG_DATA").apply()
 }

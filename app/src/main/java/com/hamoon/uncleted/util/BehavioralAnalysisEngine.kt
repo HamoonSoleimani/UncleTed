@@ -13,17 +13,17 @@ import com.hamoon.uncleted.services.PanicActionService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.math.*
 import java.util.*
+import kotlin.math.*
 
 object BehavioralAnalysisEngine : DefaultLifecycleObserver, SensorEventListener {
 
     private const val TAG = "BehavioralAnalysis"
     private const val LEARNING_PERIOD_DAYS = 7
     private const val MIN_SAMPLES_FOR_ANALYSIS = 50
-    private const val ANOMALY_THRESHOLD = 0.75 // 75% deviation from normal
+    private const val ANOMALY_THRESHOLD = 0.75
+    private const val SENSOR_WINDOW_MS = 5000L
 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
@@ -35,26 +35,28 @@ object BehavioralAnalysisEngine : DefaultLifecycleObserver, SensorEventListener 
 
     private val analysisScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-    // Behavioral pattern data
-    private val typingPatterns = mutableListOf<TypingPattern>()
-    private val walkingPatterns = mutableListOf<WalkingPattern>()
-    private val phoneHoldingPatterns = mutableListOf<PhoneHoldingPattern>()
-    private val appUsagePatterns = mutableListOf<AppUsagePattern>()
-    private val touchPressurePatterns = mutableListOf<TouchPressurePattern>()
+    // Motion Sensor Rolling Buffers
+    private val recentMagnitudes = Collections.synchronizedList(mutableListOf<Pair<Long, Double>>())
+    private val recentRotations = Collections.synchronizedList(mutableListOf<Pair<Long, Double>>())
 
-    // Real-time sensor data
+    // Behavioral Pattern Buffers
+    private val typingPatterns = Collections.synchronizedList(mutableListOf<TypingPattern>())
+    private val walkingPatterns = Collections.synchronizedList(mutableListOf<WalkingPattern>())
+    private val phoneHoldingPatterns = Collections.synchronizedList(mutableListOf<PhoneHoldingPattern>())
+    private val appUsagePatterns = Collections.synchronizedList(mutableListOf<AppUsagePattern>())
+    private val touchPressurePatterns = Collections.synchronizedList(mutableListOf<TouchPressurePattern>())
+
     private var currentAcceleration = FloatArray(3)
     private var currentGyroscope = FloatArray(3)
     private var currentMagnetometer = FloatArray(3)
-    private var lastSensorUpdate = 0L
 
     enum class BehavioralState {
         LEARNING, ANALYZING, ANOMALY_DETECTED, USER_VERIFIED, INTRUDER_CONFIRMED
     }
 
     data class TypingPattern(
-        val dwellTimes: List<Long>, // Time key is held down
-        val flightTimes: List<Long>, // Time between key releases
+        val dwellTimes: List<Long>,
+        val flightTimes: List<Long>,
         val pressure: List<Float>,
         val touchArea: List<Float>,
         val timestamp: Long = System.currentTimeMillis()
@@ -136,36 +138,70 @@ object BehavioralAnalysisEngine : DefaultLifecycleObserver, SensorEventListener 
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
-        event?.let { sensorEvent ->
-            val currentTime = System.currentTimeMillis()
+        val sensorEvent = event ?: return
+        val currentTime = System.currentTimeMillis()
 
-            when (sensorEvent.sensor.type) {
-                Sensor.TYPE_ACCELEROMETER -> {
-                    System.arraycopy(sensorEvent.values, 0, currentAcceleration, 0, 3)
-                    analyzeMovementPattern(currentTime)
+        when (sensorEvent.sensor.type) {
+            Sensor.TYPE_ACCELEROMETER -> {
+                System.arraycopy(sensorEvent.values, 0, currentAcceleration, 0, 3)
+                val magnitude = sqrt(
+                    currentAcceleration[0].toDouble().pow(2) +
+                            currentAcceleration[1].toDouble().pow(2) +
+                            currentAcceleration[2].toDouble().pow(2)
+                )
+                synchronized(recentMagnitudes) {
+                    recentMagnitudes.add(currentTime to magnitude)
+                    pruneSensorWindow(recentMagnitudes, currentTime)
                 }
-                Sensor.TYPE_GYROSCOPE -> {
-                    System.arraycopy(sensorEvent.values, 0, currentGyroscope, 0, 3)
-                    analyzePhoneHoldingPattern(currentTime)
-                }
-                Sensor.TYPE_MAGNETIC_FIELD -> {
-                    System.arraycopy(sensorEvent.values, 0, currentMagnetometer, 0, 3)
-                }
+                analyzeMovementPattern(currentTime, magnitude)
             }
-
-            lastSensorUpdate = currentTime
+            Sensor.TYPE_GYROSCOPE -> {
+                System.arraycopy(sensorEvent.values, 0, currentGyroscope, 0, 3)
+                val rotationMagnitude = sqrt(
+                    currentGyroscope[0].toDouble().pow(2) +
+                            currentGyroscope[1].toDouble().pow(2) +
+                            currentGyroscope[2].toDouble().pow(2)
+                )
+                synchronized(recentRotations) {
+                    recentRotations.add(currentTime to rotationMagnitude)
+                    pruneSensorWindow(recentRotations, currentTime)
+                }
+                analyzePhoneHoldingPattern(currentTime, rotationMagnitude)
+            }
+            Sensor.TYPE_MAGNETIC_FIELD -> {
+                System.arraycopy(sensorEvent.values, 0, currentMagnetometer, 0, 3)
+            }
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Handle sensor accuracy changes if needed
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private fun pruneSensorWindow(buffer: MutableList<Pair<Long, Double>>, currentTime: Long) {
+        val cutoff = currentTime - SENSOR_WINDOW_MS
+        while (buffer.isNotEmpty() && buffer.first().first < cutoff) {
+            buffer.removeAt(0)
+        }
+    }
+
+    private fun getRecentMagnitudes(timestamp: Long): List<Double> {
+        val cutoff = timestamp - SENSOR_WINDOW_MS
+        synchronized(recentMagnitudes) {
+            return recentMagnitudes.filter { it.first >= cutoff }.map { it.second }
+        }
+    }
+
+    private fun getRecentRotations(timestamp: Long): List<Double> {
+        val cutoff = timestamp - SENSOR_WINDOW_MS
+        synchronized(recentRotations) {
+            return recentRotations.filter { it.first >= cutoff }.map { it.second }
+        }
     }
 
     private fun startBehavioralAnalysis(context: Context) {
         analysisScope.launch {
             while (isActive) {
                 performBehavioralAnalysis(context)
-                delay(30000) // Analyze every 30 seconds
+                delay(30000L)
             }
         }
     }
@@ -183,23 +219,23 @@ object BehavioralAnalysisEngine : DefaultLifecycleObserver, SensorEventListener 
 
         if (storedProfile != null) {
             val similarity = calculateProfileSimilarity(currentProfile, storedProfile)
-
-            Log.d(TAG, "Behavioral similarity: ${(similarity * 100).toInt()}%")
+            Log.d(TAG, "Behavioral profile match: ${(similarity * 100).toInt()}%")
 
             if (similarity < ANOMALY_THRESHOLD) {
                 handleBehavioralAnomaly(context, similarity, currentProfile, storedProfile)
             } else {
-                // Update stored profile with new data
+                _behavioralState.value = BehavioralState.USER_VERIFIED
                 updateStoredProfile(context, currentProfile)
             }
+        } else {
+            updateStoredProfile(context, currentProfile)
         }
     }
 
     private fun isInLearningPhase(context: Context): Boolean {
         val firstRun = SecurityPreferences.getFirstRunTimestamp(context)
-        val daysSinceFirstRun = (System.currentTimeMillis() - firstRun) / (24 * 60 * 60 * 1000)
+        val daysSinceFirstRun = (System.currentTimeMillis() - firstRun) / (24 * 60 * 60 * 1000L)
         val totalSamples = getTotalSampleCount()
-
         return daysSinceFirstRun < LEARNING_PERIOD_DAYS || totalSamples < MIN_SAMPLES_FOR_ANALYSIS
     }
 
@@ -208,142 +244,77 @@ object BehavioralAnalysisEngine : DefaultLifecycleObserver, SensorEventListener 
                 appUsagePatterns.size + touchPressurePatterns.size
     }
 
-    private fun analyzeMovementPattern(timestamp: Long) {
-        val magnitude = sqrt(
-            currentAcceleration[0].pow(2) +
-                    currentAcceleration[1].pow(2) +
-                    currentAcceleration[2].pow(2)
-        ).toDouble()
-
-        // Detect walking pattern
-        analysisScope.launch {
-            val walkingPattern = detectWalkingPattern(magnitude, timestamp)
-            walkingPattern?.let {
-                walkingPatterns.add(it)
-                if (walkingPatterns.size > 1000) {
-                    walkingPatterns.removeFirst()
-                }
-            }
-        }
-    }
-
-    private fun analyzePhoneHoldingPattern(timestamp: Long) {
-        val rotationMagnitude = sqrt(
-            currentGyroscope[0].pow(2) +
-                    currentGyroscope[1].pow(2) +
-                    currentGyroscope[2].pow(2)
-        ).toDouble()
+    private fun analyzeMovementPattern(timestamp: Long, currentMag: Double) {
+        if (currentMag < 11.5) return
 
         analysisScope.launch {
-            val holdingPattern = detectPhoneHoldingPattern(rotationMagnitude, timestamp)
-            holdingPattern?.let {
-                phoneHoldingPatterns.add(it)
-                if (phoneHoldingPatterns.size > 500) {
-                    phoneHoldingPatterns.removeFirst()
-                }
-            }
-        }
-    }
+            val magnitudes = getRecentMagnitudes(timestamp)
+            if (magnitudes.size >= 10) {
+                val frequency = calculateStepFrequency(magnitudes)
+                val variability = calculateStepVariability(magnitudes)
 
-    private suspend fun detectWalkingPattern(magnitude: Double, timestamp: Long): WalkingPattern? = withContext(Dispatchers.Default) {
-        // Simple step detection algorithm
-        if (magnitude > 12.0) { // Threshold for step detection
-            val recentMagnitudes = getRecentMagnitudes(timestamp)
-            if (recentMagnitudes.size >= 10) {
-                val frequency = calculateStepFrequency(recentMagnitudes)
-                val variability = calculateStepVariability(recentMagnitudes)
-
-                return@withContext WalkingPattern(
+                val pattern = WalkingPattern(
                     stepFrequency = frequency,
-                    accelerationMagnitude = recentMagnitudes,
+                    accelerationMagnitude = magnitudes,
                     stepVariability = variability,
                     timestamp = timestamp
                 )
+                walkingPatterns.add(pattern)
+                if (walkingPatterns.size > 500) walkingPatterns.removeAt(0)
             }
         }
-        null
     }
 
-    private suspend fun detectPhoneHoldingPattern(rotation: Double, timestamp: Long): PhoneHoldingPattern? = withContext(Dispatchers.Default) {
-        val recentRotations = getRecentRotations(timestamp)
-        if (recentRotations.size >= 20) {
-            val angles = recentRotations.map { atan2(it, 1.0) * 180 / PI }
-            val stability = calculateGripStability(recentRotations)
-            val averageTilt = angles.average()
+    private fun analyzePhoneHoldingPattern(timestamp: Long, rotation: Double) {
+        analysisScope.launch {
+            val rotations = getRecentRotations(timestamp)
+            if (rotations.size >= 15) {
+                val angles = rotations.map { atan2(it, 1.0) * (180.0 / PI) }
+                val stability = calculateGripStability(rotations)
+                val averageTilt = angles.average()
 
-            return@withContext PhoneHoldingPattern(
-                orientationAngles = angles,
-                gripStability = stability,
-                averageTilt = averageTilt,
-                timestamp = timestamp
-            )
+                val pattern = PhoneHoldingPattern(
+                    orientationAngles = angles,
+                    gripStability = stability,
+                    averageTilt = averageTilt,
+                    timestamp = timestamp
+                )
+                phoneHoldingPatterns.add(pattern)
+                if (phoneHoldingPatterns.size > 500) phoneHoldingPatterns.removeAt(0)
+            }
         }
-        null
     }
 
     fun recordTypingPattern(dwellTimes: List<Long>, flightTimes: List<Long>, pressures: List<Float>, touchAreas: List<Float>) {
         val pattern = TypingPattern(dwellTimes, flightTimes, pressures, touchAreas)
         typingPatterns.add(pattern)
-
-        if (typingPatterns.size > 200) {
-            typingPatterns.removeFirst()
-        }
-
-        Log.d(TAG, "Recorded typing pattern: ${dwellTimes.size} keystrokes")
+        if (typingPatterns.size > 200) typingPatterns.removeAt(0)
     }
 
     fun recordAppUsagePattern(apps: List<String>, durations: List<Long>, transitions: List<Long>) {
         val timeOfDay = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         val pattern = AppUsagePattern(apps, durations, transitions, timeOfDay)
         appUsagePatterns.add(pattern)
-
-        if (appUsagePatterns.size > 100) {
-            appUsagePatterns.removeFirst()
-        }
-
-        Log.d(TAG, "Recorded app usage pattern: ${apps.size} apps")
+        if (appUsagePatterns.size > 100) appUsagePatterns.removeAt(0)
     }
 
     fun recordTouchPressurePattern(pressure: Double, variance: Double, size: Double, duration: Long) {
         val pattern = TouchPressurePattern(pressure, variance, size, duration)
         touchPressurePatterns.add(pattern)
-
-        if (touchPressurePatterns.size > 300) {
-            touchPressurePatterns.removeFirst()
-        }
+        if (touchPressurePatterns.size > 300) touchPressurePatterns.removeAt(0)
     }
 
     private fun generateCurrentProfile(context: Context): BehavioralProfile {
         val patterns = mutableMapOf<String, Any>()
 
-        // Typing patterns analysis
-        if (typingPatterns.isNotEmpty()) {
-            patterns["typing"] = analyzeTypingPatterns()
-        }
-
-        // Walking patterns analysis
-        if (walkingPatterns.isNotEmpty()) {
-            patterns["walking"] = analyzeWalkingPatterns()
-        }
-
-        // Phone holding patterns analysis
-        if (phoneHoldingPatterns.isNotEmpty()) {
-            patterns["holding"] = analyzeHoldingPatterns()
-        }
-
-        // App usage patterns analysis
-        if (appUsagePatterns.isNotEmpty()) {
-            patterns["app_usage"] = analyzeAppUsagePatterns()
-        }
-
-        // Touch pressure patterns analysis
-        if (touchPressurePatterns.isNotEmpty()) {
-            patterns["touch"] = analyzeTouchPatterns()
-        }
+        if (typingPatterns.isNotEmpty()) patterns["typing"] = analyzeTypingPatterns()
+        if (walkingPatterns.isNotEmpty()) patterns["walking"] = analyzeWalkingPatterns()
+        if (phoneHoldingPatterns.isNotEmpty()) patterns["holding"] = analyzeHoldingPatterns()
+        if (appUsagePatterns.isNotEmpty()) patterns["app_usage"] = analyzeAppUsagePatterns()
+        if (touchPressurePatterns.isNotEmpty()) patterns["touch"] = analyzeTouchPatterns()
 
         return BehavioralProfile(
             userId = "primary_user",
-            // ### FIX 2: Pass the context to the corrected function ###
             confidence = calculateProfileConfidence(context),
             patterns = patterns,
             lastUpdated = System.currentTimeMillis(),
@@ -352,243 +323,201 @@ object BehavioralAnalysisEngine : DefaultLifecycleObserver, SensorEventListener 
     }
 
     private fun analyzeTypingPatterns(): Map<String, Double> {
-        val recentPatterns = typingPatterns.takeLast(50)
-
-        val avgDwellTime = recentPatterns.flatMap { it.dwellTimes }.average()
-        val avgFlightTime = recentPatterns.flatMap { it.flightTimes }.average()
-        val avgPressure = recentPatterns.flatMap { it.pressure }.average().toDouble()
-        val avgTouchArea = recentPatterns.flatMap { it.touchArea }.average().toDouble()
-
-        val dwellVariance = calculateVariance(recentPatterns.flatMap { it.dwellTimes }.map { it.toDouble() })
-        val flightVariance = calculateVariance(recentPatterns.flatMap { it.flightTimes }.map { it.toDouble() })
+        val snapshot = synchronized(typingPatterns) { typingPatterns.takeLast(50) }
+        val avgDwell = snapshot.flatMap { it.dwellTimes }.average()
+        val avgFlight = snapshot.flatMap { it.flightTimes }.average()
+        val avgPress = snapshot.flatMap { it.pressure }.average()
+        val avgArea = snapshot.flatMap { it.touchArea }.average()
 
         return mapOf(
-            "avg_dwell_time" to avgDwellTime,
-            "avg_flight_time" to avgFlightTime,
-            "avg_pressure" to avgPressure,
-            "avg_touch_area" to avgTouchArea,
-            "dwell_variance" to dwellVariance,
-            "flight_variance" to flightVariance
+            "avg_dwell_time" to if (avgDwell.isNaN()) 0.0 else avgDwell,
+            "avg_flight_time" to if (avgFlight.isNaN()) 0.0 else avgFlight,
+            "avg_pressure" to if (avgPress.isNaN()) 0.0 else avgPress,
+            "avg_touch_area" to if (avgArea.isNaN()) 0.0 else avgArea
         )
     }
 
     private fun analyzeWalkingPatterns(): Map<String, Double> {
-        val recentPatterns = walkingPatterns.takeLast(30)
-
-        val avgFrequency = recentPatterns.map { it.stepFrequency }.average()
-        val avgVariability = recentPatterns.map { it.stepVariability }.average()
-        val frequencyConsistency = 1.0 - calculateVariance(recentPatterns.map { it.stepFrequency })
-
+        val snapshot = synchronized(walkingPatterns) { walkingPatterns.takeLast(30) }
+        val avgFreq = snapshot.map { it.stepFrequency }.average()
+        val avgVar = snapshot.map { it.stepVariability }.average()
         return mapOf(
-            "avg_step_frequency" to avgFrequency,
-            "avg_variability" to avgVariability,
-            "frequency_consistency" to frequencyConsistency
+            "avg_step_frequency" to if (avgFreq.isNaN()) 0.0 else avgFreq,
+            "avg_variability" to if (avgVar.isNaN()) 0.0 else avgVar
         )
     }
 
     private fun analyzeHoldingPatterns(): Map<String, Double> {
-        val recentPatterns = phoneHoldingPatterns.takeLast(20)
-
-        val avgStability = recentPatterns.map { it.gripStability }.average()
-        val avgTilt = recentPatterns.map { it.averageTilt }.average()
-        val tiltConsistency = 1.0 - calculateVariance(recentPatterns.map { it.averageTilt })
-
+        val snapshot = synchronized(phoneHoldingPatterns) { phoneHoldingPatterns.takeLast(30) }
+        val avgStab = snapshot.map { it.gripStability }.average()
+        val avgTilt = snapshot.map { it.averageTilt }.average()
         return mapOf(
-            "avg_grip_stability" to avgStability,
-            "avg_tilt" to avgTilt,
-            "tilt_consistency" to tiltConsistency
+            "avg_grip_stability" to if (avgStab.isNaN()) 0.0 else avgStab,
+            "avg_tilt" to if (avgTilt.isNaN()) 0.0 else avgTilt
         )
     }
 
     private fun analyzeAppUsagePatterns(): Map<String, Double> {
-        val recentPatterns = appUsagePatterns.takeLast(20)
-
-        val avgSessionDuration = recentPatterns.flatMap { it.usageDuration }.average()
-        val avgTransitionTime = recentPatterns.flatMap { it.transitionTimes }.average()
-        val preferredTimeOfDay = recentPatterns.map { it.timeOfDay }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key?.toDouble() ?: 12.0
-
+        val snapshot = synchronized(appUsagePatterns) { appUsagePatterns.takeLast(20) }
+        val avgDur = snapshot.flatMap { it.usageDuration }.average()
+        val avgTrans = snapshot.flatMap { it.transitionTimes }.average()
         return mapOf(
-            "avg_session_duration" to avgSessionDuration,
-            "avg_transition_time" to avgTransitionTime,
-            "preferred_time_of_day" to preferredTimeOfDay
+            "avg_session_duration" to if (avgDur.isNaN()) 0.0 else avgDur,
+            "avg_transition_time" to if (avgTrans.isNaN()) 0.0 else avgTrans
         )
     }
 
     private fun analyzeTouchPatterns(): Map<String, Double> {
-        val recentPatterns = touchPressurePatterns.takeLast(50)
-
-        val avgPressure = recentPatterns.map { it.averagePressure }.average()
-        val avgVariance = recentPatterns.map { it.pressureVariance }.average()
-        val avgSize = recentPatterns.map { it.touchSize }.average()
-        val avgDuration = recentPatterns.map { it.touchDuration }.average()
-
+        val snapshot = synchronized(touchPressurePatterns) { touchPressurePatterns.takeLast(50) }
+        val avgP = snapshot.map { it.averagePressure }.average()
+        val avgS = snapshot.map { it.touchSize }.average()
+        val avgD = snapshot.map { it.touchDuration.toDouble() }.average()
         return mapOf(
-            "avg_pressure" to avgPressure,
-            "avg_pressure_variance" to avgVariance,
-            "avg_touch_size" to avgSize,
-            "avg_touch_duration" to avgDuration
+            "avg_pressure" to if (avgP.isNaN()) 0.0 else avgP,
+            "avg_touch_size" to if (avgS.isNaN()) 0.0 else avgS,
+            "avg_touch_duration" to if (avgD.isNaN()) 0.0 else avgD
         )
     }
 
-    // ### FIX 1: Add the missing 'context: Context' parameter to the function signature ###
     private fun calculateProfileConfidence(context: Context): Double {
-        val sampleCount = getTotalSampleCount()
-        // ### FIX 3: Replace the invalid code with a correct call using the context ###
-        val daysSinceFirstRun = (System.currentTimeMillis() - SecurityPreferences.getFirstRunTimestamp(context)) / (24 * 60 * 60 * 1000)
-
-        val sampleConfidence = minOf(sampleCount.toDouble() / MIN_SAMPLES_FOR_ANALYSIS, 1.0)
-        val timeConfidence = minOf(daysSinceFirstRun.toDouble() / LEARNING_PERIOD_DAYS, 1.0)
-
-        return (sampleConfidence + timeConfidence) / 2.0
+        val count = getTotalSampleCount()
+        val days = (System.currentTimeMillis() - SecurityPreferences.getFirstRunTimestamp(context)) / (24 * 60 * 60 * 1000L)
+        val sampleConf = min(count.toDouble() / MIN_SAMPLES_FOR_ANALYSIS, 1.0)
+        val timeConf = min(days.toDouble() / LEARNING_PERIOD_DAYS, 1.0)
+        return (sampleConf + timeConf) / 2.0
     }
 
     private fun calculateProfileSimilarity(current: BehavioralProfile, stored: BehavioralProfile): Double {
-        var totalSimilarity = 0.0
-        var patternCount = 0
+        var totalSim = 0.0
+        var count = 0
 
-        for ((patternType, currentData) in current.patterns) {
-            val storedData = stored.patterns[patternType]
-            if (storedData != null && currentData is Map<*, *> && storedData is Map<*, *>) {
-                val similarity = calculatePatternSimilarity(currentData, storedData)
-                totalSimilarity += similarity
-                patternCount++
+        for ((key, currentVal) in current.patterns) {
+            val storedVal = stored.patterns[key]
+            if (currentVal is Map<*, *> && storedVal is Map<*, *>) {
+                totalSim += calculatePatternSimilarity(currentVal, storedVal)
+                count++
             }
         }
-
-        return if (patternCount > 0) totalSimilarity / patternCount else 0.0
+        return if (count > 0) totalSim / count else 1.0
     }
 
-    private fun calculatePatternSimilarity(pattern1: Map<*, *>, pattern2: Map<*, *>): Double {
-        val commonKeys = pattern1.keys.intersect(pattern2.keys)
+    private fun calculatePatternSimilarity(p1: Map<*, *>, p2: Map<*, *>): Double {
+        val commonKeys = p1.keys.intersect(p2.keys)
         if (commonKeys.isEmpty()) return 0.0
 
-        var totalSimilarity = 0.0
-
-        for (key in commonKeys) {
-            val value1 = pattern1[key] as? Double ?: continue
-            val value2 = pattern2[key] as? Double ?: continue
-
-            val similarity = 1.0 - abs(value1 - value2) / maxOf(abs(value1), abs(value2), 1.0)
-            totalSimilarity += similarity
+        var sum = 0.0
+        for (k in commonKeys) {
+            val v1 = (p1[k] as? Number)?.toDouble() ?: continue
+            val v2 = (p2[k] as? Number)?.toDouble() ?: continue
+            val denom = max(abs(v1), abs(v2)).coerceAtLeast(0.001)
+            sum += 1.0 - (abs(v1 - v2) / denom).coerceAtMost(1.0)
         }
-
-        return totalSimilarity / commonKeys.size
+        return sum / commonKeys.size
     }
 
     private suspend fun handleBehavioralAnomaly(
         context: Context,
         similarity: Double,
-        currentProfile: BehavioralProfile,
-        storedProfile: BehavioralProfile
+        current: BehavioralProfile,
+        stored: BehavioralProfile
     ) = withContext(Dispatchers.Main) {
         _behavioralState.value = BehavioralState.ANOMALY_DETECTED
 
-        val severityLevel = when {
-            similarity < 0.3 -> PanicActionService.Severity.CRITICAL
-            similarity < 0.5 -> PanicActionService.Severity.HIGH
-            similarity < 0.7 -> PanicActionService.Severity.MEDIUM
-            else -> PanicActionService.Severity.LOW
+        val severity = when {
+            similarity < 0.35 -> PanicActionService.Severity.CRITICAL
+            similarity < 0.55 -> PanicActionService.Severity.HIGH
+            else -> PanicActionService.Severity.MEDIUM
         }
 
-        Log.w(TAG, "Behavioral anomaly detected! Similarity: ${(similarity * 100).toInt()}%")
-        EventLogger.log(context, "BEHAVIORAL ANOMALY: Similarity ${(similarity * 100).toInt()}% (Threshold: ${(ANOMALY_THRESHOLD * 100).toInt()}%)")
+        Log.w(TAG, "Behavioral anomaly confirmed! Similarity: ${(similarity * 100).toInt()}%")
+        EventLogger.log(context, "ANOMALY: Behavioral profile match dropped to ${(similarity * 100).toInt()}%")
 
-        // Store anomaly details for investigation
-        storeBehavioralAnomaly(context, similarity, currentProfile, storedProfile)
-
-        // Trigger security response
-        PanicActionService.trigger(context, "BEHAVIORAL_ANOMALY", severityLevel)
-
-        // Start enhanced monitoring
-        startEnhancedMonitoring(context)
+        storeBehavioralAnomaly(context, similarity, current, stored)
+        PanicActionService.trigger(context, "BEHAVIORAL_ANOMALY", severity)
     }
 
-    private fun startEnhancedMonitoring(context: Context) {
-        analysisScope.launch {
-            // Increase analysis frequency
-            repeat(20) { // Monitor for 10 minutes with 30-second intervals
-                delay(30000)
-                performBehavioralAnalysis(context)
-            }
-        }
-    }
-
-    private fun storeBehavioralAnomaly(context: Context, similarity: Double, current: BehavioralProfile, stored: BehavioralProfile) {
-        val anomalyData = JSONObject().apply {
+    private fun storeBehavioralAnomaly(context: Context, sim: Double, cur: BehavioralProfile, prev: BehavioralProfile) {
+        val anomalyJson = JSONObject().apply {
             put("timestamp", System.currentTimeMillis())
-            put("similarity_score", similarity)
-            put("threshold", ANOMALY_THRESHOLD)
-            put("current_profile", JSONObject(current.patterns))
-            put("stored_profile", JSONObject(stored.patterns))
+            put("similarity", sim)
+            put("current", JSONObject(cur.patterns))
+            put("baseline", JSONObject(prev.patterns))
         }
-
-        SecurityPreferences.addBehavioralAnomaly(context, anomalyData.toString())
+        SecurityPreferences.addBehavioralAnomaly(context, anomalyJson.toString())
     }
 
     private fun loadStoredPatterns(context: Context) {
-        // Load patterns from secure storage
-        // Implementation would read from SecurityPreferences
+        val profileJson = SecurityPreferences.getBehavioralProfile(context)
+        if (profileJson.isNotEmpty()) {
+            try {
+                val json = JSONObject(profileJson)
+                Log.d(TAG, "Loaded baseline behavioral profile for user: ${json.optString("userId")}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error initializing behavioral profile from storage", e)
+            }
+        }
     }
 
     private fun loadStoredProfile(context: Context): BehavioralProfile? {
-        val profileJson = SecurityPreferences.getBehavioralProfile(context)
-        return if (profileJson.isNotEmpty()) {
-            // Parse JSON and reconstruct profile
-            try {
-                val json = JSONObject(profileJson)
-                BehavioralProfile(
-                    userId = json.getString("userId"),
-                    confidence = json.getDouble("confidence"),
-                    patterns = parsePatterns(json.getJSONObject("patterns")),
-                    lastUpdated = json.getLong("lastUpdated"),
-                    sampleCount = json.getInt("sampleCount")
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to parse stored behavioral profile", e)
-                null
+        val jsonStr = SecurityPreferences.getBehavioralProfile(context)
+        if (jsonStr.isEmpty()) return null
+        return try {
+            val json = JSONObject(jsonStr)
+            val patternsObj = json.getJSONObject("patterns")
+            val map = mutableMapOf<String, Any>()
+            val keys = patternsObj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                val subObj = patternsObj.getJSONObject(k)
+                val subMap = mutableMapOf<String, Double>()
+                val subKeys = subObj.keys()
+                while (subKeys.hasNext()) {
+                    val sk = subKeys.next()
+                    subMap[sk] = subObj.getDouble(sk)
+                }
+                map[k] = subMap
             }
-        } else null
+            BehavioralProfile(
+                userId = json.getString("userId"),
+                confidence = json.getDouble("confidence"),
+                patterns = map,
+                lastUpdated = json.getLong("lastUpdated"),
+                sampleCount = json.getInt("sampleCount")
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed parsing behavioral profile", e)
+            null
+        }
     }
 
     private fun updateStoredProfile(context: Context, profile: BehavioralProfile) {
-        val profileJson = JSONObject().apply {
+        val json = JSONObject().apply {
             put("userId", profile.userId)
             put("confidence", profile.confidence)
-            put("patterns", JSONObject(profile.patterns))
             put("lastUpdated", profile.lastUpdated)
             put("sampleCount", profile.sampleCount)
+
+            val pObj = JSONObject()
+            for ((k, v) in profile.patterns) {
+                if (v is Map<*, *>) {
+                    pObj.put(k, JSONObject(v))
+                }
+            }
+            put("patterns", pObj)
         }
-
-        SecurityPreferences.setBehavioralProfile(context, profileJson.toString())
-    }
-
-    private fun parsePatterns(json: JSONObject): Map<String, Any> {
-        val patterns = mutableMapOf<String, Any>()
-        val keys = json.keys()
-
-        while (keys.hasNext()) {
-            val key = keys.next()
-            val value = json.get(key)
-            patterns[key] = value
-        }
-
-        return patterns
-    }
-
-    // Helper functions
-    private fun getRecentMagnitudes(timestamp: Long): List<Double> {
-        // Implementation to get recent acceleration magnitudes
-        return emptyList()
-    }
-
-    private fun getRecentRotations(timestamp: Long): List<Double> {
-        // Implementation to get recent rotation data
-        return emptyList()
+        SecurityPreferences.setBehavioralProfile(context, json.toString())
     }
 
     private fun calculateStepFrequency(magnitudes: List<Double>): Double {
-        // Implementation for step frequency calculation
-        return 2.0 // Default walking frequency (steps per second)
+        if (magnitudes.size < 2) return 0.0
+        var stepPeaks = 0
+        for (i in 1 until magnitudes.size - 1) {
+            if (magnitudes[i] > 11.5 && magnitudes[i] > magnitudes[i - 1] && magnitudes[i] > magnitudes[i + 1]) {
+                stepPeaks++
+            }
+        }
+        val durationSec = (SENSOR_WINDOW_MS / 1000.0)
+        return stepPeaks / durationSec
     }
 
     private fun calculateStepVariability(magnitudes: List<Double>): Double {
@@ -596,19 +525,23 @@ object BehavioralAnalysisEngine : DefaultLifecycleObserver, SensorEventListener 
     }
 
     private fun calculateGripStability(rotations: List<Double>): Double {
-        return 1.0 - calculateVariance(rotations)
+        val v = calculateVariance(rotations)
+        return (1.0 - min(v, 1.0)).coerceAtLeast(0.0)
     }
 
     private fun calculateVariance(values: List<Double>): Double {
-        if (values.isEmpty()) return 0.0
+        if (values.size < 2) return 0.0
         val mean = values.average()
         return values.map { (it - mean).pow(2) }.average()
     }
 }
 
-// Extensions for SecurityPreferences
 private fun SecurityPreferences.getFirstRunTimestamp(context: Context): Long =
-    getInstance(context).getLong("FIRST_RUN_TIMESTAMP", System.currentTimeMillis())
+    getInstance(context).getLong("FIRST_RUN_TIMESTAMP", System.currentTimeMillis()).also {
+        if (!getInstance(context).contains("FIRST_RUN_TIMESTAMP")) {
+            getInstance(context).edit().putLong("FIRST_RUN_TIMESTAMP", it).apply()
+        }
+    }
 
 private fun SecurityPreferences.getBehavioralProfile(context: Context): String =
     getInstance(context).getString("BEHAVIORAL_PROFILE", "") ?: ""
@@ -617,19 +550,13 @@ private fun SecurityPreferences.setBehavioralProfile(context: Context, profile: 
     getInstance(context).edit().putString("BEHAVIORAL_PROFILE", profile).apply()
 
 private fun SecurityPreferences.addBehavioralAnomaly(context: Context, anomaly: String) {
-    val existingAnomalies = getInstance(context).getStringSet("BEHAVIORAL_ANOMALIES", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-    existingAnomalies.add(anomaly)
-
-    // Keep only last 50 anomalies
-    if (existingAnomalies.size > 50) {
-        val sortedAnomalies = existingAnomalies.toList().sortedBy {
-            try {
-                JSONObject(it).getLong("timestamp")
-            } catch (e: Exception) { 0L }
-        }
-        existingAnomalies.clear()
-        existingAnomalies.addAll(sortedAnomalies.takeLast(50))
+    val prefs = getInstance(context)
+    val anomalies = prefs.getStringSet("BEHAVIORAL_ANOMALIES", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+    anomalies.add(anomaly)
+    if (anomalies.size > 50) {
+        val trimmed = anomalies.toList().takeLast(50).toSet()
+        prefs.edit().putStringSet("BEHAVIORAL_ANOMALIES", trimmed).apply()
+    } else {
+        prefs.edit().putStringSet("BEHAVIORAL_ANOMALIES", anomalies).apply()
     }
-
-    getInstance(context).edit().putStringSet("BEHAVIORAL_ANOMALIES", existingAnomalies).apply()
 }

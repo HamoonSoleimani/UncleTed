@@ -3,6 +3,8 @@ package com.hamoon.uncleted.services
 import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
@@ -18,16 +20,37 @@ class ZoneWipeService : Service() {
 
     companion object {
         private const val TAG = "ZoneWipeService"
-        private const val UPDATE_INTERVAL_MS = 5000L // Check every 5 seconds
+        private const val NOTIFICATION_ID = 3003
+        private const val UPDATE_INTERVAL_MS = 5000L
     }
 
     override fun onCreate() {
         super.onCreate()
+
+        if (!PermissionUtils.hasLocationPermissions(this)) {
+            Log.e(TAG, "Location permissions missing. Cannot start ZoneWipeService.")
+            stopSelf()
+            return
+        }
+
+        val notification = NotificationHelper.createBasicNotification(this)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start ZoneWipeService in foreground", e)
+            stopSelf()
+            return
+        }
+
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-
-        // Start Foreground immediately to ensure system doesn't kill it
-        startForeground(3003, NotificationHelper.createBasicNotification(this))
-
         startLocationMonitoring()
     }
 
@@ -40,28 +63,26 @@ class ZoneWipeService : Service() {
         }
 
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, UPDATE_INTERVAL_MS)
-            .setMinUpdateDistanceMeters(5f) // Update if moved 5 meters
+            .setMinUpdateDistanceMeters(5f)
             .setWaitForAccurateLocation(true)
             .build()
 
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 for (location in locationResult.locations) {
-                    // Check if inside Evin Prison
                     if (PolygonUtils.isLocationInZone(location, PolygonUtils.EVIN_PRISON_PERIMETER)) {
                         Log.e(TAG, "!!! DEVICE ENTERED NO-GO ZONE (EVIN) !!!")
                         Log.e(TAG, "!!! INITIATING GEOGRAPHIC SUICIDE !!!")
 
-                        // Trigger Critical Wipe
                         PanicActionService.trigger(
                             this@ZoneWipeService,
                             "GEOFENCE_SUICIDE_EVIN",
                             PanicActionService.Severity.CRITICAL
                         )
 
-                        // Stop service to prevent multiple triggers (though panic service handles cooldown)
                         fusedLocationClient.removeLocationUpdates(this)
                         stopSelf()
+                        break
                     }
                 }
             }

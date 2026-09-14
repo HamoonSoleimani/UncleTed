@@ -96,8 +96,6 @@ class FeaturesFragment : Fragment() {
             requestLocationAndSetGeofence()
         }
 
-        // --- Auto-saving listeners for all features ---
-
         binding.switchRecordVideo.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setRecordVideoEnabled(requireContext(), isChecked)
         }
@@ -167,26 +165,26 @@ class FeaturesFragment : Fragment() {
             }
         }
 
-        // --- NEW: Geofence Suicide (Evin Prison) Listener ---
+        // --- Geofence Suicide (Evin Prison) Listener with Persistence ---
         binding.switchGeofenceSuicide.setOnCheckedChangeListener { _, isChecked ->
-            // Assuming preference set method exists, if not, handle storage manually or add to SecurityPreferences
-            // SecurityPreferences.setGeofenceSuicideEnabled(requireContext(), isChecked)
-
             if (isChecked) {
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("ACTIVATE WAR MODE?")
-                    .setMessage("If your phone enters the GPS coordinates of Evin Prison, it will instantly self-destruct. \n\nGPS drift is possible. Do not use this if you live or drive immediately adjacent to the prison walls.")
+                    .setMessage("If your phone enters the GPS coordinates of Evin Prison, it will instantly self-destruct.\n\nDo not enable this if you travel near the perimeter.")
                     .setPositiveButton("ARM SYSTEM") { _, _ ->
+                        SecurityPreferences.setGeofenceSuicideEnabled(requireContext(), true)
                         val intent = Intent(requireContext(), ZoneWipeService::class.java)
                         ContextCompat.startForegroundService(requireContext(), intent)
                         Toast.makeText(requireContext(), "Geographic Suicide Armed.", Toast.LENGTH_SHORT).show()
                     }
                     .setNegativeButton("Cancel") { _, _ ->
                         binding.switchGeofenceSuicide.isChecked = false
+                        SecurityPreferences.setGeofenceSuicideEnabled(requireContext(), false)
                     }
                     .setCancelable(false)
                     .show()
             } else {
+                SecurityPreferences.setGeofenceSuicideEnabled(requireContext(), false)
                 requireContext().stopService(Intent(requireContext(), ZoneWipeService::class.java))
                 Toast.makeText(requireContext(), "Geographic Suicide Disarmed.", Toast.LENGTH_SHORT).show()
             }
@@ -247,26 +245,26 @@ class FeaturesFragment : Fragment() {
             SecurityPreferences.setRemoteApkUrl(requireContext(), it.toString())
         }
 
-        // --- NEW: USB Tripwire Listener ---
+        // --- USB Tripwire Listener with Persistence ---
         binding.switchUsbTripwire.setOnCheckedChangeListener { _, isChecked ->
-            // Assuming preference set method exists
-            // SecurityPreferences.setUsbTripwireEnabled(requireContext(), isChecked)
-
             if (isChecked) {
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("EXTREME DANGER")
-                    .setMessage("This feature runs at the KERNEL level. If you plug your locked phone into a PC, car stereo, or even a 'smart' charger that attempts a data handshake, YOUR DATA WILL BE DESTROYED INSTANTLY.\n\nOnly enable this when entering high-risk zones.")
+                    .setMessage("This feature runs at the KERNEL level. If you connect your locked phone to a PC, car stereo, or charger that initiates data communication, YOUR DATA WILL BE DESTROYED IMMEDIATELY.")
                     .setPositiveButton("I Understand") { _, _ ->
+                        SecurityPreferences.setUsbTripwireEnabled(requireContext(), true)
                         val intent = Intent(requireContext(), UsbTripwireService::class.java)
                         ContextCompat.startForegroundService(requireContext(), intent)
                         Toast.makeText(requireContext(), "USB Kill Switch Armed.", Toast.LENGTH_SHORT).show()
                     }
                     .setNegativeButton("Cancel") { _, _ ->
                         binding.switchUsbTripwire.isChecked = false
+                        SecurityPreferences.setUsbTripwireEnabled(requireContext(), false)
                     }
                     .setCancelable(false)
                     .show()
             } else {
+                SecurityPreferences.setUsbTripwireEnabled(requireContext(), false)
                 requireContext().stopService(Intent(requireContext(), UsbTripwireService::class.java))
                 Toast.makeText(requireContext(), "USB Kill Switch Disarmed.", Toast.LENGTH_SHORT).show()
             }
@@ -291,11 +289,11 @@ class FeaturesFragment : Fragment() {
                 val success = RootActions.toggleUnkillableService(requireContext(), isChecked)
                 if (success) {
                     SecurityPreferences.setUnkillableServiceEnabled(requireContext(), isChecked)
-                    val message = if(isChecked) "Unkillable service enabled." else "Unkillable service disabled."
+                    val message = if (isChecked) "Unkillable service enabled." else "Unkillable service disabled."
                     Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(requireContext(), "Operation failed. Check logs.", Toast.LENGTH_LONG).show()
-                    binding.switchRootUnkillableService.isChecked = !isChecked // Revert UI
+                    binding.switchRootUnkillableService.isChecked = !isChecked
                 }
             }
         }
@@ -305,11 +303,11 @@ class FeaturesFragment : Fragment() {
                 val success = RootActions.toggleProcessHiding(requireContext(), isChecked)
                 if (success) {
                     SecurityPreferences.setProcessHiddenEnabled(requireContext(), isChecked)
-                    val message = if(isChecked) "Process hiding enabled." else "Process hiding disabled."
+                    val message = if (isChecked) "Process hiding enabled." else "Process hiding disabled."
                     Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(requireContext(), "Operation failed. MagiskHide might not be available.", Toast.LENGTH_LONG).show()
-                    binding.switchRootHideProcess.isChecked = !isChecked // Revert UI
+                    Toast.makeText(requireContext(), "Operation failed. MagiskHide unavailable.", Toast.LENGTH_LONG).show()
+                    binding.switchRootHideProcess.isChecked = !isChecked
                 }
             }
         }
@@ -319,7 +317,6 @@ class FeaturesFragment : Fragment() {
             if (isChecked) {
                 showFactoryResetWarningDialog()
             }
-            // The preference is saved only after a successful dialog confirmation
         }
 
         binding.etLoaderScriptUrl.doAfterTextChanged {
@@ -332,7 +329,6 @@ class FeaturesFragment : Fragment() {
 
         binding.switchRootKeylogger.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setKeyloggerEnabled(requireContext(), isChecked)
-            // Start or stop the keylogger immediately
             if (isChecked) {
                 Keylogger.start(requireContext())
             } else {
@@ -348,7 +344,6 @@ class FeaturesFragment : Fragment() {
     private fun loadSettings() {
         val context = requireContext()
 
-        // Features
         binding.switchRecordVideo.isChecked = SecurityPreferences.isRecordVideoEnabled(context)
         binding.switchAmbientAudio.isChecked = SecurityPreferences.isAmbientAudioEnabled(context)
         binding.switchWipeDevice.isChecked = SecurityPreferences.isWipeDeviceEnabled(context)
@@ -361,26 +356,19 @@ class FeaturesFragment : Fragment() {
         binding.switchFakeShutdown.isChecked = SecurityPreferences.isFakeShutdownEnabled(context)
         binding.switchShakeToPanic.isChecked = SecurityPreferences.isShakeToPanicEnabled(context)
 
-        // Check if services are running to update switch state
-        // Note: This assumes service running state is truth. For persistence, prefs should be checked.
-        // We initialize switches to OFF by default if service check is complex, but here we can check if enabled
-        // via preferences if those methods are added to SecurityPreferences.
-        // For now, we leave them off on load or rely on stored prefs if you implement get methods.
+        // Persistent Geofence Suicide Switch State
+        binding.switchGeofenceSuicide.isChecked = SecurityPreferences.isGeofenceSuicideEnabled(context)
 
-        // Stealth Mode & App Lock
         binding.switchStealthMode.isChecked = isStealthModeEnabled()
         binding.etSecretDialerCode.setText(SecurityPreferences.getSecretDialerCode(context))
         binding.switchBiometricLock.isChecked = SecurityPreferences.isBiometricLockEnabled(context)
         binding.switchTrustedVpn.isChecked = SecurityPreferences.isTrustedVpnEnabled(context)
 
-        // Maintenance Mode
         binding.switchMaintenanceMode.isChecked = SecurityPreferences.isMaintenanceMode(context)
 
-        // Geofence
         val isGeofenceEnabled = SecurityPreferences.isGeofenceEnabled(context)
         binding.switchGeofence.isChecked = isGeofenceEnabled
 
-        // Watchdog
         val isWatchdogEnabled = SecurityPreferences.isWatchdogModeEnabled(context)
         binding.switchWatchdogMode.isChecked = isWatchdogEnabled
         setupDropdown(
@@ -390,7 +378,6 @@ class FeaturesFragment : Fragment() {
             binding.autoCompleteWatchdogInterval
         )
 
-        // Tripwire
         val isTripwireEnabled = SecurityPreferences.isTripwireEnabled(context)
         binding.switchTripwireMode.isChecked = isTripwireEnabled
         setupDropdown(
@@ -400,7 +387,6 @@ class FeaturesFragment : Fragment() {
             binding.autoCompleteTripwireDuration
         )
 
-        // Set initial enabled state for dependent controls
         binding.switchSaveSelfieToStorage.isEnabled = isIntruderSelfieEnabled
         binding.btnSetGeofenceLocation.isEnabled = isGeofenceEnabled
         binding.menuWatchdogInterval.isEnabled = isWatchdogEnabled
@@ -419,6 +405,9 @@ class FeaturesFragment : Fragment() {
             binding.switchRootSilentInstall.isChecked = isSilentInstallEnabled
             binding.etRemoteApkUrl.setText(SecurityPreferences.getRemoteApkUrl(context))
             binding.layoutRemoteApkUrl.isEnabled = isSilentInstallEnabled
+
+            // Persistent USB Tripwire Switch State
+            binding.switchUsbTripwire.isChecked = SecurityPreferences.isUsbTripwireEnabled(context)
 
             binding.switchRootFirewallTripwire.isChecked = SecurityPreferences.isFirewallTripwireEnabled(context)
             binding.switchRootSecureWipe.isChecked = SecurityPreferences.isSecureWipeEnabled(context)
@@ -465,7 +454,7 @@ class FeaturesFragment : Fragment() {
 
         MaterialAlertDialogBuilder(requireContext())
             .setTitle("Enter PIN to Enable Maintenance")
-            .setMessage("For your security, please enter your normal unlock PIN to enable Maintenance Mode. This will allow you to safely disable Device Admin or uninstall the app.")
+            .setMessage("Please enter your normal unlock PIN to enable Maintenance Mode.")
             .setView(dialogView)
             .setNegativeButton("Cancel") { _, _ ->
                 binding.switchMaintenanceMode.isChecked = false
@@ -593,8 +582,12 @@ class FeaturesFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        if (isRooted && SecurityPreferences.isKeyloggerEnabled(requireContext())) {
-            Keylogger.start(requireContext())
+        loadSettings()
+        if (isRooted) {
+            loadRootSettings()
+            if (SecurityPreferences.isKeyloggerEnabled(requireContext())) {
+                Keylogger.start(requireContext())
+            }
         }
     }
 }

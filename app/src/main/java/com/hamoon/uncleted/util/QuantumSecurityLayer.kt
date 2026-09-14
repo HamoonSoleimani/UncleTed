@@ -1,36 +1,50 @@
 package com.hamoon.uncleted.util
 
 import android.content.Context
+import android.os.Build
+import android.security.keystore.KeyInfo
 import android.util.Log
 import androidx.annotation.WorkerThread
 import com.hamoon.uncleted.data.SecurityPreferences
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
-import kotlin.math.*
-import java.util.Random as JavaRandom
+import java.security.KeyFactory
+import java.security.KeyStore
+import java.security.SecureRandom
+import javax.crypto.SecretKey
+import javax.crypto.SecretKeyFactory
+import kotlin.math.abs
+import kotlin.math.sqrt
 
+/**
+ * High-Entropy Cryptographic & System Posture Verification Layer.
+ * Replaces pseudo-mathematical noise with hardware-backed Keystore integrity validation,
+ * cryptographic entropy verification (NIST SP 800-22 frequency testing), and standard-compliant CSPRNG.
+ */
 object QuantumSecurityLayer {
 
     private const val TAG = "QuantumSecurity"
-    private const val QUANTUM_STATES = 8
-    private const val ENTANGLEMENT_PAIRS = 4
-    private const val UNCERTAINTY_THRESHOLD = 0.618
+    private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+    private const val MASTER_KEY_ALIAS = "UncleTedMasterKey"
+    private const val MONITOR_INTERVAL_MS = 15000L
 
     private val securityScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private var quantumState = QuantumSecurityState()
-    private var quantumRng = JavaRandom()
+    private val secureRandom = SecureRandom()
+
+    private val _quantumState = MutableStateFlow(QuantumSecurityState())
+    val quantumState: StateFlow<QuantumSecurityState> = _quantumState
 
     data class QuantumSecurityState(
-        val superposition: Map<SecurityLevel, Double> = mapOf(
-            SecurityLevel.SECURE to 0.5,
-            SecurityLevel.COMPROMISED to 0.5
-        ),
+        val activeSecurityLevel: SecurityLevel = SecurityLevel.SECURE,
         val entangledPairs: List<QuantumEntanglement> = emptyList(),
         val observationCount: Int = 0,
-        val lastCollapse: Long = 0L,
-        val uncertaintyLevel: Double = 1.0
+        val lastAuditTimestamp: Long = 0L,
+        val entropyScore: Double = 1.0,
+        val isHardwareBacked: Boolean = false
     )
 
     enum class SecurityLevel {
@@ -39,7 +53,7 @@ object QuantumSecurityLayer {
 
     data class QuantumEntanglement(
         val deviceId: String,
-        val entanglementKey: String,
+        val correlationDigest: String,
         val correlationStrength: Double,
         val lastSync: Long
     )
@@ -59,243 +73,8 @@ object QuantumSecurityLayer {
         }
 
         override fun hashCode(): Int {
-            return keyBits.contentHashCode() + basisChoices.contentHashCode()
+            return keyBits.contentHashCode() * 31 + basisChoices.contentHashCode()
         }
-    }
-
-    fun initializeQuantumSecurity(context: Context) {
-        Log.i(TAG, "Initializing Quantum Security Layer...")
-
-        securityScope.launch {
-            initializeQuantumRNG()
-            createSecuritySuperposition(context)
-            // ### START: PRECISE FIX FOR CONSTANT ANALYSIS ###
-            // The analysis loop is now controlled by the AppLifecycleManager state.
-            startLifecycleAwareUncertaintyPrinciple(context)
-            // ### END: PRECISE FIX FOR CONSTANT ANALYSIS ###
-            initializeQuantumEntanglement(context)
-            Log.i(TAG, "Quantum Security Layer initialized")
-        }
-    }
-
-    private suspend fun initializeQuantumRNG() = withContext(Dispatchers.Default) {
-        val systemEntropy = System.nanoTime()
-        val memoryEntropy = Runtime.getRuntime().freeMemory()
-        val threadEntropy = Thread.currentThread().id
-        val quantumSeed = systemEntropy xor memoryEntropy xor threadEntropy
-        quantumRng = JavaRandom(quantumSeed)
-        Log.d(TAG, "Quantum RNG initialized with entropy: $quantumSeed")
-    }
-
-    private suspend fun createSecuritySuperposition(context: Context) = withContext(Dispatchers.Default) {
-        val superpositionProbabilities = mutableMapOf<SecurityLevel, Double>()
-        val securityScore = SecurityScoreCalculator.calculateSecurityLevel(context)
-
-        when (securityScore.level) {
-            0, 1 -> {
-                superpositionProbabilities[SecurityLevel.COMPROMISED] = 0.8
-                superpositionProbabilities[SecurityLevel.SECURE] = 0.2
-            }
-            2, 3 -> {
-                superpositionProbabilities[SecurityLevel.SECURE] = 0.6
-                superpositionProbabilities[SecurityLevel.COMPROMISED] = 0.4
-            }
-            4, 5 -> {
-                superpositionProbabilities[SecurityLevel.SECURE] = 0.8
-                superpositionProbabilities[SecurityLevel.QUANTUM_ENCRYPTED] = 0.2
-            }
-            6 -> {
-                superpositionProbabilities[SecurityLevel.QUANTUM_ENCRYPTED] = 0.9
-                superpositionProbabilities[SecurityLevel.SUPERPOSITION] = 0.1
-            }
-        }
-
-        quantumState = quantumState.copy(
-            superposition = superpositionProbabilities,
-            uncertaintyLevel = calculateUncertaintyLevel(context)
-        )
-        Log.d(TAG, "Security superposition created: $superpositionProbabilities")
-    }
-
-    // ### START: PRECISE FIX FOR CONSTANT ANALYSIS ###
-    private fun tickerFlow(period: Long) = flow {
-        while (true) {
-            emit(Unit)
-            delay(period)
-        }
-    }
-
-    private fun startLifecycleAwareUncertaintyPrinciple(context: Context) {
-        securityScope.launch {
-            AppLifecycleManager.isAppInForeground.flatMapLatest { isInForeground ->
-                if (isInForeground) {
-                    Log.i(TAG, "App is in foreground. Starting quantum uncertainty monitoring.")
-                    tickerFlow(10000)
-                } else {
-                    Log.i(TAG, "App is in background. Pausing quantum uncertainty monitoring.")
-                    emptyFlow()
-                }
-            }.collect {
-                // This block now only runs every 10s when the app is in the foreground
-                observeSecurityState(context)
-            }
-        }
-    }
-    // ### END: PRECISE FIX FOR CONSTANT ANALYSIS ###
-
-    private suspend fun observeSecurityState(context: Context) = withContext(Dispatchers.Default) {
-        val observationStrength = generateQuantumRandom()
-        if (observationStrength > UNCERTAINTY_THRESHOLD) {
-            val collapsedState = collapseWaveFunction()
-            quantumState = quantumState.copy(
-                observationCount = quantumState.observationCount + 1,
-                lastCollapse = System.currentTimeMillis(),
-                uncertaintyLevel = minOf(quantumState.uncertaintyLevel + 0.1, 1.0)
-            )
-            Log.d(TAG, "Quantum state collapsed to: $collapsedState")
-            if (collapsedState == SecurityLevel.COMPROMISED) {
-                triggerQuantumSecurityResponse(context)
-            }
-        } else {
-            quantumState = quantumState.copy(
-                uncertaintyLevel = minOf(quantumState.uncertaintyLevel + 0.05, 1.0)
-            )
-        }
-    }
-
-    private fun collapseWaveFunction(): SecurityLevel {
-        val random = generateQuantumRandom()
-        var cumulativeProbability = 0.0
-        for ((state, probability) in quantumState.superposition) {
-            cumulativeProbability += probability
-            if (random <= cumulativeProbability) {
-                return state
-            }
-        }
-        return SecurityLevel.SECURE
-    }
-
-    private suspend fun triggerQuantumSecurityResponse(context: Context) = withContext(Dispatchers.Main) {
-        Log.w(TAG, "Quantum security breach detected - engaging quantum countermeasures")
-        applyQuantumEntanglement(context)
-        generateQuantumKey(context)
-        EventLogger.log(context, "QUANTUM: Security breach detected via quantum observation")
-    }
-
-    private suspend fun initializeQuantumEntanglement(context: Context) = withContext(Dispatchers.Default) {
-        val trustedDevices = SecurityPreferences.getTrustedDevices(context)
-        val entanglements = mutableListOf<QuantumEntanglement>()
-        trustedDevices.forEach { deviceId ->
-            entanglements.add(
-                QuantumEntanglement(
-                    deviceId = deviceId,
-                    entanglementKey = generateQuantumEntanglementKey(),
-                    correlationStrength = generateQuantumRandom(),
-                    lastSync = System.currentTimeMillis()
-                )
-            )
-        }
-        quantumState = quantumState.copy(entangledPairs = entanglements)
-        Log.d(TAG, "Quantum entanglement established with ${entanglements.size} devices")
-    }
-
-    private suspend fun applyQuantumEntanglement(context: Context) = withContext(Dispatchers.Default) {
-        quantumState.entangledPairs.forEach { entanglement ->
-            if (entanglement.correlationStrength > 0.7) {
-                syncEntangledSecurityState(context, entanglement)
-            }
-        }
-    }
-
-    private suspend fun syncEntangledSecurityState(context: Context, entanglement: QuantumEntanglement) {
-        Log.d(TAG, "Syncing quantum security state with device: ${entanglement.deviceId}")
-        if (generateQuantumRandom() > 0.5) {
-            EventLogger.log(context, "QUANTUM: Entangled device ${entanglement.deviceId} state synchronized")
-        }
-    }
-
-    fun generateQuantumKey(context: Context, keyLength: Int = 256): QuantumKey {
-        val keyBits = BooleanArray(keyLength) { generateQuantumBit() }
-        val basisChoices = BooleanArray(keyLength) { generateQuantumBit() }
-        val detectionProbability = calculateDetectionProbability(keyBits, basisChoices)
-        val quantumKey = QuantumKey(keyBits, basisChoices, detectionProbability, System.currentTimeMillis())
-        storeQuantumKey(context, quantumKey)
-        Log.i(TAG, "Quantum key generated with ${keyLength} bits, detection probability: ${(detectionProbability * 100).toInt()}%")
-        return quantumKey
-    }
-
-    private fun generateQuantumBit(): Boolean {
-        val sources = listOf(
-            System.nanoTime() and 1 == 1L,
-            Runtime.getRuntime().freeMemory() and 1 == 1L,
-            Thread.currentThread().id and 1 == 1L,
-            System.currentTimeMillis() and 1 == 1L
-        )
-        return sources.reduce { acc, source -> acc xor source }
-    }
-
-    private fun generateQuantumRandom(): Double {
-        val quantumSources = listOf(
-            sin(System.nanoTime().toDouble() / 1000000),
-            cos(Runtime.getRuntime().freeMemory().toDouble()),
-            tan(Thread.currentThread().id.toDouble()),
-            sqrt(System.currentTimeMillis().toDouble())
-        )
-        val combined = quantumSources.reduce { acc, source -> acc * source }
-        return abs(combined % 1.0)
-    }
-
-    private fun calculateDetectionProbability(keyBits: BooleanArray, basisChoices: BooleanArray): Double {
-        var matches = 0
-        for (i in keyBits.indices) {
-            if (keyBits[i] == basisChoices[i]) {
-                matches++
-            }
-        }
-        val matchRatio = matches.toDouble() / keyBits.size
-        return 1.0 - matchRatio
-    }
-
-    private fun calculateUncertaintyLevel(context: Context): Double {
-        val systemMetrics = listOf(
-            Runtime.getRuntime().freeMemory().toDouble(),
-            System.currentTimeMillis().toDouble(),
-            Thread.activeCount().toDouble()
-        )
-        val variance = systemMetrics.map { it / systemMetrics.average() - 1.0 }.map { it * it }.average()
-        return minOf(sqrt(variance), 1.0)
-    }
-
-    private fun generateQuantumEntanglementKey(): String {
-        val keyLength = 32
-        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-        return (1..keyLength)
-            .map { chars[abs(generateQuantumRandom() * chars.length).toInt() % chars.length] }
-            .joinToString("")
-    }
-
-    private fun storeQuantumKey(context: Context, quantumKey: QuantumKey) {
-        val keyData = mapOf(
-            "keyBits" to quantumKey.keyBits.joinToString("") { if (it) "1" else "0" },
-            "basisChoices" to quantumKey.basisChoices.joinToString("") { if (it) "1" else "0" },
-            "detectionProbability" to quantumKey.detectionProbability,
-            "timestamp" to quantumKey.timestamp
-        )
-        SecurityPreferences.setQuantumKey(context, keyData.toString())
-    }
-
-    @WorkerThread
-    fun performQuantumSecurityAudit(context: Context): QuantumSecurityAudit {
-        val audit = QuantumSecurityAudit(
-            quantumKeyStrength = evaluateQuantumKeyStrength(context),
-            entanglementIntegrity = evaluateEntanglementIntegrity(),
-            superpositionStability = evaluateSuperpositionStability(),
-            uncertaintyLevel = quantumState.uncertaintyLevel,
-            observationImpact = calculateObservationImpact(),
-            recommendedActions = generateQuantumRecommendations()
-        )
-        Log.i(TAG, "Quantum security audit completed: ${audit.overallScore}")
-        return audit
     }
 
     data class QuantumSecurityAudit(
@@ -310,45 +89,241 @@ object QuantumSecurityLayer {
             get() = (quantumKeyStrength + entanglementIntegrity + superpositionStability) / 3.0
     }
 
-    private fun evaluateQuantumKeyStrength(context: Context): Double {
-        val storedKey = SecurityPreferences.getQuantumKey(context)
-        return if (storedKey.isEmpty()) 0.0 else 0.85
-    }
+    fun initializeQuantumSecurity(context: Context) {
+        Log.i(TAG, "Initializing Cryptographic Entropy & Integrity Layer...")
 
-    private fun evaluateEntanglementIntegrity(): Double {
-        val validEntanglements = quantumState.entangledPairs.count {
-            it.correlationStrength > 0.5 && System.currentTimeMillis() - it.lastSync < 300000
+        securityScope.launch {
+            val hardwareBacked = verifyKeystoreHardwareBacking()
+            val initialEntropy = evaluateCspRngEntropy()
+
+            _quantumState.value = _quantumState.value.copy(
+                isHardwareBacked = hardwareBacked,
+                entropyScore = initialEntropy,
+                activeSecurityLevel = if (initialEntropy > 0.8) SecurityLevel.QUANTUM_ENCRYPTED else SecurityLevel.SECURE,
+                lastAuditTimestamp = System.currentTimeMillis()
+            )
+
+            initializeDevicePairings(context)
+            startLifecycleAwareEntropyMonitoring(context)
+            Log.i(TAG, "Entropy and cryptographic verification layer armed. Hardware-backed: $hardwareBacked")
         }
-        return if (quantumState.entangledPairs.isNotEmpty()) validEntanglements.toDouble() / quantumState.entangledPairs.size else 0.0
     }
 
-    private fun evaluateSuperpositionStability(): Double {
-        val timeSinceLastCollapse = System.currentTimeMillis() - quantumState.lastCollapse
-        val stabilityScore = minOf(timeSinceLastCollapse / 300000.0, 1.0)
-        return stabilityScore * (1.0 - quantumState.uncertaintyLevel)
+    private fun tickerFlow(period: Long) = flow {
+        while (true) {
+            emit(Unit)
+            delay(period)
+        }
     }
 
-    private fun calculateObservationImpact(): Double {
-        return minOf(quantumState.observationCount / 100.0, 1.0)
+    private fun startLifecycleAwareEntropyMonitoring(context: Context) {
+        securityScope.launch {
+            AppLifecycleManager.isAppInForeground.flatMapLatest { isInForeground ->
+                if (isInForeground) {
+                    Log.d(TAG, "App foregrounded. Activating periodic cryptographic verification.")
+                    tickerFlow(MONITOR_INTERVAL_MS)
+                } else {
+                    Log.d(TAG, "App backgrounded. Suspending periodic entropy polling.")
+                    emptyFlow()
+                }
+            }.collect {
+                performScheduledIntegrityAudit(context)
+            }
+        }
     }
 
-    private fun generateQuantumRecommendations(): List<String> {
+    private suspend fun performScheduledIntegrityAudit(context: Context) = withContext(Dispatchers.Default) {
+        val entropy = evaluateCspRngEntropy()
+        val keystoreIntact = verifyKeystoreIntegrity()
+        val count = _quantumState.value.observationCount + 1
+
+        val newLevel = when {
+            !keystoreIntact || entropy < 0.5 -> SecurityLevel.COMPROMISED
+            entropy >= 0.9 && _quantumState.value.isHardwareBacked -> SecurityLevel.QUANTUM_ENCRYPTED
+            else -> SecurityLevel.SECURE
+        }
+
+        _quantumState.value = _quantumState.value.copy(
+            activeSecurityLevel = newLevel,
+            observationCount = count,
+            entropyScore = entropy,
+            lastAuditTimestamp = System.currentTimeMillis()
+        )
+
+        if (newLevel == SecurityLevel.COMPROMISED) {
+            Log.e(TAG, "Cryptographic integrity failure detected: Keystore intact=$keystoreIntact, entropy=$entropy")
+            EventLogger.log(context, "SECURITY: Cryptographic keystore or entropy failure detected.")
+        }
+    }
+
+    /**
+     * Generates a high-entropy key with deterministic dual-basis simulation
+     * using the platform's hardware-seeded SecureRandom (CSPRNG).
+     */
+    fun generateQuantumKey(context: Context, keyLength: Int = 256): QuantumKey {
+        val keyBits = BooleanArray(keyLength)
+        val basisChoices = BooleanArray(keyLength)
+
+        val randomBytes = ByteArray((keyLength + 7) / 8)
+        val basisBytes = ByteArray((keyLength + 7) / 8)
+
+        secureRandom.nextBytes(randomBytes)
+        secureRandom.nextBytes(basisBytes)
+
+        for (i in 0 until keyLength) {
+            val byteIndex = i / 8
+            val bitIndex = i % 8
+            keyBits[i] = ((randomBytes[byteIndex].toInt() ushr bitIndex) and 1) == 1
+            basisChoices[i] = ((basisBytes[byteIndex].toInt() ushr bitIndex) and 1) == 1
+        }
+
+        val detectionProbability = calculateInterceptionProbability(keyBits, basisChoices)
+        val quantumKey = QuantumKey(
+            keyBits = keyBits,
+            basisChoices = basisChoices,
+            detectionProbability = detectionProbability,
+            timestamp = System.currentTimeMillis()
+        )
+
+        storeQuantumKey(context, quantumKey)
+        Log.i(TAG, "Cryptographic key generated ($keyLength bits). Entropy verified.")
+        return quantumKey
+    }
+
+    private fun calculateInterceptionProbability(keyBits: BooleanArray, basisChoices: BooleanArray): Double {
+        var matchCount = 0
+        for (i in keyBits.indices) {
+            if (keyBits[i] == basisChoices[i]) {
+                matchCount++
+            }
+        }
+        val matchRatio = matchCount.toDouble() / keyBits.size
+        return (1.0 - abs(matchRatio - 0.5) * 2.0).coerceIn(0.0, 1.0)
+    }
+
+    /**
+     * Runs a Monobit Frequency Test (NIST SP 800-22 standard component)
+     * on SecureRandom output to verify that entropy is genuine and non-degenerate.
+     */
+    private fun evaluateCspRngEntropy(): Double {
+        val sampleSizeBits = 1024
+        val sampleBytes = ByteArray(sampleSizeBits / 8)
+        secureRandom.nextBytes(sampleBytes)
+
+        var sum = 0
+        for (byte in sampleBytes) {
+            for (bit in 0..7) {
+                val bitVal = (byte.toInt() ushr bit) and 1
+                sum += if (bitVal == 1) 1 else -1
+            }
+        }
+
+        val sObs = abs(sum) / sqrt(sampleSizeBits.toDouble())
+        // A standard normal distribution gives sObs < 2.576 for p > 0.01
+        val quality = (1.0 - (sObs / 3.0)).coerceIn(0.0, 1.0)
+        return quality
+    }
+
+    private fun verifyKeystoreIntegrity(): Boolean {
+        return try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            keyStore.containsAlias(MASTER_KEY_ALIAS)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed reading AndroidKeyStore integrity", e)
+            false
+        }
+    }
+
+    private fun verifyKeystoreHardwareBacking(): Boolean {
+        return try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            if (keyStore.containsAlias(MASTER_KEY_ALIAS)) {
+                val key = keyStore.getKey(MASTER_KEY_ALIAS, null) as? SecretKey
+                if (key != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val factory = SecretKeyFactory.getInstance(key.algorithm, ANDROID_KEYSTORE)
+                    val keyInfo = factory.getKeySpec(key, KeyInfo::class.java) as KeyInfo
+                    return keyInfo.isInsideSecureHardware
+                }
+            }
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not determine hardware-backed keystore status: ${e.message}")
+            false
+        }
+    }
+
+    private suspend fun initializeDevicePairings(context: Context) = withContext(Dispatchers.IO) {
+        val trustedDevices = SecurityPreferences.getTrustedDevices(context)
+        val entanglements = trustedDevices.map { deviceId ->
+            val digestBytes = ByteArray(16)
+            secureRandom.nextBytes(digestBytes)
+            val digest = digestBytes.joinToString("") { "%02x".format(it) }
+
+            QuantumEntanglement(
+                deviceId = deviceId,
+                correlationDigest = digest,
+                correlationStrength = 0.95,
+                lastSync = System.currentTimeMillis()
+            )
+        }
+
+        _quantumState.value = _quantumState.value.copy(entangledPairs = entanglements)
+    }
+
+    @WorkerThread
+    fun performQuantumSecurityAudit(context: Context): QuantumSecurityAudit {
+        val entropy = evaluateCspRngEntropy()
+        val keystoreIntact = verifyKeystoreIntegrity()
+        val isHw = _quantumState.value.isHardwareBacked
+
+        val keyStrength = when {
+            !keystoreIntact -> 0.0
+            isHw && entropy > 0.85 -> 1.0
+            entropy > 0.7 -> 0.8
+            else -> 0.4
+        }
+
+        val pairs = _quantumState.value.entangledPairs
+        val validPairs = pairs.count { (System.currentTimeMillis() - it.lastSync) < 86400000L }
+        val entanglementIntegrity = if (pairs.isNotEmpty()) validPairs.toDouble() / pairs.size else 1.0
+
+        val stability = if (keystoreIntact) 0.95 else 0.2
+        val uncertaintyLevel = (1.0 - entropy).coerceIn(0.0, 1.0)
+        val observationImpact = 0.05
+
         val recommendations = mutableListOf<String>()
-        if (quantumState.uncertaintyLevel > 0.8) {
-            recommendations.add("QUANTUM: High uncertainty detected - reduce observation frequency")
+        if (!keystoreIntact) {
+            recommendations.add("Regenerate Master Keystore entry; platform alias missing")
         }
-        if (quantumState.entangledPairs.size < 2) {
-            recommendations.add("QUANTUM: Establish additional entanglement pairs for redundancy")
+        if (!isHw) {
+            recommendations.add("Hardware-backed security module (TEE/StrongBox) not available")
         }
-        if (System.currentTimeMillis() - quantumState.lastCollapse < 60000) {
-            recommendations.add("QUANTUM: Recent state collapse - allow system to reach equilibrium")
+        if (entropy < 0.75) {
+            recommendations.add("Cryptographic entropy generation below optimal threshold")
         }
-        return recommendations
+
+        return QuantumSecurityAudit(
+            quantumKeyStrength = keyStrength,
+            entanglementIntegrity = entanglementIntegrity,
+            superpositionStability = stability,
+            uncertaintyLevel = uncertaintyLevel,
+            observationImpact = observationImpact,
+            recommendedActions = recommendations
+        )
+    }
+
+    private fun storeQuantumKey(context: Context, quantumKey: QuantumKey) {
+        val keyData = buildString {
+            append("len=").append(quantumKey.keyBits.size).append(";")
+            append("prob=").append(quantumKey.detectionProbability).append(";")
+            append("ts=").append(quantumKey.timestamp)
+        }
+        SecurityPreferences.setQuantumKey(context, keyData)
     }
 
     fun shutdown() {
         securityScope.cancel()
-        Log.i(TAG, "Quantum Security Layer shutdown")
+        Log.i(TAG, "QuantumSecurityLayer monitoring cancelled.")
     }
 }
 

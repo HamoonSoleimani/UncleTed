@@ -26,8 +26,6 @@ class ManualActionsFragment : Fragment() {
 
     private var _binding: FragmentManualActionsBinding? = null
     private val binding get() = _binding!!
-
-    // State to track root status for enabling/disabling advanced buttons
     private var isDeviceRooted = false
 
     override fun onCreateView(
@@ -41,7 +39,6 @@ class ManualActionsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // Check Root Status immediately to update UI capabilities
         lifecycleScope.launch {
             isDeviceRooted = RootChecker.isDeviceRooted()
             updateRootUiElements()
@@ -51,22 +48,20 @@ class ManualActionsFragment : Fragment() {
     }
 
     private fun updateRootUiElements() {
-        // Visual cue for features that require root
         val alphaValue = if (isDeviceRooted) 1.0f else 0.5f
 
-        // Apply alpha to root-only buttons if they exist in the layout
-        binding.btnSecureReboot?.alpha = alphaValue
-        binding.btnNetworkKill?.alpha = alphaValue
-        binding.btnStealthScreenshot?.alpha = alphaValue
+        binding.btnSecureReboot.alpha = alphaValue
+        binding.btnNetworkKill.alpha = alphaValue
+        binding.btnStealthScreenshot.alpha = alphaValue
+        binding.btnManualWipeSecure.alpha = alphaValue
+        binding.btnManualWipeSystem.alpha = alphaValue
+        binding.btnManualWipeNuclear.alpha = alphaValue
     }
 
     private fun setupClickListeners() {
-
         // =================================================================================
         // SECTION 1: DECEPTION & TRAPS
         // =================================================================================
-
-        // 1. Honeypot Launcher
         binding.btnManualHoneypot.setOnClickListener {
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.manual_honeypot_confirmation_title)
@@ -74,15 +69,15 @@ class ManualActionsFragment : Fragment() {
                 .setNegativeButton(R.string.cancel, null)
                 .setPositiveButton(R.string.manual_honeypot_confirm_button) { _, _ ->
                     PanicActionService.trigger(requireContext(), "MANUAL_HONEYPOT", PanicActionService.Severity.MEDIUM)
-                    val intent = Intent(requireContext(), HoneypotLauncherActivity::class.java)
-                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    val intent = Intent(requireContext(), HoneypotLauncherActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    }
                     startActivity(intent)
                 }
                 .show()
         }
 
-        // 2. Fake Shutdown
-        binding.btnFakeShutdown?.setOnClickListener {
+        binding.btnFakeShutdown.setOnClickListener {
             val intent = Intent(requireContext(), FakeShutdownActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             }
@@ -92,8 +87,6 @@ class ManualActionsFragment : Fragment() {
         // =================================================================================
         // SECTION 2: DEVICE CONTROL
         // =================================================================================
-
-        // 3. Lock Device
         binding.btnManualLock.setOnClickListener {
             val lockIntent = Intent(requireContext(), LockScreenActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
@@ -101,15 +94,14 @@ class ManualActionsFragment : Fragment() {
             startActivity(lockIntent)
         }
 
-        // 4. Secure Reboot (Root Only)
-        binding.btnSecureReboot?.setOnClickListener {
+        binding.btnSecureReboot.setOnClickListener {
             if (!isDeviceRooted) {
                 showRootRequiredToast()
                 return@setOnClickListener
             }
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle("Secure Reboot")
-                .setMessage("Force reboot the device immediately? This can stop non-persistent malware or clear RAM.")
+                .setMessage("Force reboot the device immediately? This will clear volatile memory.")
                 .setPositiveButton("Reboot") { _, _ ->
                     lifecycleScope.launch(Dispatchers.IO) {
                         RootActions.rebootDevice(requireContext())
@@ -119,20 +111,19 @@ class ManualActionsFragment : Fragment() {
                 .show()
         }
 
-        // 5. Network Killswitch (Root Only)
-        binding.btnNetworkKill?.setOnClickListener {
+        binding.btnNetworkKill.setOnClickListener {
             if (!isDeviceRooted) {
                 showRootRequiredToast()
                 return@setOnClickListener
             }
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle("Network Killswitch")
-                .setMessage("This will use IPTABLES to drop ALL incoming and outgoing packets. You will lose remote control access.")
+                .setMessage("This will drop ALL network traffic using iptables. Remote control connectivity will be terminated.")
                 .setPositiveButton("KILL NETWORK") { _, _ ->
                     lifecycleScope.launch(Dispatchers.IO) {
                         RootActions.blockAllNetworkTraffic(requireContext())
                         withContext(Dispatchers.Main) {
-                            Toast.makeText(requireContext(), "Firewall Active: Traffic Blocked.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(requireContext(), "Firewall Active: All Traffic Blocked.", Toast.LENGTH_LONG).show()
                         }
                     }
                 }
@@ -143,21 +134,17 @@ class ManualActionsFragment : Fragment() {
         // =================================================================================
         // SECTION 3: SURVEILLANCE
         // =================================================================================
-
-        // 6. Send Location
         binding.btnManualLocation.setOnClickListener {
             Toast.makeText(requireContext(), "Sending location alert...", Toast.LENGTH_SHORT).show()
             PanicActionService.trigger(requireContext(), "MANUAL_LOCATION", PanicActionService.Severity.LOW)
         }
 
-        // 7. Evidence Burst (Photo + Audio)
-        binding.btnEvidenceBurst?.setOnClickListener {
-            Toast.makeText(requireContext(), "Capturing evidence...", Toast.LENGTH_SHORT).show()
+        binding.btnEvidenceBurst.setOnClickListener {
+            Toast.makeText(requireContext(), "Capturing evidence burst...", Toast.LENGTH_SHORT).show()
             PanicActionService.trigger(requireContext(), "REMOTE_EVIDENCE", PanicActionService.Severity.HIGH)
         }
 
-        // 8. Stealth Screenshot (Root Only)
-        binding.btnStealthScreenshot?.setOnClickListener {
+        binding.btnStealthScreenshot.setOnClickListener {
             if (!isDeviceRooted) {
                 showRootRequiredToast()
                 return@setOnClickListener
@@ -168,7 +155,7 @@ class ManualActionsFragment : Fragment() {
                     if (file != null) {
                         Toast.makeText(requireContext(), "Screenshot saved: ${file.name}", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(requireContext(), "Screenshot failed.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(requireContext(), "Screenshot capture failed.", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -177,90 +164,69 @@ class ManualActionsFragment : Fragment() {
         // =================================================================================
         // SECTION 4: EMERGENCY & DESTRUCTION
         // =================================================================================
-
-        // 9. Siren
         binding.btnManualSiren.setOnClickListener {
-            Toast.makeText(requireContext(), "Activating siren...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Activating emergency siren...", Toast.LENGTH_SHORT).show()
             PanicActionService.trigger(requireContext(), "MANUAL_SIREN", PanicActionService.Severity.HIGH)
         }
 
-        // 10. WIPE DEVICE (The Advanced Selector)
+        // Level 1: Standard Factory Reset
         binding.btnManualWipe.setOnClickListener {
-            if (isDeviceRooted) {
-                showRootWipeSelectionDialog()
-            } else {
-                showStandardWipeConfirmation()
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.manual_wipe_confirmation_title)
+                .setMessage("Perform standard Android factory reset via Device Admin? This removes user data and reboots.")
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton("Execute Level 1") { _, _ ->
+                    triggerWipeService("STANDARD_WIPE")
+                }
+                .show()
+        }
+
+        // Level 2: Secure Shred (Root)
+        binding.btnManualWipeSecure.setOnClickListener {
+            if (!isDeviceRooted) {
+                showRootRequiredToast()
+                return@setOnClickListener
             }
+            confirmRootWipeExecution(
+                "FAST_USERDATA",
+                "PROTOCOL: Level 2 - Secure Data Shred\n\n" +
+                        "This will overwrite FBE cryptographic headers and zero the start of userdata blocks before rebooting into recovery.\n\n" +
+                        "Are you absolutely certain? This operation cannot be undone."
+            )
+        }
+
+        // Level 3: OS Suicide (Soft Brick)
+        binding.btnManualWipeSystem.setOnClickListener {
+            if (!isDeviceRooted) {
+                showRootRequiredToast()
+                return@setOnClickListener
+            }
+            confirmRootWipeExecution(
+                "SYSTEM_DESTRUCTION",
+                "PROTOCOL: Level 3 - OS Suicide (Soft Brick)\n\n" +
+                        "This will delete critical OS binaries (/system/bin, /system/framework, /vendor) and user data. The device will be unbootable without firmware reflashing.\n\n" +
+                        "CONFIRM EXECUTION: Are you sure?"
+            )
+        }
+
+        // Level 4: Nuclear Winter (Hard Brick Risk)
+        binding.btnManualWipeNuclear.setOnClickListener {
+            if (!isDeviceRooted) {
+                showRootRequiredToast()
+                return@setOnClickListener
+            }
+            confirmRootWipeExecution(
+                "NUCLEAR_WINTER",
+                "⚠️ EXTREME WARNING: LEVEL 4 NUCLEAR WINTER ⚠️\n\n" +
+                        "This protocol zeroes raw partition tables and boot blocks. This has a high probability of causing a PERMANENT HARDWARE BRICK.\n\n" +
+                        "Proceed at your own risk."
+            )
         }
     }
 
-    /**
-     * Dialog for Non-Rooted Users (Standard Factory Reset Only)
-     */
-    private fun showStandardWipeConfirmation() {
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle(R.string.manual_wipe_confirmation_title)
-            .setMessage(R.string.manual_wipe_confirmation_message)
-            .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.manual_wipe_confirm_button) { _, _ ->
-                // "STANDARD_WIPE" is the designated string for the safest method
-                triggerWipeService("STANDARD_WIPE")
-            }
-            .show()
-    }
-
-    /**
-     * Dialog for Rooted Users (Select Specific Algorithm from 4 Levels)
-     */
-    private fun showRootWipeSelectionDialog() {
-        val wipeTitles = arrayOf(
-            "1. Standard Factory Reset (Safe)",
-            "2. Secure Data Shred (Root)",
-            "3. OS Suicide (Soft Brick)",
-            "4. Nuclear Winter (Hard Brick Risk)"
-        )
-
-        val wipeDescriptions = arrayOf(
-            "Performs a standard Android factory reset using Device Admin. Safe for hardware. Removes all user data and reboots.",
-            "Uses Root to physically overwrite the /data partition with zeros. Much harder to recover data, but the OS remains bootable.",
-            "Deletes the Android OS (/system, /vendor). The device will power on but cannot boot. Data is gone. Requires ROM reflashing to fix.",
-            "Overwrites the raw physical block device headers (/dev/block/mmcblk0). This destroys the partition table. High risk of permanently killing the motherboard."
-        )
-
-        var selectedIndex = 0
-
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle("Select Destruction Level")
-            .setSingleChoiceItems(wipeTitles, 0) { _, which ->
-                selectedIndex = which
-                // Show a toast describing the selected level so the user knows what they are picking
-                Toast.makeText(requireContext(), wipeDescriptions[which], Toast.LENGTH_LONG).show()
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton("NEXT") { _, _ ->
-                val selectedType = when (selectedIndex) {
-                    0 -> "STANDARD_WIPE"           // Level 1: Safe
-                    1 -> "FAST_USERDATA"           // Level 2: Secure Data
-                    2 -> "SYSTEM_DESTRUCTION"      // Level 3: Soft Brick
-                    3 -> "NUCLEAR_WINTER"          // Level 4: Hard Brick
-                    else -> "STANDARD_WIPE"
-                }
-
-                val warningMessage = "PROTOCOL: ${wipeTitles[selectedIndex]}\n\n" +
-                        "${wipeDescriptions[selectedIndex]}\n\n" +
-                        "CONFIRMATION: Are you absolutely certain? This action cannot be undone."
-
-                confirmRootWipeExecution(selectedType, warningMessage)
-            }
-            .show()
-    }
-
-    /**
-     * Final Confirmation before execution
-     */
     private fun confirmRootWipeExecution(wipeTypeString: String, message: String) {
         MaterialAlertDialogBuilder(requireContext())
-            .setTitle("FINAL CONFIRMATION")
+            .setTitle("DESTRUCTION PROTOCOL CONFIRMATION")
             .setMessage(message)
             .setNegativeButton("ABORT", null)
             .setPositiveButton("EXECUTE NOW") { _, _ ->
@@ -269,32 +235,23 @@ class ManualActionsFragment : Fragment() {
             .show()
     }
 
-    /**
-     * Sends the specific Wipe Type to the Service
-     */
     private fun triggerWipeService(wipeType: String) {
         val intent = Intent(requireContext(), PanicActionService::class.java).apply {
             putExtra("REASON", "MANUAL_WIPE")
             putExtra("SEVERITY", "CRITICAL")
-            putExtra("WIPE_TYPE", wipeType) // PanicActionService will read this to determine protocol
+            putExtra("WIPE_TYPE", wipeType)
         }
 
         try {
             ContextCompat.startForegroundService(requireContext(), intent)
         } catch (e: Exception) {
-            // Fallback if service fails to start: Execute directly via RootActions (Blocking)
             lifecycleScope.launch(Dispatchers.IO) {
-                try {
-                    // Map string back to Enum for direct execution if service fails
-                    val level = try {
-                        RootActions.WipeLevel.valueOf(wipeType)
-                    } catch (e: Exception) {
-                        RootActions.WipeLevel.STANDARD_WIPE
-                    }
-                    RootActions.executeWipeProtocol(requireContext(), level)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                val level = try {
+                    RootActions.WipeLevel.valueOf(wipeType)
+                } catch (ex: Exception) {
+                    RootActions.WipeLevel.STANDARD_WIPE
                 }
+                RootActions.executeWipeProtocol(requireContext(), level)
             }
         }
     }

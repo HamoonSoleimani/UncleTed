@@ -153,6 +153,10 @@
             android:name=".CameraPermissionBrokerActivity"
             android:exported="false"
             android:showOnLockScreen="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
             android:theme="@style/Theme.UncleTed.Transparent" />
 
         <!-- Background Services -->
@@ -160,7 +164,7 @@
             android:name=".services.PanicActionService"
             android:exported="false"
             android:foregroundServiceType="camera|location|mediaPlayback|microphone|specialUse">
-            <meta-data
+            <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="security_emergency" />
         </service>
@@ -194,7 +198,7 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse">
-            <meta-data
+            <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="security_monitoring" />
         </service>

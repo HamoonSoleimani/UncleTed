@@ -7,33 +7,72 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.MonitoringService
+import com.hamoon.uncleted.services.UsbTripwireService
+import com.hamoon.uncleted.services.ZoneWipeService
 import com.hamoon.uncleted.util.TripwireManager
 import com.hamoon.uncleted.util.WatchdogManager
 
 class BootCompletedReceiver : BroadcastReceiver() {
+
+    companion object {
+        private const val TAG = "BootCompletedReceiver"
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action
-        if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
-            Log.d("BootCompletedReceiver", "Device booted ($action). Synchronizing security services.")
+        val action = intent.action ?: return
+        val isUnlocked = SecurityPreferences.isUserUnlocked(context)
 
-            // Refresh credential hook bridge on boot
-            SecurityPreferences.syncHookCredentials(context)
+        Log.d(TAG, "Device boot event received: $action (User unlocked: $isUnlocked)")
 
+        // 1. Direct Boot / BFU Execution Phase
+        // Always safe to execute because SecurityPreferences now operates on Device-Protected (DE) storage if locked.
+        SecurityPreferences.syncHookCredentials(context)
+
+        // Tripwire check-in re-arm or verification
+        if (SecurityPreferences.isUsbTripwireEnabled(context)) {
+            val usbIntent = Intent(context, UsbTripwireService::class.java)
+            try {
+                ContextCompat.startForegroundService(context, usbIntent)
+                Log.i(TAG, "Started UsbTripwireService on boot.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start UsbTripwireService on boot", e)
+            }
+        }
+
+        if (SecurityPreferences.isGeofenceSuicideEnabled(context)) {
+            val zoneIntent = Intent(context, ZoneWipeService::class.java)
+            try {
+                ContextCompat.startForegroundService(context, zoneIntent)
+                Log.i(TAG, "Started ZoneWipeService on boot.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start ZoneWipeService on boot", e)
+            }
+        }
+
+        // 2. Credential-Encrypted (CE) Execution Phase
+        // WorkManager and full user services should only initialize once the user credentials have unlocked storage.
+        if (isUnlocked) {
             if (SecurityPreferences.isProtectionEnabled(context)) {
                 val serviceIntent = Intent(context, MonitoringService::class.java)
-                ContextCompat.startForegroundService(context, serviceIntent)
-                Log.i("BootCompletedReceiver", "Started MonitoringService on boot.")
+                try {
+                    ContextCompat.startForegroundService(context, serviceIntent)
+                    Log.i(TAG, "Started MonitoringService on post-unlock boot.")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed starting MonitoringService on post-unlock boot", e)
+                }
             }
 
             if (SecurityPreferences.isWatchdogModeEnabled(context)) {
                 WatchdogManager.scheduleOrCancelWatchdog(context)
-                Log.i("BootCompletedReceiver", "Rescheduled WatchdogWorker on boot.")
+                Log.i(TAG, "Rescheduled WatchdogWorker on post-unlock boot.")
             }
 
             if (SecurityPreferences.isTripwireEnabled(context)) {
                 TripwireManager.scheduleFromLastCheckIn(context)
-                Log.i("BootCompletedReceiver", "Rescheduled TripwireWorker on boot.")
+                Log.i(TAG, "Rescheduled TripwireWorker on post-unlock boot.")
             }
+        } else {
+            Log.i(TAG, "Device remains Before First Unlock (BFU). Skipping CE-dependent tasks.")
         }
     }
 }
