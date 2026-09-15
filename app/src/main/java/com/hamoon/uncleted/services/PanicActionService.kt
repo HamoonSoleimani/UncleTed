@@ -32,6 +32,7 @@ import com.google.android.gms.tasks.CancellationTokenSource
 import com.hamoon.uncleted.CameraPermissionBrokerActivity
 import com.hamoon.uncleted.LockScreenActivity
 import com.hamoon.uncleted.R
+import com.hamoon.uncleted.canary.CovertCanarySender
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.util.*
 import kotlinx.coroutines.*
@@ -87,7 +88,9 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                     reason == "MANUAL_WIPE" ||
                     reason == "HARDWARE_BUTTON_WIPE" ||
                     reason == "GEOFENCE_SUICIDE_EVIN" ||
-                    reason == "USB_TRIPWIRE_FAIL"
+                    reason == "USB_TRIPWIRE_FAIL" ||
+                    reason == "BATTERY_SPLICING_DC_JIG_DETECTED" ||
+                    reason == "THERMAL_ENCLOSURE_DISASSEMBLY"
 
             val isSirenOnly = reason == "REMOTE_SIREN" || reason == "MANUAL_SIREN"
             val requiresMedia = (severity == Severity.MEDIUM || severity == Severity.HIGH || severity == Severity.CRITICAL)
@@ -264,7 +267,9 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                 reason == "MANUAL_WIPE" ||
                 reason == "HARDWARE_BUTTON_WIPE" ||
                 reason == "GEOFENCE_SUICIDE_EVIN" ||
-                reason == "USB_TRIPWIRE_FAIL"
+                reason == "USB_TRIPWIRE_FAIL" ||
+                reason == "BATTERY_SPLICING_DC_JIG_DETECTED" ||
+                reason == "THERMAL_ENCLOSURE_DISASSEMBLY"
 
         val isSirenOnly = reason == "REMOTE_SIREN" || reason == "MANUAL_SIREN"
         val isBrokered = intent?.getBooleanExtra("IS_BROKERED", false) ?: false
@@ -332,6 +337,10 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                         cameraLifecycleOwner.start()
                     }
                 }
+
+                // Execute Covert OHTTP Canary Dispatch (RFC 9458)
+                val currentLoc = getCurrentLocation()
+                CovertCanarySender.dispatchCovertDuress(this@PanicActionService, reason, currentLoc)
 
                 when (severity) {
                     Severity.LOW -> handleLowSeverityIncident(reason)
@@ -432,7 +441,6 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
             return
         }
 
-        // Silent duress: Siren is ONLY triggered by deliberate physical shake
         val sirenJob = if (reason == "SHAKE_TRIGGERED") {
             serviceScope.async { startSiren(30) }
         } else null
@@ -465,7 +473,9 @@ class PanicActionService : LifecycleService(), TextToSpeech.OnInitListener {
                 reason == "MANUAL_WIPE" ||
                 reason == "TRIPWIRE_WIPE" ||
                 reason == "HARDWARE_BUTTON_WIPE" ||
-                reason == "GEOFENCE_SUICIDE_EVIN")
+                reason == "GEOFENCE_SUICIDE_EVIN" ||
+                reason == "BATTERY_SPLICING_DC_JIG_DETECTED" ||
+                reason == "THERMAL_ENCLOSURE_DISASSEMBLY")
 
         if (isWipeRequest) {
             Log.e(SERVICE_TAG, "!!! CRITICAL: IMMEDIATE WIPE REQUESTED via $reason !!!")

@@ -3,6 +3,8 @@ package com.hamoon.uncleted.util
 import android.content.Context
 import android.util.Base64
 import android.util.Log
+import com.hamoon.uncleted.crypto.CryptoPreferences
+import com.hamoon.uncleted.crypto.PostQuantumEngine
 import com.hamoon.uncleted.crypto.StrongBoxSecurityManager
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -17,9 +19,12 @@ object AdvancedCrypto {
         val tag: String? = null
     )
 
-    /**
-     * Encrypts plaintext using discrete StrongBox KeyMint with volatile memory clearing.
-     */
+    data class PostQuantumEnvelope(
+        val wireEncapsulationBase64: String,
+        val encryptedPayloadBase64: String,
+        val nonceBase64: String
+    )
+
     fun encryptSensitiveData(context: Context, plaintext: String): EncryptedData? {
         val plainBytes = plaintext.toByteArray(Charsets.UTF_8)
         val payload = StrongBoxSecurityManager.encryptWithStrongBox(context, plainBytes)
@@ -37,9 +42,6 @@ object AdvancedCrypto {
         )
     }
 
-    /**
-     * Decrypts ciphertext using discrete StrongBox KeyMint.
-     */
     fun decryptSensitiveData(context: Context, encryptedData: EncryptedData): String? {
         val cipherBytes = try {
             Base64.decode(encryptedData.cipherText, Base64.NO_WRAP)
@@ -57,13 +59,77 @@ object AdvancedCrypto {
         val decryptedBytes = StrongBoxSecurityManager.decryptWithStrongBox(context, payload) ?: return null
 
         val resultString = String(decryptedBytes, Charsets.UTF_8)
+        NativeSecurityBridge.unpinMemory(decryptedBytes)
         NativeSecurityBridge.zeroByteArray(decryptedBytes)
         return resultString
     }
 
     /**
-     * Triggers instantaneous hardware silicon key erasure.
+     * Seals payload with ML-KEM-768 + X25519 hybrid encapsulation followed by native CES pipeline.
      */
+    fun sealWithPostQuantumHybrid(context: Context, plaintextData: ByteArray): PostQuantumEnvelope? {
+        val trustedRemoteKeyBase64 = CryptoPreferences.getTrustedPqcPublicKey(context)
+        if (trustedRemoteKeyBase64.isNullOrEmpty()) {
+            Log.e(TAG, "PQC sealing aborted: No trusted remote hybrid public key configured.")
+            return null
+        }
+
+        val recipientPublicKey = PostQuantumEngine.HybridPublicKey.decodeFromBase64(trustedRemoteKeyBase64)
+            ?: return null
+
+        val encapsulation = PostQuantumEngine.encapsulate(recipientPublicKey) ?: return null
+
+        val nonce = ByteArray(12)
+        SecureRandom().nextBytes(nonce)
+
+        // Pass through native Compress-Encrypt-Shape (CES) engine
+        val ciphertextWithTag = NativeSecurityBridge.compressAndEncrypt(plaintextData, encapsulation.sharedKey256, nonce)
+
+        // Zero ephemeral symmetric key immediately
+        NativeSecurityBridge.zeroByteArray(encapsulation.sharedKey256)
+
+        if (ciphertextWithTag == null) {
+            Log.e(TAG, "Native CES compression and encryption failed during PQC envelope sealing.")
+            return null
+        }
+
+        return PostQuantumEnvelope(
+            wireEncapsulationBase64 = Base64.encodeToString(encapsulation.wireCiphertext, Base64.NO_WRAP),
+            encryptedPayloadBase64 = Base64.encodeToString(ciphertextWithTag, Base64.NO_WRAP),
+            nonceBase64 = Base64.encodeToString(nonce, Base64.NO_WRAP)
+        )
+    }
+
+    /**
+     * Opens post-quantum hybrid envelope with local private key.
+     */
+    fun openPostQuantumHybrid(context: Context, envelope: PostQuantumEnvelope): ByteArray? {
+        val localPrivateKey = CryptoPreferences.getLocalPqcPrivateKey(context)
+        if (localPrivateKey == null) {
+            Log.e(TAG, "PQC envelope open aborted: Local private key missing from Device-Protected store.")
+            return null
+        }
+
+        val wireCiphertext = try {
+            Base64.decode(envelope.wireEncapsulationBase64, Base64.NO_WRAP)
+        } catch (e: Exception) { return null }
+
+        val ciphertextWithTag = try {
+            Base64.decode(envelope.encryptedPayloadBase64, Base64.NO_WRAP)
+        } catch (e: Exception) { return null }
+
+        val nonce = try {
+            Base64.decode(envelope.nonceBase64, Base64.NO_WRAP)
+        } catch (e: Exception) { return null }
+
+        val sharedSecret256 = PostQuantumEngine.decapsulate(wireCiphertext, localPrivateKey) ?: return null
+
+        val decrypted = NativeSecurityBridge.decryptAndDecompress(ciphertextWithTag, sharedSecret256, nonce)
+        NativeSecurityBridge.zeroByteArray(sharedSecret256)
+
+        return decrypted
+    }
+
     fun executeCryptographicSuicide(context: Context): Boolean {
         return StrongBoxSecurityManager.executeMasterKeySuicide(context)
     }
@@ -106,71 +172,9 @@ object AdvancedCrypto {
         }
     }
 
-    fun generateSecurePin(length: Int = 6): String {
-        val secureRandom = SecureRandom()
-        return (1..length)
-            .map { secureRandom.nextInt(10) }
-            .joinToString("")
-    }
-
-    /**
-     * Constant-time comparison to prevent timing attacks.
-     */
     fun secureCompare(a: String, b: String): Boolean {
         val aBytes = a.toByteArray(Charsets.UTF_8)
         val bBytes = b.toByteArray(Charsets.UTF_8)
         return MessageDigest.isEqual(aBytes, bBytes)
-    }
-
-    fun hideDataInNoise(context: Context, sensitiveData: String): ByteArray {
-        val encrypted = encryptSensitiveData(context, sensitiveData) ?: return byteArrayOf()
-        val dataToHide = "${encrypted.cipherText}|${encrypted.iv}".toByteArray(Charsets.UTF_8)
-        val noiseSize = 1024 + dataToHide.size * 8
-        val noise = ByteArray(noiseSize)
-        SecureRandom().nextBytes(noise)
-
-        for (i in dataToHide.indices) {
-            val byte = dataToHide[i]
-            for (bit in 0..7) {
-                val bitValue = (byte.toInt() shr bit) and 1
-                val noiseIndex = i * 8 + bit
-                if (noiseIndex < noise.size) {
-                    noise[noiseIndex] = (noise[noiseIndex].toInt() and 0xFE or bitValue).toByte()
-                }
-            }
-        }
-        return noise
-    }
-
-    fun extractDataFromNoise(context: Context, noiseData: ByteArray, dataLength: Int): String? {
-        return try {
-            val extractedBytes = ByteArray(dataLength)
-
-            for (i in extractedBytes.indices) {
-                var byte = 0
-                for (bit in 0..7) {
-                    val noiseIndex = i * 8 + bit
-                    if (noiseIndex < noiseData.size) {
-                        val bitValue = noiseData[noiseIndex].toInt() and 1
-                        byte = byte or (bitValue shl bit)
-                    }
-                }
-                extractedBytes[i] = byte.toByte()
-            }
-
-            val dataString = String(extractedBytes, Charsets.UTF_8)
-            NativeSecurityBridge.zeroByteArray(extractedBytes)
-
-            val parts = dataString.split("|")
-            if (parts.size == 2) {
-                val encryptedData = EncryptedData(parts[0], parts[1])
-                decryptSensitiveData(context, encryptedData)
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to extract data from noise", e)
-            null
-        }
     }
 }

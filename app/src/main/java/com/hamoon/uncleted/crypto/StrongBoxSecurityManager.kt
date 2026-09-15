@@ -23,7 +23,6 @@ object StrongBoxSecurityManager {
     const val MASTER_SUICIDE_KEY_ALIAS = "UncleTed_TitanM2_MasterSuicideKey"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val GCM_TAG_LENGTH = 128
-    private const val GCM_IV_LENGTH = 12
 
     data class StrongBoxPayload(
         val cipherText: ByteArray,
@@ -51,9 +50,6 @@ object StrongBoxSecurityManager {
         }
     }
 
-    /**
-     * Checks if the device features a discrete Hardware Security Module (StrongBox KeyMint / Titan M2).
-     */
     fun isStrongBoxSupported(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)
@@ -62,14 +58,16 @@ object StrongBoxSecurityManager {
         }
     }
 
-    /**
-     * Ensures the Master Suicide Key exists inside StrongBox silicon.
-     * Falls back to standard SoC hardware TEE if discrete StrongBox is absent.
-     */
     @Synchronized
     fun getOrCreateMasterKey(context: Context): SecretKey? {
         if (CryptoPreferences.isSuicideExecuted(context)) {
             Log.e(TAG, "Master key access rejected: Cryptographic suicide already executed on this device.")
+            return null
+        }
+
+        // Enforce anti-NAND mirroring rollback verification
+        if (!AntiRollbackManager.verifyStateIntegrity(context)) {
+            Log.e(TAG, "Hardware anti-rollback integrity check failed! Refusing master key delivery.")
             return null
         }
 
@@ -98,8 +96,19 @@ object StrongBoxSecurityManager {
                 .setKeySize(256)
                 .setRandomizedEncryptionRequired(true)
 
-            if (hasStrongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                specBuilder.setIsStrongBoxBacked(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                if (hasStrongBox) {
+                    specBuilder.setIsStrongBoxBacked(true)
+                }
+
+                // Enforce hardware monotonic counter rollback resistance (Titan M2 / RPMB) via reflection
+                try {
+                    val method = specBuilder.javaClass.getMethod("setRollbackResistant", Boolean::class.javaPrimitiveType)
+                    method.invoke(specBuilder, true)
+                    Log.i(TAG, "Enforced setRollbackResistant(true) on hardware master key via reflection.")
+                } catch (e: Exception) {
+                    Log.w(TAG, "setRollbackResistant unsupported or restricted on this SoC: ${e.message}")
+                }
             }
 
             keyGenerator.init(specBuilder.build())
@@ -109,7 +118,7 @@ object StrongBoxSecurityManager {
             key
         } catch (e: Exception) {
             if (e is StrongBoxUnavailableException || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && e.cause is StrongBoxUnavailableException)) {
-                Log.w(TAG, "StrongBox hardware busy or unavailable. Falling back to primary SoC TEE...")
+                Log.w(TAG, "StrongBox hardware unavailable. Falling back to primary SoC TEE...")
                 generateTeeFallbackKey(context)
             } else {
                 Log.e(TAG, "Failed generating hardware-backed master key", e)
@@ -121,7 +130,7 @@ object StrongBoxSecurityManager {
     private fun generateTeeFallbackKey(context: Context): SecretKey? {
         return try {
             val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-            val spec = KeyGenParameterSpec.Builder(
+            val specBuilder = KeyGenParameterSpec.Builder(
                 MASTER_SUICIDE_KEY_ALIAS,
                 KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
             )
@@ -129,9 +138,15 @@ object StrongBoxSecurityManager {
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
                 .setRandomizedEncryptionRequired(true)
-                .build()
 
-            keyGenerator.init(spec)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                try {
+                    val method = specBuilder.javaClass.getMethod("setRollbackResistant", Boolean::class.javaPrimitiveType)
+                    method.invoke(specBuilder, true)
+                } catch (_: Exception) {}
+            }
+
+            keyGenerator.init(specBuilder.build())
             val key = keyGenerator.generateKey()
             CryptoPreferences.setStrongBoxEnforced(context, false)
             Log.i(TAG, "TEE hardware fallback master key generated successfully.")
@@ -142,11 +157,6 @@ object StrongBoxSecurityManager {
         }
     }
 
-    /**
-     * Executes sub-millisecond cryptographic suicide inside hardware silicon.
-     * Permanently zeroes the master key slot inside Titan M2 / KeyMint hardware registers.
-     * Rendering all data encrypted under this key mathematically unrecoverable.
-     */
     @Synchronized
     fun executeMasterKeySuicide(context: Context): Boolean {
         Log.e(TAG, "!!! INITIATING TITAN M2 / STRONGBOX CRYPTOGRAPHIC SUICIDE !!!")
@@ -160,7 +170,6 @@ object StrongBoxSecurityManager {
                 keyStore.deleteEntry(MASTER_SUICIDE_KEY_ALIAS)
             }
 
-            // Also purge legacy alias if present
             if (keyStore.containsAlias("UncleTedMasterKey")) {
                 keyStore.deleteEntry("UncleTedMasterKey")
             }
@@ -175,11 +184,11 @@ object StrongBoxSecurityManager {
         }
     }
 
-    /**
-     * Encrypts plaintext bytes using the discrete StrongBox key, immediately zeroing sensitive RAM buffers.
-     */
     fun encryptWithStrongBox(context: Context, plainBytes: ByteArray): StrongBoxPayload? {
         val key = getOrCreateMasterKey(context) ?: return null
+
+        // Pin memory buffer during hardware cryptographic transformation
+        NativeSecurityBridge.pinMemory(plainBytes)
 
         return try {
             val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -188,19 +197,19 @@ object StrongBoxSecurityManager {
             val iv = cipher.iv.clone()
             val cipherText = cipher.doFinal(plainBytes)
 
+            // Advance hardware rollback counter on successful encryption
+            AntiRollbackManager.registerSecurityEventAdvance(context)
+
             StrongBoxPayload(cipherText, iv)
         } catch (e: Exception) {
             Log.e(TAG, "StrongBox encryption failed", e)
             null
         } finally {
+            NativeSecurityBridge.unpinMemory(plainBytes)
             NativeSecurityBridge.zeroByteArray(plainBytes)
         }
     }
 
-    /**
-     * Decrypts StrongBox payload, returning decrypted bytes.
-     * Caller MUST zero the returned ByteArray after processing.
-     */
     fun decryptWithStrongBox(context: Context, payload: StrongBoxPayload): ByteArray? {
         if (CryptoPreferences.isSuicideExecuted(context)) {
             Log.e(TAG, "Decryption aborted: Master suicide key was already destroyed.")
@@ -213,9 +222,13 @@ object StrongBoxSecurityManager {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             val spec = GCMParameterSpec(GCM_TAG_LENGTH, payload.iv)
             cipher.init(Cipher.DECRYPT_MODE, key, spec)
-            cipher.doFinal(payload.cipherText)
+            val decrypted = cipher.doFinal(payload.cipherText)
+
+            // Pin decrypted plaintext immediately upon return from hardware
+            NativeSecurityBridge.pinMemory(decrypted)
+            decrypted
         } catch (e: Exception) {
-            Log.e(TAG, "StrongBox decryption failed (Key likely revoked or tampered)", e)
+            Log.e(TAG, "StrongBox decryption failed (Key revoked, tampered, or rollback detected)", e)
             null
         }
     }

@@ -17,9 +17,10 @@ object EmergencyDestructionEngine {
      * Executes complete sub-millisecond emergency destruction sequence.
      * 1. Isolates all radio and network interfaces.
      * 2. Destroys discrete StrongBox/Titan M2 master key silicon registers.
-     * 3. Erases Vold user keys and zeroes the File-Based Encryption metadata partition.
-     * 4. Stages Bootloader Control Block (BCB) recovery wipe command.
-     * 5. Triggers platform recovery wipe or hardware fallback panic.
+     * 3. Issues direct JEDEC BLKSECDISCARD IOCTL hardware commands to storage controllers.
+     * 4. Erases Vold user keys and synthetic password blobs.
+     * 5. Stages Bootloader Control Block (BCB) recovery wipe command.
+     * 6. Triggers platform recovery wipe or hardware fallback panic.
      */
     suspend fun executeDestructionSequence(context: Context, reason: String): Unit = withContext(Dispatchers.IO) {
         Log.e(TAG, "!!! INITIATING SUB-MILLISECOND EMERGENCY DESTRUCTION: $reason !!!")
@@ -34,7 +35,7 @@ object EmergencyDestructionEngine {
         val isRooted = RootChecker.isDeviceRooted()
 
         if (isRooted) {
-            // 3. Purge Vold user keys and zero FBE metadata header partition
+            // 3. Purge Vold user keys and issue JEDEC silicon-level hardware sanitize
             evictAndZeroEncryptionKeys()
 
             // 4. Stage low-level BCB recovery command
@@ -66,9 +67,10 @@ object EmergencyDestructionEngine {
      * Mathematically sound cryptographic erasure:
      * Overwriting the 16KB FBE metadata block device containing the root Key Encryption Keys (KEKs)
      * instantly renders all userdata blocks unrecoverable, bypassing UFS/NVMe wear-leveling pitfalls.
+     * Integrates JEDEC JESD220 / JESD84-B51 BLKSECDISCARD hardware commands.
      */
     suspend fun evictAndZeroEncryptionKeys() {
-        Log.e(TAG, "Evicting Vold user keys and zeroing FBE metadata headers...")
+        Log.e(TAG, "Evicting Vold user keys and executing JEDEC silicon-level hardware sanitize...")
 
         val keyDemolitionCommands = listOf(
             "rm -rf /data/misc/vold/user_keys/* 2>/dev/null || true",
@@ -80,27 +82,29 @@ object EmergencyDestructionEngine {
         )
         RootExecutor.runMultiple(keyDemolitionCommands, logErrors = false)
 
-        // Zero the master cryptographic metadata partition headers (first 16MB)
+        // 1. Primary JEDEC Hardware Sanitize: Issue BLKSECDISCARD IOCTL directly to metadata partition
         val metadataPath = findPartitionBlockPath("metadata")
         if (metadataPath != null) {
-            Log.e(TAG, "Zeroing master FBE metadata partition header at: $metadataPath")
-            RootExecutor.run("dd if=/dev/zero of=$metadataPath bs=1048576 count=16 conv=fsync", logErrors = false)
+            Log.e(TAG, "Issuing JEDEC BLKSECDISCARD IOCTL to metadata partition: $metadataPath")
+            val discardSuccess = NativeSecurityBridge.executeSiliconDiscard(metadataPath)
+            if (!discardSuccess) {
+                Log.w(TAG, "Direct IOCTL discard failed; executing kernel dd block zero fallback on $metadataPath")
+                RootExecutor.run("dd if=/dev/zero of=$metadataPath bs=1048576 count=16 conv=fsync", logErrors = false)
+            }
         } else {
-            Log.w(TAG, "Metadata partition by-name not found directly; searching block devices...")
-            val altMetadata = findPartitionBlockPath("userdata")
-            if (altMetadata != null) {
-                // Zero the first 4MB of userdata where filesystem superblocks and crypto headers reside
-                RootExecutor.run("dd if=/dev/zero of=$altMetadata bs=4096 count=1024 conv=fsync", logErrors = false)
+            Log.w(TAG, "Metadata partition by-name not found directly; targeting userdata superblock headers...")
+            val userdataPath = findPartitionBlockPath("userdata")
+            if (userdataPath != null) {
+                val discardSuccess = NativeSecurityBridge.executeSiliconDiscard(userdataPath)
+                if (!discardSuccess) {
+                    RootExecutor.run("dd if=/dev/zero of=$userdataPath bs=4096 count=1024 conv=fsync", logErrors = false)
+                }
             }
         }
 
         RootExecutor.run("sync", logErrors = false)
     }
 
-    /**
-     * Stages an autonomous Bootloader Control Block (BCB) recovery wipe command in /cache/recovery/command.
-     * Ensures that even if userspace halts prematurely, recovery formats userdata on the next boot cycle.
-     */
     suspend fun stageRecoveryWipeCommand() {
         val recoveryCommandFile = "/cache/recovery/command"
         val commands = listOf(

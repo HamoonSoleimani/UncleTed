@@ -2,6 +2,7 @@ package com.hamoon.uncleted.crypto
 
 import android.content.Context
 import android.os.Build
+import android.util.Base64
 
 object CryptoPreferences {
 
@@ -12,6 +13,15 @@ object CryptoPreferences {
     private const val KEY_STRONGBOX_ENFORCED = "strongbox_enforced"
     private const val KEY_SUICIDE_EXECUTED = "cryptographic_suicide_executed"
     private const val KEY_HARDWARE_ATTESTED = "hardware_attestation_verified"
+
+    // Hardware Monotonic Counter & Anti-Rollback State
+    private const val KEY_HARDWARE_MONOTONIC_COUNTER = "hardware_rpmb_monotonic_counter"
+
+    // Post-Quantum Hybrid ML-KEM-768 / X25519 Key Pairs
+    private const val KEY_PQC_LOCAL_PUBLIC = "pqc_local_hybrid_public_key"
+    private const val KEY_PQC_LOCAL_PRIVATE_X = "pqc_local_private_x25519"
+    private const val KEY_PQC_LOCAL_PRIVATE_K = "pqc_local_private_kyber768"
+    private const val KEY_PQC_TRUSTED_REMOTE_PUB = "pqc_trusted_remote_hybrid_public_key"
 
     private fun getStorageContext(context: Context): Context {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -84,5 +94,56 @@ object CryptoPreferences {
     fun setHardwareAttestationVerified(context: Context, verified: Boolean) {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putBoolean(KEY_HARDWARE_ATTESTED, verified).commit()
+    }
+
+    // Monotonic Counter Persistence for Anti-NAND Mirroring Traps
+    fun getHardwareMonotonicCounter(context: Context): Long {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getLong(KEY_HARDWARE_MONOTONIC_COUNTER, 0L)
+    }
+
+    fun setHardwareMonotonicCounter(context: Context, counter: Long) {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putLong(KEY_HARDWARE_MONOTONIC_COUNTER, counter).commit()
+    }
+
+    // Post-Quantum Hybrid Key Storage (ML-KEM-768 + X25519)
+    fun getTrustedPqcPublicKey(context: Context): String? {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_PQC_TRUSTED_REMOTE_PUB, null)
+    }
+
+    fun setTrustedPqcPublicKey(context: Context, hybridPubKeyBase64: String?) {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_PQC_TRUSTED_REMOTE_PUB, hybridPubKeyBase64?.trim()).commit()
+    }
+
+    fun saveLocalPqcKeyPair(context: Context, keyPair: PostQuantumEngine.HybridKeyPair) {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(KEY_PQC_LOCAL_PUBLIC, keyPair.public.encodeToBase64())
+            .putString(KEY_PQC_LOCAL_PRIVATE_X, Base64.encodeToString(keyPair.private.x25519Private, Base64.NO_WRAP))
+            .putString(KEY_PQC_LOCAL_PRIVATE_K, Base64.encodeToString(keyPair.private.kyberPrivate, Base64.NO_WRAP))
+            .commit()
+    }
+
+    fun getLocalPqcPublicKey(context: Context): PostQuantumEngine.HybridPublicKey? {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val pubB64 = prefs.getString(KEY_PQC_LOCAL_PUBLIC, null) ?: return null
+        return PostQuantumEngine.HybridPublicKey.decodeFromBase64(pubB64)
+    }
+
+    fun getLocalPqcPrivateKey(context: Context): PostQuantumEngine.HybridPrivateKey? {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val xPrivB64 = prefs.getString(KEY_PQC_LOCAL_PRIVATE_X, null) ?: return null
+        val kPrivB64 = prefs.getString(KEY_PQC_LOCAL_PRIVATE_K, null) ?: return null
+
+        return try {
+            val xPriv = Base64.decode(xPrivB64, Base64.NO_WRAP)
+            val kPriv = Base64.decode(kPrivB64, Base64.NO_WRAP)
+            PostQuantumEngine.HybridPrivateKey(xPriv, kPriv)
+        } catch (_: Exception) {
+            null
+        }
     }
 }

@@ -23,6 +23,11 @@ object NativeSecurityBridge {
     external fun applyProcessHardening(): Boolean
     external fun isMteActive(): Boolean
     external fun secureZeroMemory(buffer: ByteArray)
+    external fun purgeBlockDevice(blockDevicePath: String): Boolean
+    external fun lockMemoryPages(data: ByteArray): Boolean
+    external fun unlockMemoryPages(data: ByteArray): Boolean
+    external fun executeCesNative(input: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray?
+    external fun executeCesDecryptNative(inputWithTag: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray?
 
     fun enforceSecurityBaselines(): Boolean {
         if (!isLoaded) {
@@ -42,5 +47,31 @@ object NativeSecurityBridge {
         } else {
             buffer.fill(0)
         }
+    }
+
+    fun executeSiliconDiscard(blockDevicePath: String): Boolean {
+        if (!isLoaded) {
+            Log.e(TAG, "Cannot execute silicon discard: native library not available.")
+            return false
+        }
+        return purgeBlockDevice(blockDevicePath)
+    }
+
+    fun pinMemory(data: ByteArray): Boolean {
+        return if (isLoaded) lockMemoryPages(data) else false
+    }
+
+    fun unpinMemory(data: ByteArray): Boolean {
+        return if (isLoaded) unlockMemoryPages(data) else false
+    }
+
+    fun compressAndEncrypt(plaintext: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray? {
+        if (!isLoaded) return null
+        return executeCesNative(plaintext, key, nonce)
+    }
+
+    fun decryptAndDecompress(ciphertextWithTag: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray? {
+        if (!isLoaded) return null
+        return executeCesDecryptNative(ciphertextWithTag, key, nonce)
     }
 }

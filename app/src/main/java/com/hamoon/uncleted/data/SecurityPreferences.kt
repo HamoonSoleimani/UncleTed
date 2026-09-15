@@ -87,6 +87,312 @@ object SecurityPreferences {
         )
     }
 
+    // --- Covert OHTTP (RFC 9458) Canary Preferences ---
+    fun setOhttpCanaryEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_OHTTP_CANARY_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("OHTTP_CANARY_ENABLED", isEnabled).apply()
+        }
+    }
+
+    fun isOhttpCanaryEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_OHTTP_CANARY_ENABLED", true)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_OHTTP_CANARY_ENABLED", true) &&
+                    getInstance(context).getBoolean("OHTTP_CANARY_ENABLED", true)
+        }
+    }
+
+    fun setOhttpRelayUrl(context: Context, url: String) {
+        getDeviceProtectedPrefs(context).edit().putString("BFU_OHTTP_RELAY_URL", url.trim()).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putString("OHTTP_RELAY_URL", url.trim()).apply()
+        }
+    }
+
+    fun getOhttpRelayUrl(context: Context): String {
+        val defaultRelay = "https://cloudflare-dns.com/dns-query"
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_OHTTP_RELAY_URL", defaultRelay) ?: defaultRelay
+        } else {
+            getDeviceProtectedPrefs(context).getString(
+                "BFU_OHTTP_RELAY_URL",
+                getInstance(context).getString("OHTTP_RELAY_URL", defaultRelay)
+            ) ?: defaultRelay
+        }
+    }
+
+    fun setOhttpGatewayPublicKey(context: Context, keyBase64: String?) {
+        getDeviceProtectedPrefs(context).edit().putString("BFU_OHTTP_GATEWAY_PUBKEY", keyBase64?.trim()).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putString("OHTTP_GATEWAY_PUBKEY", keyBase64?.trim()).apply()
+        }
+    }
+
+    fun getOhttpGatewayPublicKey(context: Context): String? {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_OHTTP_GATEWAY_PUBKEY", null)
+        } else {
+            getDeviceProtectedPrefs(context).getString(
+                "BFU_OHTTP_GATEWAY_PUBKEY",
+                getInstance(context).getString("OHTTP_GATEWAY_PUBKEY", null)
+            )
+        }
+    }
+
+    // --- BLE/UWB Proximity Key Sharding Preferences ---
+    fun setProximityShardingEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_PROXIMITY_SHARDING_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("PROXIMITY_SHARDING_ENABLED", isEnabled).apply()
+        }
+    }
+
+    fun isProximityShardingEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_PROXIMITY_SHARDING_ENABLED", false)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_PROXIMITY_SHARDING_ENABLED", false) &&
+                    getInstance(context).getBoolean("PROXIMITY_SHARDING_ENABLED", false)
+        }
+    }
+
+    fun setProximityBleTargetAddress(context: Context, address: String?) {
+        getDeviceProtectedPrefs(context).edit().putString("BFU_PROXIMITY_BLE_MAC", address?.trim()?.uppercase()).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putString("PROXIMITY_BLE_MAC", address?.trim()?.uppercase()).apply()
+        }
+    }
+
+    fun getProximityBleTargetAddress(context: Context): String? {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_PROXIMITY_BLE_MAC", null)
+        } else {
+            getDeviceProtectedPrefs(context).getString(
+                "BFU_PROXIMITY_BLE_MAC",
+                getInstance(context).getString("PROXIMITY_BLE_MAC", null)
+            )
+        }
+    }
+
+    fun setProximityRssiThreshold(context: Context, rssiThresholdDbm: Int) {
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_PROXIMITY_RSSI_THRESHOLD", rssiThresholdDbm).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putInt("PROXIMITY_RSSI_THRESHOLD", rssiThresholdDbm).apply()
+        }
+    }
+
+    fun getProximityRssiThreshold(context: Context): Int {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getInt("BFU_PROXIMITY_RSSI_THRESHOLD", -85)
+        } else {
+            getDeviceProtectedPrefs(context).getInt(
+                "BFU_PROXIMITY_RSSI_THRESHOLD",
+                getInstance(context).getInt("PROXIMITY_RSSI_THRESHOLD", -85)
+            )
+        }
+    }
+
+    fun setProximityMissedHeartbeatThreshold(context: Context, count: Int) {
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_PROXIMITY_BREACH_LIMIT", count).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putInt("PROXIMITY_BREACH_LIMIT", count).apply()
+        }
+    }
+
+    fun getProximityMissedHeartbeatThreshold(context: Context): Int {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getInt("BFU_PROXIMITY_BREACH_LIMIT", 3)
+        } else {
+            getDeviceProtectedPrefs(context).getInt(
+                "BFU_PROXIMITY_BREACH_LIMIT",
+                getInstance(context).getInt("PROXIMITY_BREACH_LIMIT", 3)
+            )
+        }
+    }
+
+    fun setStoredShardA(context: Context, serializedShardA: String) {
+        getDeviceProtectedPrefs(context).edit().putString("BFU_SEALED_SHARD_A", serializedShardA).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putString("SEALED_SHARD_A", serializedShardA).apply()
+        }
+    }
+
+    fun getStoredShardA(context: Context): String? {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_SEALED_SHARD_A", null)
+        } else {
+            getDeviceProtectedPrefs(context).getString(
+                "BFU_SEALED_SHARD_A",
+                getInstance(context).getString("SEALED_SHARD_A", null)
+            )
+        }
+    }
+
+    // --- Volatile Memory Hardening & ZRAM Scrubbing Preferences ---
+    fun setZramScrubbingEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_ZRAM_SCRUBBING_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("ZRAM_SCRUBBING_ENABLED", isEnabled).apply()
+        }
+    }
+
+    fun isZramScrubbingEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_ZRAM_SCRUBBING_ENABLED", true)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_ZRAM_SCRUBBING_ENABLED", true) &&
+                    getInstance(context).getBoolean("ZRAM_SCRUBBING_ENABLED", true)
+        }
+    }
+
+    fun setZramReKeyingEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_ZRAM_REKEYING_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("ZRAM_REKEYING_ENABLED", isEnabled).apply()
+        }
+    }
+
+    fun isZramReKeyingEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_ZRAM_REKEYING_ENABLED", false)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_ZRAM_REKEYING_ENABLED", false) &&
+                    getInstance(context).getBoolean("ZRAM_REKEYING_ENABLED", false)
+        }
+    }
+
+    // --- Plausible Deniability Vault Carrier Configuration ---
+    fun setVaultCarrierFileName(context: Context, fileName: String) {
+        getInstance(context).edit().putString("VAULT_CARRIER_FILENAME", fileName.trim()).apply()
+    }
+
+    fun getVaultCarrierFileName(context: Context): String? {
+        return getInstance(context).getString("VAULT_CARRIER_FILENAME", null)
+    }
+
+    // --- Baseband 2G Hardware Mask & Timing Advance Anomaly Preferences ---
+    fun setHardware2GDisabled(context: Context, disabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_HARDWARE_2G_DISABLED", disabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("HARDWARE_2G_DISABLED", disabled).apply()
+        }
+    }
+
+    fun isHardware2GDisabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_HARDWARE_2G_DISABLED", true)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_HARDWARE_2G_DISABLED", true) &&
+                    getInstance(context).getBoolean("HARDWARE_2G_DISABLED", true)
+        }
+    }
+
+    fun setTimingAdvanceThreshold(context: Context, maxTA: Int) {
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_TIMING_ADVANCE_MAX", maxTA).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putInt("TIMING_ADVANCE_MAX", maxTA).apply()
+        }
+    }
+
+    fun getTimingAdvanceThreshold(context: Context): Int {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getInt("BFU_TIMING_ADVANCE_MAX", 30)
+        } else {
+            getDeviceProtectedPrefs(context).getInt(
+                "BFU_TIMING_ADVANCE_MAX",
+                getInstance(context).getInt("TIMING_ADVANCE_MAX", 30)
+            )
+        }
+    }
+
+    // --- Spectral Collapse Preferences ---
+    fun setSpectralSentinelEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_SPECTRAL_SENTINEL_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("SPECTRAL_SENTINEL_ENABLED", isEnabled).apply()
+        }
+    }
+
+    fun isSpectralSentinelEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_SPECTRAL_SENTINEL_ENABLED", true)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_SPECTRAL_SENTINEL_ENABLED", true) &&
+                    getInstance(context).getBoolean("SPECTRAL_SENTINEL_ENABLED", true)
+        }
+    }
+
+    // --- PMIC Micro-Telemetry Preferences ---
+    fun setPmicTamperEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_PMIC_TAMPER_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("PMIC_TAMPER_ENABLED", isEnabled).apply()
+        }
+    }
+
+    fun isPmicTamperEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_PMIC_TAMPER_ENABLED", true)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_PMIC_TAMPER_ENABLED", true) &&
+                    getInstance(context).getBoolean("PMIC_TAMPER_ENABLED", true)
+        }
+    }
+
+    // --- Baseband Sentinel Enabled State ---
+    fun setBasebandSentinelEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_BASEBAND_SENTINEL_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("BASEBAND_SENTINEL_ENABLED", isEnabled).apply()
+        }
+    }
+
+    fun isBasebandSentinelEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_BASEBAND_SENTINEL_ENABLED", true)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_BASEBAND_SENTINEL_ENABLED", true) &&
+                    getInstance(context).getBoolean("BASEBAND_SENTINEL_ENABLED", true)
+        }
+    }
+
+    // --- Faraday Blackout Preferences ---
+    fun setFaradayBlackoutEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_FARADAY_BLACKOUT_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("FARADAY_BLACKOUT_ENABLED", isEnabled).apply()
+        }
+    }
+
+    fun isFaradayBlackoutEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_FARADAY_BLACKOUT_ENABLED", true)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_FARADAY_BLACKOUT_ENABLED", true) &&
+                    getInstance(context).getBoolean("FARADAY_BLACKOUT_ENABLED", true)
+        }
+    }
+
+    fun setFaradayBlackoutDurationHours(context: Context, hours: Int) {
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_FARADAY_DURATION_HOURS", hours).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putInt("FARADAY_DURATION_HOURS", hours).apply()
+        }
+    }
+
+    fun getFaradayBlackoutDurationHours(context: Context): Int {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getInt("BFU_FARADAY_DURATION_HOURS", 3)
+        } else {
+            getDeviceProtectedPrefs(context).getInt(
+                "BFU_FARADAY_DURATION_HOURS",
+                getInstance(context).getInt("FARADAY_DURATION_HOURS", 3)
+            )
+        }
+    }
+
     // --- Event Logging ---
     fun logEvent(context: Context, message: String) {
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
@@ -454,7 +760,8 @@ object SecurityPreferences {
         return if (!isUserUnlocked(context)) {
             getDeviceProtectedPrefs(context).getInt("BFU_TRIPWIRE_DURATION", 24)
         } else {
-            getDeviceProtectedPrefs(context).getInt("BFU_TRIPWIRE_DURATION",
+            getDeviceProtectedPrefs(context).getInt(
+                "BFU_TRIPWIRE_DURATION",
                 getInstance(context).getInt("TRIPWIRE_DURATION", 24)
             )
         }

@@ -84,7 +84,6 @@ class DeviceOwnerStrategy(
 
     override suspend fun configureBruteForceThreshold(maxFailedAttempts: Int) {
         try {
-            // Direct hardware rate-limiting delegation to Titan M / Weaver chip
             dpm.setMaximumFailedPasswordsForWipe(adminComponent, maxFailedAttempts)
             Log.i(TAG, "Hardware Gatekeeper/Weaver max failed attempts configured to: $maxFailedAttempts")
         } catch (e: Exception) {
@@ -93,11 +92,18 @@ class DeviceOwnerStrategy(
     }
 
     override suspend fun evictMemoryKeysAndLock() {
-        Log.w(TAG, "Forcing instant Keyguard lock to drop user session")
+        Log.w(TAG, "Evicting Credential-Encrypted (CE) keys to cold BFU state via native Device Owner reboot.")
+        EventLogger.log(context, "ANTI-FORENSICS: Executing Device Owner native cold reboot to revert into BFU state.")
+
         try {
-            dpm.lockNow()
+            dpm.reboot(adminComponent)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to lock screen via DevicePolicyManager", e)
+            Log.e(TAG, "dpm.reboot failed or restricted; falling back to instant Keyguard lockdown", e)
+            try {
+                dpm.lockNow()
+            } catch (lockEx: Exception) {
+                Log.e(TAG, "dpm.lockNow failed", lockEx)
+            }
         }
     }
 
@@ -125,5 +131,11 @@ class DeviceOwnerStrategy(
             Log.w(TAG, "Failed enforcing global airplane mode via DPM: ${e.message}")
         }
         RadioIsolationManager.isolateAllCommunications(context)
+    }
+
+    override suspend fun cutBasebandRadioHardware() {
+        Log.e(TAG, "Cutting baseband radio via Device Owner global network isolation...")
+        EventLogger.log(context, "BASEBAND: Cutting cellular radio via Device Owner policy.")
+        isolateRadiosAndNetwork()
     }
 }

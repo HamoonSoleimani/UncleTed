@@ -8,6 +8,7 @@
     <protected-broadcast android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_FAILED_ATTEMPT" />
     <protected-broadcast android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_SUCCESS" />
     <protected-broadcast android:name="com.hamoon.uncleted.ACTION_TRIPWIRE_EXPIRED" />
+    <protected-broadcast android:name="com.hamoon.uncleted.ACTION_FARADAY_EXPIRED" />
 
     <!-- CAMERA AND TELEPHONY FEATURES -->
     <uses-feature
@@ -15,6 +16,11 @@
         android:required="true" />
     <uses-feature
         android:name="android.hardware.telephony"
+        android:required="false" />
+
+    <!-- BLUETOOTH LOW ENERGY HARDWARE PROXIMITY FEATURES -->
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
         android:required="false" />
 
     <!-- SYSTEM-LEVEL & DEVICE OWNER PRIVILEGED PERMISSIONS -->
@@ -27,6 +33,15 @@
     <uses-permission android:name="android.permission.STATUS_BAR_SERVICE" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.MANAGE_DEVICE_ADMINS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.MANAGE_USB" tools:ignore="ProtectedPermissions" />
+
+    <!-- BLUETOOTH PROXIMITY PERMISSIONS -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="31" />
 
     <!-- STANDARD RUNTIME & SECURITY PERMISSIONS -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -52,6 +67,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission
@@ -67,6 +83,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
@@ -88,7 +105,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Uncle Ted v5.0.1 - Hardened StrongBox KeyMint, Synchronous MTE, DPM Port Severing, and Vold Key Eviction." />
+            android:value="Uncle Ted v6.0.1 - Hardened StrongBox KeyMint, Synchronous MTE, DPM Port Severing, and Vold Key Eviction." />
         <meta-data
             android:name="xposedminversion"
             android:value="93" />
@@ -186,7 +203,7 @@
             android:name=".services.MonitoringService"
             android:exported="false"
             android:directBootAware="true"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync|connectedDevice" />
 
         <service
             android:name=".services.PowerButtonService"
@@ -289,6 +306,15 @@
             android:directBootAware="true">
             <intent-filter>
                 <action android:name="com.hamoon.uncleted.ACTION_TRIPWIRE_EXPIRED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receivers.FaradayReceiver"
+            android:exported="false"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="com.hamoon.uncleted.ACTION_FARADAY_EXPIRED" />
             </intent-filter>
         </receiver>
 

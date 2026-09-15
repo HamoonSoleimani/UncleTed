@@ -119,7 +119,7 @@ object RootActions {
         val pkgName = context.packageName
 
         val provider = RootChecker.getRootProvider()
-        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v5.0.1)")
+        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v6.0.1)")
 
         val permissionsXmlPath = "${context.filesDir.parent}/privapp-permissions-uncleted.xml"
         val permissionsXmlContent = """
@@ -154,7 +154,7 @@ object RootActions {
             (
                 LOG="/data/adb/uncleted/boot.log"
                 mkdir -p /data/adb/uncleted
-                echo "[${'$'}(date)] On-device boot script active (v5.0.1)" > "${'$'}LOG"
+                echo "[${'$'}(date)] On-device boot script active (v6.0.1)" > "${'$'}LOG"
 
                 while [ "${'$'}(getprop sys.boot_completed)" != "1" ]; do
                     sleep 2
@@ -221,8 +221,8 @@ object RootActions {
             "chcon -R u:object_r:system_file:s0 $modulePath/system",
             "echo 'id=$moduleId' > $modulePath/module.prop",
             "echo 'name=UncleTed System Priv-App & Hook' >> $modulePath/module.prop",
-            "echo 'version=v5.0.1' >> $modulePath/module.prop",
-            "echo 'versionCode=5' >> $modulePath/module.prop",
+            "echo 'version=v6.0.1' >> $modulePath/module.prop",
+            "echo 'versionCode=6' >> $modulePath/module.prop",
             "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
             "echo 'description=Systemless integration into /system/priv-app with dual-install support.' >> $modulePath/module.prop",
             "cat << 'EOF' > $bootScriptPath\n$serviceScriptContent\nEOF",

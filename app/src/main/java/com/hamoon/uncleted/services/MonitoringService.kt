@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -19,9 +20,18 @@ import androidx.lifecycle.lifecycleScope
 import com.hamoon.uncleted.MainActivity
 import com.hamoon.uncleted.R
 import com.hamoon.uncleted.data.SecurityPreferences
+import com.hamoon.uncleted.receivers.ScreenStateReceiver
 import com.hamoon.uncleted.receivers.WidgetActionReceiver
+import com.hamoon.uncleted.sentinels.AdvancedBasebandSentinel
+import com.hamoon.uncleted.sentinels.FaradayBlackoutSentinel
+import com.hamoon.uncleted.sentinels.PmicTamperSentinel
+import com.hamoon.uncleted.sentinels.SpectralSentinel
+import com.hamoon.uncleted.util.MotionDetector
 import com.hamoon.uncleted.util.ShakeDetector
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -31,9 +41,17 @@ class MonitoringService : LifecycleService(), SensorEventListener {
     private var accelerometer: Sensor? = null
     private lateinit var shakeDetector: ShakeDetector
 
+    private var advancedBasebandSentinel: AdvancedBasebandSentinel? = null
+    private var spectralSentinel: SpectralSentinel? = null
+    private var pmicSentinel: PmicTamperSentinel? = null
+    private var screenStateReceiver: ScreenStateReceiver? = null
+
+    private var sentinelPollerJob: Job? = null
+
     companion object {
         private const val NOTIFICATION_ID = 2
         private const val CHANNEL_ID = "UncleTedMonitoringChannel"
+        private const val POLLING_CYCLE_MS = 1000L
     }
 
     override fun onCreate() {
@@ -72,14 +90,55 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                         accelerometer,
                         SensorManager.SENSOR_DELAY_UI
                     )
-                } else {
-                    Log.e("MonitoringService", "Accelerometer not available on this device.")
                 }
+
+                // 1. Low-Power Micro-Motion Tracking
+                MotionDetector.initialize(applicationContext)
+
+                // 2. Advanced Baseband Modem Sentinel (2G Mask & Stingray Anomaly Trap)
+                advancedBasebandSentinel = AdvancedBasebandSentinel(applicationContext).apply {
+                    start()
+                }
+
+                // 3. Faraday 180-Min Alarm Sentinel
+                FaradayBlackoutSentinel.initialize(applicationContext)
+
+                // 4. Sub-Second Spectral Collapse Sentinel (4-Second Faraday Bag Trap)
+                spectralSentinel = SpectralSentinel(applicationContext)
+
+                // 5. PMIC Battery Micro-Telemetry & Anti-Disassembly Tripwire
+                pmicSentinel = PmicTamperSentinel(applicationContext)
+
+                // 6. Dynamic Registration of Screen State Receiver (ACTION_SCREEN_OFF cannot be static)
+                val screenFilter = IntentFilter().apply {
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                    addAction(Intent.ACTION_USER_PRESENT)
+                }
+                screenStateReceiver = ScreenStateReceiver()
+                registerReceiver(screenStateReceiver, screenFilter)
+
+                // Start hardware sentinel periodic evaluation loop
+                startSentinelPoller()
             }
 
-            Log.i("MonitoringService", "MonitoringService sensor initialized successfully.")
+            Log.i("MonitoringService", "MonitoringService: Sensors, ScreenState, Spectral, and PMIC Sentinels active.")
         } catch (e: Exception) {
             Log.e("MonitoringService", "Failed to initialize monitoring components", e)
+        }
+    }
+
+    private fun startSentinelPoller() {
+        sentinelPollerJob?.cancel()
+        sentinelPollerJob = lifecycleScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                try {
+                    spectralSentinel?.evaluateSpectralCollapse()
+                    pmicSentinel?.inspectHardwareTelemetry()
+                } catch (t: Throwable) {
+                    Log.w("MonitoringService", "Sentinel evaluation pass exception: ${t.message}")
+                }
+                delay(POLLING_CYCLE_MS)
+            }
         }
     }
 
@@ -170,9 +229,21 @@ class MonitoringService : LifecycleService(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onDestroy() {
+        sentinelPollerJob?.cancel()
         if (::sensorManager.isInitialized) {
             sensorManager.unregisterListener(this)
         }
+        screenStateReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (_: Exception) {}
+        }
+        screenStateReceiver = null
+        MotionDetector.stop()
+        advancedBasebandSentinel?.stop()
+        advancedBasebandSentinel = null
+        spectralSentinel = null
+        pmicSentinel = null
         Log.d("MonitoringService", "MonitoringService stopped.")
         super.onDestroy()
     }

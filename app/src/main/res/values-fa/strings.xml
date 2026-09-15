@@ -286,7 +286,7 @@
     <!-- About Screen -->
     <string name="about_title">درباره عمو تد</string>
     <string name="about_developer_credit">طراحی و توسعه توسط هامون سلیمانی</string>
-    <string name="about_app_version">نسخه ۴.۰.۱</string>
+    <string name="about_app_version">نسخه ۶.۰.۱</string>
     <string name="about_legal_disclaimer_title">سلب مسئولیت قانونی و اخلاقی</string>
     <string name="about_legal_disclaimer_body">این برنامه فقط برای اهداف آموزشی و امنیتی دفاعی طراحی شده است. هرگز بدون رضایت صریح مالک از این نرم‌افزار استفاده نکنید.</string>
     <string name="about_github">گیت‌هاب</string>

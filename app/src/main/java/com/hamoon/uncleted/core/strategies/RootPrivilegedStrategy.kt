@@ -49,7 +49,6 @@ class RootPrivilegedStrategy(
             val script = listOf(
                 "setprop sys.usb.config none",
                 "setprop sys.usb.state none",
-                // Nullify Linux USB Device Controller (UDC) bindings
                 "for udc in /sys/class/udc/*; do echo '' > \"\$udc/state\" 2>/dev/null || true; done",
                 "echo '' > /config/usb_gadget/g1/UDC 2>/dev/null || true",
                 "echo '' > /sys/class/android_usb/android0/enable 2>/dev/null || true"
@@ -69,7 +68,11 @@ class RootPrivilegedStrategy(
     }
 
     override suspend fun evictMemoryKeysAndLock() {
-        Log.w(TAG, "Locking device and dropping user session via root keyevent")
+        Log.w(TAG, "Locking device and dropping user session via root keyevent and Vold lock")
+        RootExecutor.run("vdc cryptfs lockuser 0")
+        RootExecutor.run("sm lock-user-key 0")
+        RootExecutor.run("sync")
+        RootExecutor.run("echo 3 > /proc/sys/vm/drop_caches")
         RootExecutor.run("input keyevent 26")
     }
 
@@ -82,5 +85,23 @@ class RootPrivilegedStrategy(
     override suspend fun isolateRadiosAndNetwork() {
         Log.e(TAG, "Executing kernel iptables packet DROP and radio shutdown...")
         RadioIsolationManager.isolateAllCommunications(context)
+    }
+
+    override suspend fun cutBasebandRadioHardware() {
+        Log.e(TAG, "Executing hardware-level RIL power cut via root...")
+        EventLogger.log(context, "BASEBAND: Cutting modem RIL power bus via shell.")
+
+        val rils = listOf(
+            // Method 1: Telephony IPC service shutdown (turns off cellular modem power)
+            "service call phone 83 i32 0 2>/dev/null || true",
+            // Method 2: Radio interface layer daemon termination
+            "stop ril-daemon 2>/dev/null || true",
+            "stop vendor.ril-daemon 2>/dev/null || true",
+            // Method 3: Cellular data and radio kill commands
+            "svc data disable",
+            "cmd connectivity airplane-mode enable",
+            "settings put global airplane_mode_on 1"
+        )
+        RootExecutor.runMultiple(rils, logErrors = false)
     }
 }

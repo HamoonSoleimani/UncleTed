@@ -12,8 +12,8 @@ android {
         applicationId = "com.hamoon.uncleted"
         minSdk = 28
         targetSdk = 34
-        versionCode = 5
-        versionName = "5.0.1"
+        versionCode = 6
+        versionName = "6.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -86,6 +86,15 @@ android {
             excludes += "META-INF/NOTICE.md"
             excludes += "META-INF/LICENSE.md"
             excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/versions/**"
+            excludes += "META-INF/OSGI-INF/**"
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/LICENSE"
+            excludes += "META-INF/LICENSE.txt"
+            excludes += "META-INF/license.txt"
+            excludes += "META-INF/NOTICE"
+            excludes += "META-INF/NOTICE.txt"
+            excludes += "META-INF/notice.txt"
         }
         jniLibs {
             useLegacyPackaging = false
@@ -98,8 +107,9 @@ dependencies {
     compileOnly("de.robv.android.xposed:api:82")
     compileOnly("de.robv.android.xposed:api:82:sources")
 
-    // --- CRYPTOGRAPHY & BOUNCY CASTLE (ED25519 & STRONGBOX ENGINE) ---
+    // --- CRYPTOGRAPHY & BOUNCY CASTLE (ED25519 & ML-KEM-768 PQC ENGINE) ---
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
 
     // --- ANDROIDX & MATERIAL ---
     implementation(libs.androidx.core.ktx)
@@ -119,6 +129,7 @@ dependencies {
     // --- NETWORKING ---
     implementation(libs.squareup.retrofit)
     implementation(libs.squareup.converter.gson)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // --- COROUTINES ---
     implementation(libs.kotlinx.coroutines.android)
