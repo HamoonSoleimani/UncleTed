@@ -5,8 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Telephony
+import android.util.Base64
 import android.util.Log
 import com.hamoon.uncleted.LockScreenActivity
+import com.hamoon.uncleted.core.DefenseCoordinator
+import com.hamoon.uncleted.crypto.CryptoPreferences
+import com.hamoon.uncleted.crypto.OneTimeTokenManager
+import com.hamoon.uncleted.crypto.SecureWireValidator
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.PanicActionService
 import com.hamoon.uncleted.util.*
@@ -25,87 +30,213 @@ class SmsCommandReceiver : BroadcastReceiver() {
             return
         }
 
-        val masterPassword = SecurityPreferences.getSmsMasterPassword(context)
-        val installCode = SecurityPreferences.getRemoteInstallCode(context)
-
-        if (masterPassword.isNullOrEmpty()) {
-            Log.w(TAG, "SMS Master Password is not set. Ignoring incoming SMS.")
-            return
-        }
-
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
+        val fullBodyBuilder = StringBuilder()
+        var senderNum: String? = null
 
         for (sms in messages) {
-            val body = sms.messageBody?.trim() ?: continue
-            val senderNum = sms.originatingAddress
-            val parts = body.split(" ")
-
-            // Format: UNCLETED [COMMAND] [PASSWORD] [OPTIONAL_ARGS...]
-            if (parts.isNotEmpty() && parts[0].equals("UNCLETED", ignoreCase = true) && parts.size >= 3) {
-                val command = parts[1].uppercase()
-                val password = parts[2]
-
-                if (password == masterPassword) {
-                    try { abortBroadcast() } catch (_: Exception) {}
-
-                    // Purge the command SMS from the telephony database immediately to prevent cleartext exposure
-                    purgeSmsFromDatabase(context, senderNum, body)
-
-                    val args = if (parts.size > 3) parts.subList(3, parts.size) else emptyList()
-                    handleAuthenticatedCommand(context, command, senderNum, args)
-                } else {
-                    Log.w(TAG, "Invalid SMS master password received from $senderNum.")
-                    EventLogger.log(context, "SMS command attempted from $senderNum with incorrect password.")
-                }
-                return
+            fullBodyBuilder.append(sms.messageBody ?: "")
+            if (senderNum == null) {
+                senderNum = sms.originatingAddress
             }
+        }
 
-            // Silent Install Trigger
-            if (SecurityPreferences.isSilentInstallEnabled(context) && !installCode.isNullOrEmpty() && body.contains(installCode)) {
-                try { abortBroadcast() } catch (_: Exception) {}
-                purgeSmsFromDatabase(context, senderNum, body)
+        val body = fullBodyBuilder.toString().trim()
+        if (body.isEmpty()) return
 
-                Log.i(TAG, "Silent install trigger received from $senderNum.")
+        // =========================================================================
+        // ROUTE 1: PRINTABLE ONE-TIME EMERGENCY TOKEN (OTC)
+        // =========================================================================
+        if (body.startsWith("!UT:OTC-")) {
+            try { abortBroadcast() } catch (_: Exception) {}
+            purgeSmsFromDatabase(context, body)
+
+            val isValidToken = OneTimeTokenManager.validateAndBurnToken(context, body)
+            if (isValidToken) {
+                Log.e(TAG, "AUTHENTICATED ONE-TIME RECOVERY TOKEN VERIFIED: Burning token and triggering wipe.")
+                EventLogger.log(context, "AUTHENTICATED: Single-use emergency recovery token executed.")
+
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        RootActions.performSilentInstall(context)
+                        val strategy = DefenseCoordinator.resolveStrategy(context)
+                        strategy.executeWipe("ONE_TIME_EMERGENCY_TOKEN")
+                        PanicActionService.trigger(context, "REMOTE_WIPE", PanicActionService.Severity.CRITICAL)
                     } finally {
                         pendingResult.finish()
                     }
                 }
+            } else {
+                Log.w(TAG, "REJECTED: Received invalid or previously burned One-Time Emergency Token.")
+                EventLogger.log(context, "SECURITY: Rejected invalid/replayed One-Time Emergency Token.")
+            }
+            return
+        }
+
+        // =========================================================================
+        // ROUTE 2: ED25519 CRYPTOGRAPHIC BINARY WIRE ENVELOPE
+        // =========================================================================
+        if (body.startsWith("!UT:")) {
+            try { abortBroadcast() } catch (_: Exception) {}
+            purgeSmsFromDatabase(context, body)
+
+            val base64Payload = body.removePrefix("!UT:")
+            val rawBytes = try {
+                Base64.decode(base64Payload, Base64.NO_WRAP)
+            } catch (e: Exception) {
+                Log.e(TAG, "Malformed Base64 payload in !UT envelope", e)
                 return
+            }
+
+            if (rawBytes.size != SecureWireValidator.WIRE_PACKET_SIZE) {
+                Log.w(TAG, "Rejected payload: Invalid wire packet size (${rawBytes.size} bytes).")
+                return
+            }
+
+            val trustedPubKeyBase64 = CryptoPreferences.getTrustedPublicKey(context)
+            if (trustedPubKeyBase64.isNullOrEmpty()) {
+                Log.e(TAG, "Cryptographic command rejected: No trusted Ed25519 public key configured on device.")
+                return
+            }
+
+            val trustedPubKeyBytes = try {
+                Base64.decode(trustedPubKeyBase64, Base64.NO_WRAP)
+            } catch (e: Exception) {
+                Log.e(TAG, "Corrupted local Ed25519 public key in storage", e)
+                return
+            }
+
+            val lastSeq = CryptoPreferences.getLastRecordedSequence(context)
+            val validator = SecureWireValidator(trustedPubKeyBytes)
+            val verifiedPacket = validator.verifyAndParse(rawBytes, lastSeq)
+
+            if (verifiedPacket != null) {
+                Log.i(TAG, "ED25519 SIGNATURE VERIFIED: OpCode=${verifiedPacket.opCode}, Seq=${verifiedPacket.sequence}")
+                EventLogger.log(context, "AUTHENTICATED: Ed25519 command received (OpCode: ${verifiedPacket.opCode}, Seq: ${verifiedPacket.sequence})")
+
+                CryptoPreferences.setLastRecordedSequence(context, verifiedPacket.sequence)
+
+                val pendingResult = goAsync()
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        dispatchCryptographicOpCode(context, verifiedPacket)
+                    } finally {
+                        pendingResult.finish()
+                    }
+                }
+            } else {
+                Log.w(TAG, "Cryptographic validation failed: Signature rejected, replay detected, or timestamp expired.")
+                EventLogger.log(context, "SECURITY: Dropped unauthorized or replayed Ed25519 packet.")
+            }
+            return
+        }
+
+        // =========================================================================
+        // ROUTE 3: PERMISSIVE CLEARTEXT SMS FALLBACK
+        // =========================================================================
+        if (!CryptoPreferences.isCleartextSmsAllowed(context)) {
+            Log.d(TAG, "Cleartext SMS processing is disabled in security settings.")
+            return
+        }
+
+        val masterPassword = SecurityPreferences.getSmsMasterPassword(context)
+        val installCode = SecurityPreferences.getRemoteInstallCode(context)
+
+        if (masterPassword.isNullOrEmpty()) {
+            return
+        }
+
+        val parts = body.split(" ")
+
+        if (parts.isNotEmpty() && parts[0].equals("UNCLETED", ignoreCase = true) && parts.size >= 3) {
+            val command = parts[1].uppercase()
+            val password = parts[2]
+
+            if (password == masterPassword) {
+                try { abortBroadcast() } catch (_: Exception) {}
+                purgeSmsFromDatabase(context, body)
+
+                val args = if (parts.size > 3) parts.subList(3, parts.size) else emptyList()
+                handleAuthenticatedCommand(context, command, senderNum, args)
+            } else {
+                Log.w(TAG, "Invalid SMS master password received from $senderNum.")
+                EventLogger.log(context, "SMS command attempted from $senderNum with incorrect password.")
+            }
+            return
+        }
+
+        // Silent Install Trigger
+        if (SecurityPreferences.isSilentInstallEnabled(context) && !installCode.isNullOrEmpty() && body.contains(installCode)) {
+            try { abortBroadcast() } catch (_: Exception) {}
+            purgeSmsFromDatabase(context, body)
+
+            Log.i(TAG, "Silent install trigger received from $senderNum.")
+            val pendingResult = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    RootActions.performSilentInstall(context)
+                } finally {
+                    pendingResult.finish()
+                }
             }
         }
     }
 
-    /**
-     * Deletes the secret SMS message from the Telephony provider to ensure privacy on Android 4.4+.
-     */
-    private fun purgeSmsFromDatabase(context: Context, sender: String?, bodySnippet: String) {
+    private suspend fun dispatchCryptographicOpCode(context: Context, packet: SecureWireValidator.CommandPacket) {
+        val strategy = DefenseCoordinator.resolveStrategy(context)
+
+        when (packet.opCode.toInt()) {
+            0x01 -> {
+                Log.e(TAG, "Executing OP_EMERGENCY_WIPE")
+                strategy.executeWipe("OP_ED25519_WIPE")
+                PanicActionService.trigger(context, "REMOTE_WIPE", PanicActionService.Severity.CRITICAL)
+            }
+            0x02 -> {
+                Log.w(TAG, "Executing OP_SEVER_USB_AND_LOCK")
+                strategy.setUsbDataPortEnabled(false)
+                strategy.evictMemoryKeysAndLock()
+            }
+            0x03 -> {
+                Log.w(TAG, "Executing OP_EVICT_KEYS_TO_BFU")
+                strategy.disableBiometrics(true)
+                strategy.evictMemoryKeysAndLock()
+            }
+            0x04 -> {
+                Log.i(TAG, "Executing OP_CAPTURE_EVIDENCE")
+                PanicActionService.trigger(context, "REMOTE_EVIDENCE", PanicActionService.Severity.HIGH)
+            }
+            else -> {
+                Log.w(TAG, "Unknown OpCode: ${packet.opCode}")
+            }
+        }
+    }
+
+    private fun purgeSmsFromDatabase(context: Context, bodySnippet: String) {
         CoroutineScope(Dispatchers.IO).launch {
-            // Attempt 1: ContentResolver deletion
             try {
                 val uri = Uri.parse("content://sms")
                 val escapedSnippet = bodySnippet.replace("'", "''")
                 context.contentResolver.delete(uri, "body LIKE ?", arrayOf("%$escapedSnippet%"))
             } catch (_: Exception) {}
 
-            // Attempt 2: Root shell content deletion
             if (RootChecker.isDeviceRooted()) {
-                val safeCommand = "content delete --uri content://sms --where \"body LIKE '%UNCLETED%'\""
-                RootExecutor.run(safeCommand)
+                val safeCommand = "content delete --uri content://sms --where \"body LIKE '%!UT%' OR body LIKE '%UNCLETED%'\""
+                RootExecutor.run(safeCommand, logErrors = false)
             }
         }
     }
 
     private fun handleAuthenticatedCommand(context: Context, command: String, sender: String?, args: List<String>) {
         Log.i(TAG, "Authenticated SMS command '$command' received from $sender.")
-        EventLogger.log(context, "Authenticated SMS command '$command' received.")
+        EventLogger.log(context, "Authenticated cleartext SMS command '$command' received.")
 
         when (command) {
             "WIPE" -> {
-                PanicActionService.trigger(context, "REMOTE_WIPE", PanicActionService.Severity.CRITICAL)
+                CoroutineScope(Dispatchers.IO).launch {
+                    val strategy = DefenseCoordinator.resolveStrategy(context)
+                    strategy.executeWipe("REMOTE_CLEARTEXT_WIPE")
+                    PanicActionService.trigger(context, "REMOTE_WIPE", PanicActionService.Severity.CRITICAL)
+                }
             }
             "EVIDENCE" -> {
                 PanicActionService.trigger(context, "REMOTE_EVIDENCE", PanicActionService.Severity.HIGH)

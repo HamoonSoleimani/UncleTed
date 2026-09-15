@@ -2,13 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- PROTECTED BROADCAST DECLARATIONS (Required for system_server priv-app dispatch) -->
+    <!-- PROTECTED BROADCAST DECLARATIONS -->
     <protected-broadcast android:name="com.hamoon.uncleted.ACTION_DURESS_TRIGGERED" />
     <protected-broadcast android:name="com.hamoon.uncleted.ACTION_HONEYPOT_TRIGGERED" />
     <protected-broadcast android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_FAILED_ATTEMPT" />
     <protected-broadcast android:name="com.hamoon.uncleted.ACTION_LOCKSCREEN_SUCCESS" />
+    <protected-broadcast android:name="com.hamoon.uncleted.ACTION_TRIPWIRE_EXPIRED" />
 
-    <!-- Camera and Telephony Features -->
+    <!-- CAMERA AND TELEPHONY FEATURES -->
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="true" />
@@ -16,7 +17,7 @@
         android:name="android.hardware.telephony"
         android:required="false" />
 
-    <!-- SYSTEM-LEVEL PRIV-APP PERMISSIONS -->
+    <!-- SYSTEM-LEVEL & DEVICE OWNER PERMISSIONS -->
     <uses-permission android:name="android.permission.MASTER_CLEAR" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.REBOOT" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
@@ -24,6 +25,7 @@
     <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.MANAGE_USERS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.STATUS_BAR_SERVICE" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.MANAGE_DEVICE_ADMINS" tools:ignore="ProtectedPermissions" />
 
     <!-- STANDARD RUNTIME & SECURITY PERMISSIONS -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -49,6 +51,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
@@ -74,15 +78,15 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.UncleTed"
-        tools:targetApi="34"
-        android:enableOnBackInvokedCallback="true">
+        android:enableOnBackInvokedCallback="true"
+        tools:targetApi="34">
 
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Enables OS-level Duress PIN interception, native multi-user honeypot switching, and instant cryptographic destruction." />
+            android:value="Dual-Route Operational Security: Native Device Owner AVB Defense or system_server Lockscreen Interception." />
         <meta-data
             android:name="xposedminversion"
             android:value="93" />
@@ -90,7 +94,7 @@
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
 
-        <!-- Main UI Activity (Target for launcher alias, without redundant LAUNCHER category) -->
+        <!-- Main UI Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -104,7 +108,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Launcher Alias for Stealth Mode Toggling (Single entry point for App Drawer) -->
+        <!-- Launcher Alias for Stealth Mode -->
         <activity-alias
             android:name=".Launcher"
             android:enabled="true"
@@ -139,10 +143,47 @@
             android:launchMode="singleInstance"
             android:theme="@style/Theme.UncleTed.Transparent" />
 
-        <!-- Background Services -->
+        <!-- ============================================================= -->
+        <!-- HONEYPOT DECOY ACTIVITIES (RESTORED & REGISTERED)             -->
+        <!-- ============================================================= -->
+
+        <!-- Honeypot Fake Home Launcher Screen -->
+        <activity
+            android:name=".honeypot.HoneypotLauncherActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.UncleTed" />
+
+        <!-- Honeypot Trap 1: Fake Banking Login Bait -->
+        <activity
+            android:name=".honeypot.FakeBankingActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.UncleTed" />
+
+        <!-- Honeypot Trap 2: Fake Gallery Bait -->
+        <activity
+            android:name=".honeypot.FakeGalleryActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.UncleTed" />
+
+        <!-- Honeypot Trap 3: Fake Notes Bait -->
+        <activity
+            android:name=".honeypot.FakeNotesActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.UncleTed" />
+
+        <!-- ============================================================= -->
+        <!-- BACKGROUND SERVICES                                           -->
+        <!-- ============================================================= -->
+
         <service
             android:name=".services.PanicActionService"
             android:exported="false"
+            android:directBootAware="true"
             android:foregroundServiceType="camera|location|mediaPlayback|microphone|specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
@@ -152,11 +193,13 @@
         <service
             android:name=".services.MonitoringService"
             android:exported="false"
+            android:directBootAware="true"
             android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".services.PowerButtonService"
             android:exported="false"
+            android:directBootAware="true"
             android:label="@string/accessibility_service_label"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
@@ -171,12 +214,14 @@
             android:name=".services.ZoneWipeService"
             android:enabled="true"
             android:exported="false"
+            android:directBootAware="true"
             android:foregroundServiceType="location" />
 
         <service
             android:name=".services.UsbTripwireService"
             android:enabled="true"
             android:exported="false"
+            android:directBootAware="true"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
@@ -228,6 +273,38 @@
             </intent-filter>
         </service>
 
+        <!-- ============================================================= -->
+        <!-- RECEIVERS                                                     -->
+        <!-- ============================================================= -->
+
+        <!-- Direct Boot Aware Enterprise Device Administrator Receiver -->
+        <receiver
+            android:name=".receivers.AdminReceiver"
+            android:exported="true"
+            android:directBootAware="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_policies" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED" />
+                <action android:name="android.app.action.DEVICE_ADMIN_DISABLED" />
+                <action android:name="android.app.action.ACTION_PASSWORD_FAILED" />
+                <action android:name="android.app.action.ACTION_PASSWORD_SUCCEEDED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Direct Boot Aware Autonomous Tripwire Receiver -->
+        <receiver
+            android:name=".receivers.TripwireReceiver"
+            android:exported="false"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="com.hamoon.uncleted.ACTION_TRIPWIRE_EXPIRED" />
+            </intent-filter>
+        </receiver>
+
         <!-- System Event Receivers -->
         <receiver
             android:name=".receivers.BootCompletedReceiver"
@@ -236,18 +313,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-
-        <receiver
-            android:name=".receivers.AdminReceiver"
-            android:exported="true"
-            android:permission="android.permission.BIND_DEVICE_ADMIN">
-            <meta-data
-                android:name="android.app.device_admin"
-                android:resource="@xml/device_admin_policies" />
-            <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
 

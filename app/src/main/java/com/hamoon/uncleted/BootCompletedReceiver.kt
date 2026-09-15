@@ -22,8 +22,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
 
-        // Multi-User Guardrail: Core security services, root routines, and platform
-        // credentials synchronization must execute exclusively under the Primary Owner (User 0).
+        // Multi-User Guardrail: System security policies and hardware credentials synchronization
+        // must execute exclusively under the Primary Owner (User 0).
         val isPrimaryUser = (Process.myUid() / 100000) == 0
         if (!isPrimaryUser) {
             Log.d(TAG, "Running under secondary user space (UID: ${Process.myUid()}). Skipping core security daemons.")
@@ -33,9 +33,15 @@ class BootCompletedReceiver : BroadcastReceiver() {
         val isUnlocked = SecurityPreferences.isUserUnlocked(context)
         Log.d(TAG, "Device boot event received: $action (User unlocked: $isUnlocked)")
 
+        // =========================================================================
         // 1. Direct Boot / BFU (Before First Unlock) Phase
         // Operates exclusively on Device-Protected (DE) storage
+        // =========================================================================
         SecurityPreferences.syncHookCredentials(context)
+
+        // Autonomous Tripwire MUST be scheduled during early BFU boot.
+        // If the device was powered down past the deadline, this immediately triggers a wipe.
+        TripwireManager.scheduleFromLastCheckIn(context)
 
         if (SecurityPreferences.isUsbTripwireEnabled(context)) {
             val usbIntent = Intent(context, UsbTripwireService::class.java)
@@ -57,8 +63,10 @@ class BootCompletedReceiver : BroadcastReceiver() {
             }
         }
 
+        // =========================================================================
         // 2. Credential-Encrypted (CE) Phase
         // WorkManager and user services initialize only once credentials decrypt CE storage
+        // =========================================================================
         if (isUnlocked) {
             if (SecurityPreferences.isProtectionEnabled(context)) {
                 val serviceIntent = Intent(context, MonitoringService::class.java)
@@ -73,11 +81,6 @@ class BootCompletedReceiver : BroadcastReceiver() {
             if (SecurityPreferences.isWatchdogModeEnabled(context)) {
                 WatchdogManager.scheduleOrCancelWatchdog(context)
                 Log.i(TAG, "Rescheduled WatchdogWorker on post-unlock boot.")
-            }
-
-            if (SecurityPreferences.isTripwireEnabled(context)) {
-                TripwireManager.scheduleFromLastCheckIn(context)
-                Log.i(TAG, "Rescheduled TripwireWorker on post-unlock boot.")
             }
         } else {
             Log.i(TAG, "Device remains Before First Unlock (BFU). Skipping CE-dependent tasks.")

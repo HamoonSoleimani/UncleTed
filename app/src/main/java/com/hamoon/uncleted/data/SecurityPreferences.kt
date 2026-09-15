@@ -40,7 +40,7 @@ object SecurityPreferences {
         }
     }
 
-    private fun getDeviceProtectedPrefs(context: Context): SharedPreferences {
+    fun getDeviceProtectedPrefs(context: Context): SharedPreferences {
         return deInstance ?: synchronized(LOCK) {
             deInstance ?: run {
                 val deContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -426,23 +426,55 @@ object SecurityPreferences {
     fun getWatchdogInterval(context: Context): Int =
         getInstance(context).getInt("WATCHDOG_INTERVAL", 30)
 
-    fun setTripwireEnabled(context: Context, isEnabled: Boolean) =
-        getInstance(context).edit().putBoolean("TRIPWIRE_ENABLED", isEnabled).apply()
+    // --- BFU DUAL-STORAGE PERSISTENCE FOR DATA DESTRUCTION TRIPWIRE ---
+    fun setTripwireEnabled(context: Context, isEnabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_TRIPWIRE_ENABLED", isEnabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("TRIPWIRE_ENABLED", isEnabled).apply()
+        }
+    }
 
-    fun isTripwireEnabled(context: Context): Boolean =
-        getInstance(context).getBoolean("TRIPWIRE_ENABLED", false)
+    fun isTripwireEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_TRIPWIRE_ENABLED", false)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_TRIPWIRE_ENABLED", false) ||
+                    getInstance(context).getBoolean("TRIPWIRE_ENABLED", false)
+        }
+    }
 
-    fun setTripwireDuration(context: Context, durationHours: Int) =
-        getInstance(context).edit().putInt("TRIPWIRE_DURATION", durationHours).apply()
+    fun setTripwireDuration(context: Context, durationHours: Int) {
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_TRIPWIRE_DURATION", durationHours).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putInt("TRIPWIRE_DURATION", durationHours).apply()
+        }
+    }
 
-    fun getTripwireDuration(context: Context): Int =
-        getInstance(context).getInt("TRIPWIRE_DURATION", 24)
+    fun getTripwireDuration(context: Context): Int {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getInt("BFU_TRIPWIRE_DURATION", 24)
+        } else {
+            getDeviceProtectedPrefs(context).getInt("BFU_TRIPWIRE_DURATION",
+                getInstance(context).getInt("TRIPWIRE_DURATION", 24)
+            )
+        }
+    }
 
-    fun setLastTripwireCheckIn(context: Context, timestamp: Long) =
-        getInstance(context).edit().putLong("TRIPWIRE_LAST_CHECKIN", timestamp).apply()
+    fun setLastTripwireCheckIn(context: Context, timestamp: Long) {
+        getDeviceProtectedPrefs(context).edit().putLong("BFU_TRIPWIRE_LAST_CHECKIN", timestamp).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putLong("TRIPWIRE_LAST_CHECKIN", timestamp).apply()
+        }
+    }
 
-    fun getLastTripwireCheckIn(context: Context): Long =
-        getInstance(context).getLong("TRIPWIRE_LAST_CHECKIN", 0L)
+    fun getLastTripwireCheckIn(context: Context): Long {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getLong("BFU_TRIPWIRE_LAST_CHECKIN", 0L)
+        } else {
+            val deTimestamp = getDeviceProtectedPrefs(context).getLong("BFU_TRIPWIRE_LAST_CHECKIN", 0L)
+            if (deTimestamp > 0L) deTimestamp else getInstance(context).getLong("TRIPWIRE_LAST_CHECKIN", 0L)
+        }
+    }
 
     fun setGeofenceEnabled(context: Context, isEnabled: Boolean) =
         getInstance(context).edit().putBoolean("GEOFENCE_ENABLED", isEnabled).apply()
@@ -519,18 +551,6 @@ object SecurityPreferences {
 
     fun isProcessHiddenEnabled(context: Context): Boolean =
         getInstance(context).getBoolean("ROOT_PROCESS_HIDDEN", false)
-
-    fun setSurviveFactoryResetEnabled(context: Context, isEnabled: Boolean) =
-        getInstance(context).edit().putBoolean("ROOT_SURVIVE_RESET", isEnabled).apply()
-
-    fun isSurviveFactoryResetEnabled(context: Context): Boolean =
-        getInstance(context).getBoolean("ROOT_SURVIVE_RESET", false)
-
-    fun setLoaderScriptUrl(context: Context, url: String) =
-        getInstance(context).edit().putString("ROOT_LOADER_SCRIPT_URL", url).apply()
-
-    fun getLoaderScriptUrl(context: Context): String? =
-        getInstance(context).getString("ROOT_LOADER_SCRIPT_URL", null)
 
     // --- Email Configuration ---
     fun setEmailHost(context: Context, host: String) =

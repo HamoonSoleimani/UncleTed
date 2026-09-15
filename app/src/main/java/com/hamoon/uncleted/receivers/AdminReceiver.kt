@@ -1,12 +1,17 @@
+@file:Suppress("DEPRECATION")
+
 package com.hamoon.uncleted.receivers
 
 import android.app.admin.DeviceAdminReceiver
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.UserHandle
 import android.util.Log
 import com.hamoon.uncleted.LockScreenActivity
 import com.hamoon.uncleted.R
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.PanicActionService
 import com.hamoon.uncleted.util.EventLogger
@@ -24,66 +29,116 @@ class AdminReceiver : DeviceAdminReceiver() {
 
         @Volatile
         private var lastHandledAttemptTime = 0L
+
+        fun getComponentName(context: Context): ComponentName {
+            return ComponentName(context, AdminReceiver::class.java)
+        }
+    }
+
+    override fun onEnabled(context: Context, intent: Intent) {
+        super.onEnabled(context, intent)
+        Log.i(TAG, "Device Admin enabled. Initializing hardware baseline policies.")
+        EventLogger.log(context, "Device Admin enabled successfully.")
+
+        val dpm = getManager(context)
+        val admin = getWho(context)
+
+        CoroutineScope(Dispatchers.IO).launch {
+            if (dpm.isDeviceOwnerApp(context.packageName)) {
+                try {
+                    dpm.setStorageEncryption(admin, true)
+                    dpm.setMaximumFailedPasswordsForWipe(admin, 5)
+                    dpm.setPasswordQuality(admin, DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX)
+                    dpm.setPasswordMinimumLength(admin, 6)
+
+                    Log.i(TAG, "Device Owner hardware zero-trust baseline enforced.")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed configuring initial Device Owner policies", e)
+                }
+            }
+        }
     }
 
     override fun onPasswordFailed(context: Context, intent: Intent) {
         super.onPasswordFailed(context, intent)
-        handleFailedAttempt(context)
+        handlePasswordFailure(context)
     }
 
     override fun onPasswordFailed(context: Context, intent: Intent, user: UserHandle) {
         super.onPasswordFailed(context, intent, user)
-        handleFailedAttempt(context)
+        handlePasswordFailure(context)
     }
 
-    override fun onPasswordSucceeded(context: Context, intent: Intent) {
-        super.onPasswordSucceeded(context, intent)
-        Log.d(TAG, "Lockscreen authentication succeeded via DeviceAdmin. Resetting failed attempts.")
-        SecurityPreferences.resetFailedAttempts(context)
-    }
-
-    override fun onPasswordSucceeded(context: Context, intent: Intent, user: UserHandle) {
-        super.onPasswordSucceeded(context, intent, user)
-        Log.d(TAG, "Lockscreen authentication succeeded via DeviceAdmin. Resetting failed attempts.")
-        SecurityPreferences.resetFailedAttempts(context)
-    }
-
-    private fun handleFailedAttempt(context: Context) {
+    private fun handlePasswordFailure(context: Context) {
         val now = System.currentTimeMillis()
         synchronized(AdminReceiver::class.java) {
             if (now - lastHandledAttemptTime < ATTEMPT_DEDUPLICATION_WINDOW_MS) {
-                Log.d(TAG, "Ignoring duplicate password failure event within cooldown window.")
                 return
             }
             lastHandledAttemptTime = now
         }
 
+        val dpm = getManager(context)
+        val currentFailed = dpm.getCurrentFailedPasswordAttempts()
+        Log.w(TAG, "Authentication failure detected. Hardware count: $currentFailed")
+        EventLogger.log(context, "Hardware Keyguard authentication failed (Count: $currentFailed)")
+
         SecurityPreferences.incrementFailedAttempts(context)
-        val attempts = SecurityPreferences.getFailedAttempts(context)
-        val isSelfieEnabled = SecurityPreferences.isIntruderSelfieEnabled(context)
 
-        Log.w(TAG, "Lockscreen authentication failed. Attempt count: $attempts (Selfie enabled: $isSelfieEnabled)")
-        EventLogger.log(context, "Failed lockscreen authentication attempt #$attempts")
+        CoroutineScope(Dispatchers.IO).launch {
+            val strategy = DefenseCoordinator.resolveStrategy(context)
 
-        if (isSelfieEnabled && attempts >= 3) {
-            Log.e(TAG, "Threshold reached ($attempts attempts). Triggering INTRUDER_SELFIE.")
-            PanicActionService.trigger(
-                context,
-                "INTRUDER_SELFIE",
-                PanicActionService.Severity.MEDIUM
-            )
+            if (currentFailed >= 3) {
+                Log.e(TAG, "Threshold >= 3 reached. Physically disabling USB port and locking biometrics.")
+                strategy.setUsbDataPortEnabled(false)
+                strategy.disableBiometrics(true)
+
+                if (SecurityPreferences.isIntruderSelfieEnabled(context)) {
+                    PanicActionService.trigger(
+                        context,
+                        "INTRUDER_SELFIE",
+                        PanicActionService.Severity.MEDIUM
+                    )
+                }
+            }
+        }
+    }
+
+    override fun onPasswordSucceeded(context: Context, intent: Intent) {
+        super.onPasswordSucceeded(context, intent)
+        handlePasswordSuccess(context)
+    }
+
+    override fun onPasswordSucceeded(context: Context, intent: Intent, user: UserHandle) {
+        super.onPasswordSucceeded(context, intent, user)
+        handlePasswordSuccess(context)
+    }
+
+    private fun handlePasswordSuccess(context: Context) {
+        Log.d(TAG, "Lockscreen authentication succeeded. Resetting state.")
+        SecurityPreferences.resetFailedAttempts(context)
+
+        val deContext = context.createDeviceProtectedStorageContext()
+        deContext.getSharedPreferences("deadman_state", Context.MODE_PRIVATE)
+            .edit()
+            .putLong("last_authenticated_epoch", System.currentTimeMillis())
+            .apply()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            val strategy = DefenseCoordinator.resolveStrategy(context)
+            strategy.disableBiometrics(false)
+            strategy.setUsbDataPortEnabled(true)
         }
     }
 
     override fun onDisableRequested(context: Context, intent: Intent): CharSequence {
         if (SecurityPreferences.isMaintenanceMode(context)) {
-            Log.i(TAG, "Admin deactivation requested in maintenance mode.")
-            EventLogger.log(context, "Device Admin deactivation authorized via Maintenance Mode.")
-            return "Maintenance mode is active. Administrator deactivation permitted."
+            Log.i(TAG, "Admin deactivation authorized in maintenance mode.")
+            return "Maintenance mode active. Deactivation permitted."
         }
 
-        Log.w(TAG, "Unauthorized attempt to deactivate Device Admin. Triggering alert.")
-        EventLogger.log(context, "ALERT: Hostile Device Admin deactivation detected.")
+        Log.w(TAG, "Hostile Device Admin deactivation detected. Triggering alert.")
+        EventLogger.log(context, "ALERT: Unauthorized Device Admin deactivation attempt.")
 
         PanicActionService.trigger(context, "UNINSTALL_ATTEMPT", PanicActionService.Severity.HIGH)
 
@@ -92,7 +147,6 @@ class AdminReceiver : DeviceAdminReceiver() {
             putExtra("REASON", "UNINSTALL_ATTEMPT")
         }
 
-        // Bypass Android 10+ Background Activity Launch (BAL) restrictions cleanly
         CoroutineScope(Dispatchers.IO).launch {
             if (RootChecker.isDeviceRooted()) {
                 GodMode.startActivityInBackground(context, lockIntent)
@@ -100,18 +154,12 @@ class AdminReceiver : DeviceAdminReceiver() {
                 try {
                     context.startActivity(lockIntent)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Standard background activity start dropped by OS BAL restrictions", e)
+                    Log.e(TAG, "Failed launching lockscreen from deactivation hook", e)
                 }
             }
         }
 
         return context.getString(R.string.admin_disable_warning)
-    }
-
-    override fun onEnabled(context: Context, intent: Intent) {
-        super.onEnabled(context, intent)
-        Log.i(TAG, "Device Admin enabled.")
-        EventLogger.log(context, "Device Admin enabled successfully.")
     }
 
     override fun onDisabled(context: Context, intent: Intent) {

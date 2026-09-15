@@ -286,7 +286,7 @@
     <!-- About Screen -->
     <string name="about_title">About Uncle Ted</string>
     <string name="about_developer_credit">Designed and Developed by Hamoon Soleimani</string>
-    <string name="about_app_version">Version 3.0.1</string>
+    <string name="about_app_version">Version 4.0.1</string>
     <string name="about_legal_disclaimer_title">Legal &amp; Ethical Disclaimer</string>
     <string name="about_legal_disclaimer_body">This application is designed for educational and defensive security purposes ONLY. Never install or use this application on a device without the owner\'s explicit and informed consent. Unauthorized use is strictly prohibited. The developer assumes no liability for any misuse of this software.</string>
     <string name="about_github">GitHub</string>

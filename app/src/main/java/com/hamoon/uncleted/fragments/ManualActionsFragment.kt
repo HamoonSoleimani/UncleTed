@@ -6,12 +6,12 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
-import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.hamoon.uncleted.LockScreenActivity
 import com.hamoon.uncleted.R
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.databinding.FragmentManualActionsBinding
 import com.hamoon.uncleted.honeypot.HoneypotLauncherActivity
 import com.hamoon.uncleted.services.PanicActionService
@@ -110,7 +110,7 @@ class ManualActionsFragment : Fragment() {
             }
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle("Network Killswitch")
-                .setMessage("This will drop ALL network traffic using iptables. Remote control connectivity will be terminated.")
+                .setMessage("This will drop ALL network traffic using iptables. Remote connectivity will be terminated.")
                 .setPositiveButton("KILL NETWORK") { _, _ ->
                     lifecycleScope.launch(Dispatchers.IO) {
                         RootActions.blockAllNetworkTraffic(requireContext())
@@ -165,10 +165,10 @@ class ManualActionsFragment : Fragment() {
         binding.btnManualWipe.setOnClickListener {
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.manual_wipe_confirmation_title)
-                .setMessage("Perform standard Android factory reset via Device Admin? This removes user data and reboots.")
+                .setMessage("Perform standard Android factory reset via Device Admin/Recovery? This removes user data and reboots.")
                 .setNegativeButton(R.string.cancel, null)
                 .setPositiveButton("Execute Level 1") { _, _ ->
-                    triggerWipeService("STANDARD_WIPE")
+                    triggerWipe(RootActions.WipeLevel.STANDARD_WIPE)
                 }
                 .show()
         }
@@ -180,7 +180,7 @@ class ManualActionsFragment : Fragment() {
                 return@setOnClickListener
             }
             confirmRootWipeExecution(
-                "FAST_USERDATA",
+                RootActions.WipeLevel.FAST_USERDATA,
                 "PROTOCOL: Level 2 - Secure Data Shred\n\n" +
                         "This will overwrite FBE cryptographic headers and zero the start of userdata blocks before rebooting into recovery.\n\n" +
                         "Are you absolutely certain? This operation cannot be undone."
@@ -194,7 +194,7 @@ class ManualActionsFragment : Fragment() {
                 return@setOnClickListener
             }
             confirmRootWipeExecution(
-                "SYSTEM_DESTRUCTION",
+                RootActions.WipeLevel.SYSTEM_DESTRUCTION,
                 "PROTOCOL: Level 3 - OS Suicide (Soft Brick)\n\n" +
                         "This will delete critical OS binaries (/system/bin, /system/framework, /vendor) and user data. The device will be unbootable without firmware reflashing.\n\n" +
                         "CONFIRM EXECUTION: Are you sure?"
@@ -208,7 +208,7 @@ class ManualActionsFragment : Fragment() {
                 return@setOnClickListener
             }
             confirmRootWipeExecution(
-                "NUCLEAR_WINTER",
+                RootActions.WipeLevel.NUCLEAR_WINTER,
                 "⚠️ EXTREME WARNING: LEVEL 4 NUCLEAR WINTER ⚠️\n\n" +
                         "This protocol zeroes raw partition tables and boot blocks. This has a high probability of causing a PERMANENT HARDWARE BRICK.\n\n" +
                         "Proceed at your own risk."
@@ -216,33 +216,23 @@ class ManualActionsFragment : Fragment() {
         }
     }
 
-    private fun confirmRootWipeExecution(wipeTypeString: String, message: String) {
+    private fun confirmRootWipeExecution(level: RootActions.WipeLevel, message: String) {
         MaterialAlertDialogBuilder(requireContext())
             .setTitle("DESTRUCTION PROTOCOL CONFIRMATION")
             .setMessage(message)
             .setNegativeButton("ABORT", null)
             .setPositiveButton("EXECUTE NOW") { _, _ ->
-                triggerWipeService(wipeTypeString)
+                triggerWipe(level)
             }
             .show()
     }
 
-    private fun triggerWipeService(wipeType: String) {
-        val intent = Intent(requireContext(), PanicActionService::class.java).apply {
-            putExtra("REASON", "MANUAL_WIPE")
-            putExtra("SEVERITY", "CRITICAL")
-            putExtra("WIPE_TYPE", wipeType)
-        }
-
-        try {
-            ContextCompat.startForegroundService(requireContext(), intent)
-        } catch (e: Exception) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                val level = try {
-                    RootActions.WipeLevel.valueOf(wipeType)
-                } catch (ex: Exception) {
-                    RootActions.WipeLevel.STANDARD_WIPE
-                }
+    private fun triggerWipe(level: RootActions.WipeLevel) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val strategy = DefenseCoordinator.resolveStrategy(requireContext())
+            if (strategy.isHardwareSecured) {
+                strategy.executeWipe("MANUAL_PANIC_${level.name}")
+            } else {
                 RootActions.executeWipeProtocol(requireContext(), level)
             }
         }

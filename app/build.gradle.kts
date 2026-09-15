@@ -11,15 +11,13 @@ android {
         applicationId = "com.hamoon.uncleted"
         minSdk = 28
         targetSdk = 34
-        versionCode = 3
-        versionName = "3.0.1"
+        versionCode = 4
+        versionName = "4.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
-        // Fallback debug key ensures release builds are always validly signed
-        // preventing PackageManager INSTALL_PARSE_FAILED_NO_CERTIFICATES errors on systemless install
         getByName("debug") {
             storeFile = file("${rootProject.projectDir}/debug.keystore")
             if (!storeFile!!.exists()) {
@@ -71,6 +69,9 @@ dependencies {
     // --- XPOSED / LSPOSED HOOK API ---
     compileOnly("de.robv.android.xposed:api:82")
     compileOnly("de.robv.android.xposed:api:82:sources")
+
+    // --- CRYPTOGRAPHY & BOUNCY CASTLE (ED25519 ENGINE) ---
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
     // --- ANDROIDX & MATERIAL ---
     implementation(libs.androidx.core.ktx)

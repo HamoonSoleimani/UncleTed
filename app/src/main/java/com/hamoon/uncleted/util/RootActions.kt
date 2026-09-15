@@ -2,6 +2,7 @@ package com.hamoon.uncleted.util
 
 import android.content.Context
 import android.util.Log
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,7 +12,6 @@ object RootActions {
 
     private const val TAG = "RootActions"
 
-    // Unified module directory used by Magisk, KernelSU, KernelSU-Next, and APatch
     private const val ADB_BASE = "/data/adb"
     private const val MODULES_DIR = "$ADB_BASE/modules"
     private const val SERVICE_DIR = "$ADB_BASE/service.d"
@@ -111,11 +111,6 @@ object RootActions {
         Unit
     }
 
-    /**
-     * Universal Systemless Priv-App Converter:
-     * Builds an overlay module compliant with Magisk, KernelSU, KernelSU-Next, and APatch.
-     * Injects dual-install automation and explicit User 0 package registration.
-     */
     suspend fun convertToSystemApp(context: Context): Boolean = withContext(Dispatchers.IO) {
         val pm = context.packageManager
         val appInfo = pm.getApplicationInfo(context.packageName, 0)
@@ -224,10 +219,10 @@ object RootActions {
             "chcon -R u:object_r:system_file:s0 $modulePath/system",
             "echo 'id=$moduleId' > $modulePath/module.prop",
             "echo 'name=UncleTed System Priv-App & Hook' >> $modulePath/module.prop",
-            "echo 'version=v3.0.1' >> $modulePath/module.prop",
-            "echo 'versionCode=3' >> $modulePath/module.prop",
+            "echo 'version=v4.0.1' >> $modulePath/module.prop",
+            "echo 'versionCode=4' >> $modulePath/module.prop",
             "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
-            "echo 'description=Systemless integration into /system/priv-app with dual-install out-of-the-box support.' >> $modulePath/module.prop",
+            "echo 'description=Systemless integration into /system/priv-app with dual-install support.' >> $modulePath/module.prop",
             "cat << 'EOF' > $bootScriptPath\n$serviceScriptContent\nEOF",
             "chmod 755 $bootScriptPath",
             "chown 0:0 $bootScriptPath",
@@ -299,8 +294,6 @@ object RootActions {
         val packageName = context.packageName
         val provider = RootChecker.getRootProvider()
 
-        Log.i(TAG, "Configuring process hiding under provider: $provider")
-
         when (provider) {
             RootChecker.RootProvider.MAGISK -> {
                 val magiskCmd = if (enable) "magisk --denylist add $packageName" else "magisk --denylist rm $packageName"
@@ -311,12 +304,7 @@ object RootActions {
                 }
                 return@withContext result.isSuccess
             }
-            RootChecker.RootProvider.KERNEL_SU -> {
-                Log.i(TAG, "KernelSU active: App profile is enforced natively.")
-                return@withContext true
-            }
-            RootChecker.RootProvider.APATCH -> {
-                Log.i(TAG, "APatch active: App isolation is enforced natively via SuperKey profile.")
+            RootChecker.RootProvider.KERNEL_SU, RootChecker.RootProvider.APATCH -> {
                 return@withContext true
             }
             else -> {
@@ -371,32 +359,6 @@ object RootActions {
             return@withContext dest
         }
         return@withContext null
-    }
-
-    suspend fun flashResetSurvivalLoader(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val loaderUrl = SecurityPreferences.getLoaderScriptUrl(context)
-        if (loaderUrl.isNullOrEmpty()) return@withContext false
-
-        val avbState = RootExecutor.run("getprop ro.boot.avb_version").output.firstOrNull() ?: ""
-        val verifiedBootState = RootExecutor.run("getprop ro.boot.verifiedbootstate").output.firstOrNull() ?: ""
-
-        if (avbState.isNotEmpty() && verifiedBootState != "orange") {
-            Log.e(TAG, "BLOCKED: Modifying recovery partition directly on AVB 2.0 locked state will brick device.")
-            EventLogger.log(context, "SECURITY: Flashing aborted. Device has active AVB 2.0 protection.")
-            return@withContext false
-        }
-
-        val tempScriptPath = "/data/local/tmp/loader.sh"
-        val recoveryPartition = EmergencyDestructionEngine.findPartitionBlockPath("recovery")
-            ?: return@withContext false
-
-        if (RootExecutor.run("curl -L -o $tempScriptPath '$loaderUrl'").isSuccess) {
-            EventLogger.log(context, "ROOT: Staging loader to recovery partition.")
-            val flashResult = RootExecutor.run("dd if=$tempScriptPath of=$recoveryPartition conv=fsync")
-            RootExecutor.run("rm -f $tempScriptPath")
-            return@withContext flashResult.isSuccess
-        }
-        return@withContext false
     }
 
     suspend fun setMockLocationConfig(context: Context, enable: Boolean) {

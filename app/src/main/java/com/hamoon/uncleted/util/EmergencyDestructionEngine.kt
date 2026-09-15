@@ -3,41 +3,42 @@ package com.hamoon.uncleted.util
 import android.content.Context
 import android.os.RecoverySystem
 import android.util.Log
-import com.hamoon.uncleted.data.SecurityPreferences
+import com.hamoon.uncleted.core.DefenseCoordinator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.lang.reflect.Method
 
 object EmergencyDestructionEngine {
 
     private const val TAG = "DestructionEngine"
 
-    suspend fun executeDestructionSequence(context: Context, reason: String) = withContext(Dispatchers.IO) {
+    suspend fun executeDestructionSequence(context: Context, reason: String): Unit = withContext(Dispatchers.IO) {
         Log.e(TAG, "!!! INITIATING EMERGENCY DESTRUCTION SEQUENCE: $reason !!!")
 
-        // 1. Cut all network communications immediately via iptables DROP
+        // 1. Instantly isolate all network interfaces via iptables DROP
         killCommunications()
 
         val isRooted = RootChecker.isDeviceRooted()
 
-        if (isRooted && SecurityPreferences.isSecureWipeEnabled(context)) {
-            // Low-level cryptographic key eviction and metadata destruction
+        if (isRooted) {
             evictAndZeroEncryptionKeys()
             destroyPrimaryBlockHeaders()
-            executeKernelRebootFallback()
+            stageRecoveryWipeCommand()
+
+            val platformSuccess = triggerPlatformRecoveryWipe(context, reason)
+            if (!platformSuccess) {
+                executeKernelRebootFallback()
+            }
         } else {
-            // Platform Recovery wipe path
-            val platformWipeSuccess = triggerPlatformRecoveryWipe(context, reason)
-            if (!platformWipeSuccess) {
-                if (isRooted) {
-                    evictAndZeroEncryptionKeys()
-                    executeKernelRebootFallback()
-                } else {
-                    executeKernelRebootFallback()
-                }
+            try {
+                val strategy = DefenseCoordinator.resolveStrategy(context)
+                strategy.executeWipe(reason)
+            } catch (e: Exception) {
+                Log.e(TAG, "DefenseStrategy wipe failed, falling back to platform recovery wipe", e)
+                triggerPlatformRecoveryWipe(context, reason)
             }
         }
+        Unit
     }
 
     suspend fun killCommunications() {
@@ -59,49 +60,45 @@ object EmergencyDestructionEngine {
                     "ip6tables -P FORWARD DROP",
                     "ip6tables -P OUTPUT DROP"
                 )
-                RootExecutor.runMultiple(dropCommands)
+                RootExecutor.runMultiple(dropCommands, logErrors = false)
+                Log.i(TAG, "Network firewall killswitch active: all traffic dropped.")
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed isolating network interfaces: ${t.message}")
         }
     }
 
-    /**
-     * Evicts File-Based Encryption (FBE) cryptographic metadata headers.
-     * Overwriting the metadata partition destroys key-encryption keys (KEKs),
-     * rendering /data permanently unrecoverable without corrupting the active mounted block device.
-     */
     suspend fun evictAndZeroEncryptionKeys() {
-        Log.e(TAG, "Zeroing Vold cryptographic metadata and key slots...")
+        Log.e(TAG, "Evicting Vold user keys and cryptographic credentials...")
 
-        val destructionCommands = listOf(
-            // Overwrite Vold user keys on disk
+        val keyDemolitionCommands = listOf(
             "rm -rf /data/misc/vold/user_keys/* 2>/dev/null || true",
             "rm -rf /metadata/vold/user_keys/* 2>/dev/null || true",
-            "rm -rf /data/system/users/0/*.key 2>/dev/null || true"
+            "rm -rf /data/system/users/0/*.key 2>/dev/null || true",
+            "rm -rf /data/system/gatekeeper.*.key 2>/dev/null || true",
+            "rm -rf /data/system_de/0/spblob/* 2>/dev/null || true",
+            "rm -rf /data/system/locksettings.db* 2>/dev/null || true"
         )
-        RootExecutor.runMultiple(destructionCommands)
+        RootExecutor.runMultiple(keyDemolitionCommands, logErrors = false)
 
-        // Zero out cryptographic metadata partition headers
         val metadataPath = findPartitionBlockPath("metadata")
         if (metadataPath != null) {
-            RootExecutor.run("dd if=/dev/zero of=$metadataPath bs=1048576 count=16 conv=fsync")
+            RootExecutor.run("dd if=/dev/zero of=$metadataPath bs=1048576 count=16 conv=fsync", logErrors = false)
         }
 
-        RootExecutor.run("sync")
+        RootExecutor.run("sync", logErrors = false)
     }
 
     /**
-     * Low-level GPT / Partition Table Destruction (Level 4 Nuclear Winter).
+     * Low-level GPT / Master Partition Table Destruction (Level 4 Nuclear Winter).
      */
     suspend fun destroyPrimaryBlockHeaders() {
         val primaryDisks = detectStorageDisks()
         for (disk in primaryDisks) {
             Log.e(TAG, "Overwriting primary block device headers on: $disk")
-            // Zeroes the master partition table (MBR/GPT) and backup header
-            RootExecutor.run("dd if=/dev/zero of=$disk bs=4096 count=2048 conv=fsync")
+            RootExecutor.run("dd if=/dev/zero of=$disk bs=4096 count=2048 conv=fsync", logErrors = false)
         }
-        RootExecutor.run("sync")
+        RootExecutor.run("sync", logErrors = false)
     }
 
     fun detectStorageDisks(): List<String> {
@@ -124,6 +121,61 @@ object EmergencyDestructionEngine {
         }
 
         return foundDisks
+    }
+
+    suspend fun stageRecoveryWipeCommand() {
+        val recoveryCommandFile = "/cache/recovery/command"
+        val commands = listOf(
+            "mkdir -p /cache/recovery",
+            "echo '--wipe_data\n--reason=UncleTed_Emergency_Sanitize' > $recoveryCommandFile",
+            "chmod 644 $recoveryCommandFile",
+            "sync"
+        )
+        RootExecutor.runMultiple(commands, logErrors = false)
+    }
+
+    fun triggerPlatformRecoveryWipe(context: Context, reason: String): Boolean {
+        return try {
+            Log.i(TAG, "Invoking RecoverySystem.rebootWipeUserData via platform authority...")
+            val recoverySystemClass = RecoverySystem::class.java
+            val methods = recoverySystemClass.declaredMethods.filter { it.name == "rebootWipeUserData" }
+
+            for (method in methods) {
+                method.isAccessible = true
+                val types = method.parameterTypes
+
+                try {
+                    when (types.size) {
+                        5 -> {
+                            method.invoke(null, context, false, reason, true, false)
+                            return true
+                        }
+                        4 -> {
+                            method.invoke(null, context, false, reason, true)
+                            return true
+                        }
+                        3 -> {
+                            if (types[1] == Boolean::class.javaPrimitiveType) {
+                                method.invoke(null, context, false, reason)
+                                return true
+                            }
+                        }
+                        2 -> {
+                            if (types[1] == String::class.java) {
+                                method.invoke(null, context, reason)
+                                return true
+                            }
+                        }
+                    }
+                } catch (invEx: Exception) {
+                    Log.w(TAG, "Reflection overload (${types.size} params) failed: ${invEx.message}")
+                }
+            }
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "Platform recovery wipe invocation failed: ${e.message}", e)
+            false
+        }
     }
 
     fun findPartitionBlockPath(partitionName: String): String? {
@@ -166,68 +218,14 @@ object EmergencyDestructionEngine {
         }
     }
 
-    /**
-     * Dynamically inspects all overloads of RecoverySystem.rebootWipeUserData
-     * to prevent IllegalArgumentException / argument count mismatch crashes.
-     */
-    fun triggerPlatformRecoveryWipe(context: Context, reason: String): Boolean {
-        return try {
-            Log.i(TAG, "Invoking RecoverySystem.rebootWipeUserData via platform authority...")
-            val recoverySystemClass = RecoverySystem::class.java
-            val methods = recoverySystemClass.declaredMethods.filter { it.name == "rebootWipeUserData" }
-
-            for (method in methods) {
-                method.isAccessible = true
-                val types = method.parameterTypes
-
-                try {
-                    when (types.size) {
-                        5 -> {
-                            // rebootWipeUserData(Context, boolean shutdown, String reason, boolean force, boolean wipeEuicc)
-                            method.invoke(null, context, false, reason, true, false)
-                            return true
-                        }
-                        4 -> {
-                            // rebootWipeUserData(Context, boolean shutdown, String reason, boolean force)
-                            method.invoke(null, context, false, reason, true)
-                            return true
-                        }
-                        3 -> {
-                            // rebootWipeUserData(Context, boolean shutdown, String reason)
-                            if (types[1] == Boolean::class.javaPrimitiveType) {
-                                method.invoke(null, context, false, reason)
-                                return true
-                            }
-                        }
-                        2 -> {
-                            // rebootWipeUserData(Context, String reason)
-                            if (types[1] == String::class.java) {
-                                method.invoke(null, context, reason)
-                                return true
-                            }
-                        }
-                    }
-                } catch (invEx: Exception) {
-                    Log.w(TAG, "Reflection attempt failed on overload (${types.size} params): ${invEx.message}")
-                }
-            }
-            false
-        } catch (e: Exception) {
-            Log.e(TAG, "Platform wipe failed: ${e.message}", e)
-            false
-        }
-    }
-
     suspend fun executeKernelRebootFallback() {
-        Log.e(TAG, "Executing immediate hardware reboot fallback...")
+        Log.e(TAG, "Executing low-level hardware reboot fallback...")
         if (RootChecker.isDeviceRooted()) {
-            // Stage sync and reboot directly
             RootExecutor.run("sync")
             RootExecutor.run("reboot recovery")
-            RootExecutor.run("reboot bootloader")
+            RootExecutor.run("/system/bin/reboot recovery")
             RootExecutor.run("reboot -f")
 
-            // Enable SysRq before triggering kernel panic reset
             RootExecutor.run("echo 1 > /proc/sys/kernel/sysrq")
             RootExecutor.run("echo c > /proc/sysrq-trigger")
         } else {

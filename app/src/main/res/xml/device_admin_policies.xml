@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <device-admin xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-policies>
-        <!-- Allows the app to remotely wipe all data -->
-        <wipe-data />
-        <!-- Allows the app to instantly lock the screen -->
-        <force-lock />
-        <!-- Required by Android to report failed PIN/password attempts on lockscreen -->
+        <limit-password />
         <watch-login />
+        <reset-password />
+        <force-lock />
+        <wipe-data />
+        <expire-password />
+        <encrypted-storage />
+        <disable-keyguard-features />
     </uses-policies>
 </device-admin>

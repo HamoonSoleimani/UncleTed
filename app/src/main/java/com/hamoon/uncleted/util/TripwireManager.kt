@@ -1,111 +1,130 @@
 package com.hamoon.uncleted.util
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
-import com.hamoon.uncleted.services.PanicActionService
-import com.hamoon.uncleted.workers.TripwireWorker
+import com.hamoon.uncleted.receivers.TripwireReceiver
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 object TripwireManager {
 
-    private const val WORK_TAG = "uncle_ted_tripwire_work"
     private const val TAG = "TripwireManager"
+    private const val ALARM_REQUEST_CODE = 8801
 
     fun scheduleOrCancelTripwire(context: Context) {
         if (SecurityPreferences.isTripwireEnabled(context)) {
-            // If the feature is enabled, record the current time as a check-in and arm the worker.
-            SecurityPreferences.setLastTripwireCheckIn(context, System.currentTimeMillis()) // REVISED: Typo fix
+            SecurityPreferences.setLastTripwireCheckIn(context, System.currentTimeMillis())
             armTripwire(context)
         } else {
-            // If disabled, cancel any pending worker and clear the check-in time.
             cancelTripwire(context)
-            SecurityPreferences.setLastTripwireCheckIn(context, 0L) // REVISED: Typo fix
+            SecurityPreferences.setLastTripwireCheckIn(context, 0L)
         }
     }
 
-    private fun armTripwire(context: Context) {
+    fun armTripwire(context: Context) {
         if (!SecurityPreferences.isTripwireEnabled(context)) {
-            Log.d(TAG, "Tripwire is disabled, not arming.")
+            Log.d(TAG, "Tripwire is disabled, skipping arming.")
             return
         }
 
-        val workManager = WorkManager.getInstance(context)
         val durationHours = SecurityPreferences.getTripwireDuration(context).toLong()
+        val triggerAtEpoch = System.currentTimeMillis() + TimeUnit.HOURS.toMillis(durationHours)
 
-        Log.d(TAG, "Arming tripwire. Device will be wiped in $durationHours hours if no check-in occurs.")
-
-        val tripwireWorkRequest = OneTimeWorkRequestBuilder<TripwireWorker>()
-            .setInitialDelay(durationHours, TimeUnit.HOURS)
-            .build()
-
-        // Use REPLACE to ensure only one tripwire is active.
-        workManager.enqueueUniqueWork(
-            WORK_TAG,
-            ExistingWorkPolicy.REPLACE,
-            tripwireWorkRequest
-        )
+        setHardwareAlarm(context, triggerAtEpoch)
+        Log.i(TAG, "Hardware Tripwire armed via AlarmManager for $durationHours hours (Epoch: $triggerAtEpoch)")
     }
 
-    private fun cancelTripwire(context: Context) {
-        val workManager = WorkManager.getInstance(context)
-        workManager.cancelUniqueWork(WORK_TAG)
-        Log.i(TAG, "Tripwire worker cancelled.")
+    fun cancelTripwire(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val pendingIntent = getAlarmPendingIntent(context)
+        alarmManager.cancel(pendingIntent)
+        Log.i(TAG, "Hardware Tripwire alarm canceled.")
     }
 
     fun checkIn(context: Context) {
         if (!SecurityPreferences.isTripwireEnabled(context)) {
             return
         }
-        Log.i(TAG, "Network connection detected. Checking in and resetting tripwire timer.")
-        // Cancel the current worker and schedule a new one from this point.
+        Log.i(TAG, "Device activity/network check-in verified. Resetting tripwire hardware alarm.")
+        SecurityPreferences.setLastTripwireCheckIn(context, System.currentTimeMillis())
         cancelTripwire(context)
         armTripwire(context)
-        SecurityPreferences.setLastTripwireCheckIn(context, System.currentTimeMillis()) // REVISED: Typo fix
     }
 
-    fun scheduleFromLastCheckIn(context: Context) { // REVISED: Typo fix
+    /**
+     * Evaluates tripwire state during Direct Boot (BFU) immediately after locked boot completed.
+     * Computes elapsed time using Device-Protected storage timestamps.
+     */
+    fun scheduleFromLastCheckIn(context: Context) {
         if (!SecurityPreferences.isTripwireEnabled(context)) {
+            Log.d(TAG, "Tripwire disabled in BFU preferences. Not scheduling.")
             return
         }
 
-        val lastCheckIn = SecurityPreferences.getLastTripwireCheckIn(context) // REVISED: Typo fix
+        val lastCheckIn = SecurityPreferences.getLastTripwireCheckIn(context)
         if (lastCheckIn == 0L) {
-            // No previous check-in, arm with full duration
             armTripwire(context)
             return
         }
 
         val durationMillis = TimeUnit.HOURS.toMillis(SecurityPreferences.getTripwireDuration(context).toLong())
-        val deadline = lastCheckIn + durationMillis
-        val remainingMillis = deadline - System.currentTimeMillis()
+        val deadlineEpoch = lastCheckIn + durationMillis
+        val remainingMillis = deadlineEpoch - System.currentTimeMillis()
 
-        if (remainingMillis <= 0) {
-            // Deadline has passed while the device was off. Trigger wipe immediately.
-            Log.e(TAG, "Tripwire deadline passed during device offline period. Triggering immediate wipe.")
-            val intent = Intent(context, PanicActionService::class.java).apply {
-                putExtra("REASON", "TRIPWIRE_WIPE")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (remainingMillis <= 0L) {
+            Log.e(TAG, "CRITICAL: Tripwire deadline expired while device was offline/powered down! Executing immediate wipe.")
+            CoroutineScope(Dispatchers.IO).launch {
+                val strategy = DefenseCoordinator.resolveStrategy(context)
+                strategy.executeWipe("BFU_TRIPWIRE_EXPIRED_DURING_DOWNTIME")
             }
-            context.startForegroundService(intent)
             return
         }
 
-        Log.d(TAG, "Re-arming tripwire from last check-in. Remaining time: ${remainingMillis / 1000 / 60} minutes.")
+        Log.i(TAG, "Re-arming tripwire in BFU state. Remaining time: ${remainingMillis / 1000 / 60} minutes.")
+        setHardwareAlarm(context, deadlineEpoch)
+    }
 
-        val workManager = WorkManager.getInstance(context)
-        val tripwireWorkRequest = OneTimeWorkRequestBuilder<TripwireWorker>()
-            .setInitialDelay(remainingMillis, TimeUnit.MILLISECONDS)
-            .build()
+    private fun setHardwareAlarm(context: Context, triggerAtEpoch: Long) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val pendingIntent = getAlarmPendingIntent(context)
 
-        workManager.enqueueUniqueWork(
-            WORK_TAG,
-            ExistingWorkPolicy.REPLACE,
-            tripwireWorkRequest
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (alarmManager.canScheduleExactAlarms()) {
+                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpoch, pendingIntent)
+                    } else {
+                        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpoch, pendingIntent)
+                    }
+                } else {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpoch, pendingIntent)
+                }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Exact alarm permission missing, scheduling via setAndAllowWhileIdle", e)
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpoch, pendingIntent)
+            }
+        } else {
+            alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtEpoch, pendingIntent)
+        }
+    }
+
+    private fun getAlarmPendingIntent(context: Context): PendingIntent {
+        val intent = Intent(context, TripwireReceiver::class.java).apply {
+            action = TripwireReceiver.ACTION_TRIPWIRE_EXPIRED
+        }
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        return PendingIntent.getBroadcast(context, ALARM_REQUEST_CODE, intent, flags)
     }
 }

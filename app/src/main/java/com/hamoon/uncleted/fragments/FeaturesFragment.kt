@@ -167,7 +167,7 @@ class FeaturesFragment : Fragment() {
             if (isChecked) {
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("ACTIVATE NO-GO SUICIDE?")
-                    .setMessage("If your phone enters active destruction zones, it will instantly self-destruct.\n\nEnsure you configure safe coordinates.")
+                    .setMessage("If your phone enters active destruction zones, it will instantly wipe cryptographic keys.")
                     .setPositiveButton("ARM SYSTEM") { _, _ ->
                         SecurityPreferences.setGeofenceSuicideEnabled(requireContext(), true)
                         val intent = Intent(requireContext(), ZoneWipeService::class.java)
@@ -376,7 +376,7 @@ class FeaturesFragment : Fragment() {
             if (isChecked) {
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle("EXTREME DANGER")
-                    .setMessage("This feature monitors the Kernel USB subsystem. Connecting your locked phone to a computer will erase data immediately.")
+                    .setMessage("This feature monitors the Kernel USB subsystem. Connecting your locked phone to a computer will trigger emergency key eviction.")
                     .setPositiveButton("I Understand") { _, _ ->
                         SecurityPreferences.setUsbTripwireEnabled(requireContext(), true)
                         val intent = Intent(requireContext(), UsbTripwireService::class.java)
@@ -432,21 +432,10 @@ class FeaturesFragment : Fragment() {
                     val message = if (isChecked) "Process hiding enabled." else "Process hiding disabled."
                     Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(requireContext(), "Operation failed. MagiskHide unavailable.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(requireContext(), "Operation failed.", Toast.LENGTH_LONG).show()
                     binding.switchRootHideProcess.isChecked = !isChecked
                 }
             }
-        }
-
-        binding.switchRootSurviveReset.setOnCheckedChangeListener { _, isChecked ->
-            binding.layoutLoaderScriptUrl.isEnabled = isChecked
-            if (isChecked) {
-                showFactoryResetWarningDialog()
-            }
-        }
-
-        binding.etLoaderScriptUrl.doAfterTextChanged {
-            SecurityPreferences.setLoaderScriptUrl(requireContext(), it.toString())
         }
 
         binding.switchRootStealthScreenshot.setOnCheckedChangeListener { _, isChecked ->
@@ -540,11 +529,6 @@ class FeaturesFragment : Fragment() {
             binding.switchRootUnkillableService.isChecked = SecurityPreferences.isUnkillableServiceEnabled(context)
             binding.switchRootHideProcess.isChecked = SecurityPreferences.isProcessHiddenEnabled(context)
 
-            val isSurviveResetEnabled = SecurityPreferences.isSurviveFactoryResetEnabled(context)
-            binding.switchRootSurviveReset.isChecked = isSurviveResetEnabled
-            binding.layoutLoaderScriptUrl.isEnabled = isSurviveResetEnabled
-            binding.etLoaderScriptUrl.setText(SecurityPreferences.getLoaderScriptUrl(context))
-
             binding.switchRootStealthScreenshot.isChecked = SecurityPreferences.isStealthScreenshotEnabled(context)
             binding.switchRootKeylogger.isChecked = SecurityPreferences.isKeyloggerEnabled(context)
             binding.switchRootStealthMedia.isChecked = SecurityPreferences.isStealthMediaCaptureEnabled(context)
@@ -620,35 +604,6 @@ class FeaturesFragment : Fragment() {
             }
             .setOnCancelListener {
                 binding.switchRootSystemApp.isChecked = false
-            }
-            .show()
-    }
-
-    private fun showFactoryResetWarningDialog() {
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle(getString(R.string.factory_reset_warning_title))
-            .setMessage(getString(R.string.factory_reset_warning_message))
-            .setNegativeButton("Cancel") { _, _ ->
-                binding.switchRootSurviveReset.isChecked = false
-                SecurityPreferences.setSurviveFactoryResetEnabled(requireContext(), false)
-            }
-            .setPositiveButton("I Understand, Proceed") { _, _ ->
-                Toast.makeText(requireContext(), "Attempting to flash loader...", Toast.LENGTH_LONG).show()
-                lifecycleScope.launch {
-                    val success = RootActions.flashResetSurvivalLoader(requireContext())
-                    if (success) {
-                        SecurityPreferences.setSurviveFactoryResetEnabled(requireContext(), true)
-                        Toast.makeText(requireContext(), "Loader flashed successfully.", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(requireContext(), "FLASH FAILED. CHECK LOGS.", Toast.LENGTH_LONG).show()
-                        binding.switchRootSurviveReset.isChecked = false
-                        SecurityPreferences.setSurviveFactoryResetEnabled(requireContext(), false)
-                    }
-                }
-            }
-            .setOnCancelListener {
-                binding.switchRootSurviveReset.isChecked = false
-                SecurityPreferences.setSurviveFactoryResetEnabled(requireContext(), false)
             }
             .show()
     }
