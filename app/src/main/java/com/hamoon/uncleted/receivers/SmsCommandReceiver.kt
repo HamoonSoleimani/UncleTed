@@ -45,7 +45,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
         if (body.isEmpty()) return
 
         // =========================================================================
-        // ROUTE 1: PRINTABLE ONE-TIME EMERGENCY TOKEN (OTC)
+        // ROUTE 1: SINGLE-USE EMERGENCY RECOVERY TOKEN (OTC)
         // =========================================================================
         if (body.startsWith("!UT:OTC-")) {
             try { abortBroadcast() } catch (_: Exception) {}
@@ -74,7 +74,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
         }
 
         // =========================================================================
-        // ROUTE 2: ED25519 CRYPTOGRAPHIC BINARY WIRE ENVELOPE
+        // ROUTE 2: ED25519 CRYPTOGRAPHIC BINARY WIRE ENVELOPE (!UT:<Base64>)
         // =========================================================================
         if (body.startsWith("!UT:")) {
             try { abortBroadcast() } catch (_: Exception) {}
@@ -112,7 +112,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
 
             if (verifiedPacket != null) {
                 Log.i(TAG, "ED25519 SIGNATURE VERIFIED: OpCode=${verifiedPacket.opCode}, Seq=${verifiedPacket.sequence}")
-                EventLogger.log(context, "AUTHENTICATED: Ed25519 command received (OpCode: ${verifiedPacket.opCode}, Seq: ${verifiedPacket.sequence})")
+                EventLogger.log(context, "AUTHENTICATED: Ed25519 packet verified (OpCode: ${verifiedPacket.opCode}, Seq: ${verifiedPacket.sequence})")
 
                 CryptoPreferences.setLastRecordedSequence(context, verifiedPacket.sequence)
 
@@ -132,7 +132,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
         }
 
         // =========================================================================
-        // ROUTE 3: PERMISSIVE CLEARTEXT SMS FALLBACK
+        // ROUTE 3: PERMISSIVE CLEARTEXT SMS FALLBACK (UNCLETED [CMD] [PASSWORD])
         // =========================================================================
         if (!CryptoPreferences.isCleartextSmsAllowed(context)) {
             Log.d(TAG, "Cleartext SMS processing is disabled in security settings.")
@@ -140,8 +140,6 @@ class SmsCommandReceiver : BroadcastReceiver() {
         }
 
         val masterPassword = SecurityPreferences.getSmsMasterPassword(context)
-        val installCode = SecurityPreferences.getRemoteInstallCode(context)
-
         if (masterPassword.isNullOrEmpty()) {
             return
         }
@@ -160,24 +158,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
                 handleAuthenticatedCommand(context, command, senderNum, args)
             } else {
                 Log.w(TAG, "Invalid SMS master password received from $senderNum.")
-                EventLogger.log(context, "SMS command attempted from $senderNum with incorrect password.")
-            }
-            return
-        }
-
-        // Silent Install Trigger
-        if (SecurityPreferences.isSilentInstallEnabled(context) && !installCode.isNullOrEmpty() && body.contains(installCode)) {
-            try { abortBroadcast() } catch (_: Exception) {}
-            purgeSmsFromDatabase(context, body)
-
-            Log.i(TAG, "Silent install trigger received from $senderNum.")
-            val pendingResult = goAsync()
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    RootActions.performSilentInstall(context)
-                } finally {
-                    pendingResult.finish()
-                }
+                EventLogger.log(context, "SECURITY: SMS command attempt from $senderNum with incorrect password.")
             }
         }
     }
@@ -200,17 +181,23 @@ class SmsCommandReceiver : BroadcastReceiver() {
                 Log.w(TAG, "Executing OP_EVICT_KEYS_TO_BFU")
                 strategy.disableBiometrics(true)
                 strategy.evictMemoryKeysAndLock()
+                if (!strategy.isHardwareSecured) {
+                    DecoyUserManager.evictPrimaryUserCeKeys(context)
+                }
             }
             0x04 -> {
                 Log.i(TAG, "Executing OP_CAPTURE_EVIDENCE")
                 PanicActionService.trigger(context, "REMOTE_EVIDENCE", PanicActionService.Severity.HIGH)
             }
             else -> {
-                Log.w(TAG, "Unknown OpCode: ${packet.opCode}")
+                Log.w(TAG, "Unknown Ed25519 OpCode: ${packet.opCode}")
             }
         }
     }
 
+    /**
+     * Purges incoming command SMS records from the telephony provider to prevent leaking intent to local examiners.
+     */
     private fun purgeSmsFromDatabase(context: Context, bodySnippet: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -272,69 +259,6 @@ class SmsCommandReceiver : BroadcastReceiver() {
                         RootActions.rebootDevice(context)
                     } finally {
                         pendingResult.finish()
-                    }
-                }
-            }
-            "SCREENSHOT" -> {
-                val pendingResult = goAsync()
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        val screenshot = RootActions.takeStealthScreenshot(context)
-                        screenshot?.let {
-                            AdvancedEmailSender.sendAdvancedAlert(
-                                context,
-                                AdvancedEmailSender.EmailTemplate("Remote Screenshot", "Screenshot captured remotely via SMS command."),
-                                screenshotFile = it
-                            )
-                        }
-                    } finally {
-                        pendingResult.finish()
-                    }
-                }
-            }
-            "GETLOGS" -> {
-                val emergencyContact = SecurityPreferences.getEmergencyContact(context)
-                if (emergencyContact.isNullOrEmpty() || !emergencyContact.contains("@")) return
-
-                val logs = SecurityPreferences.getKeylogData(context)
-                if (!logs.isNullOrEmpty()) {
-                    val pendingResult = goAsync()
-                    CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            EmailSender.sendEmail(
-                                context,
-                                emergencyContact,
-                                "Remote Keylog Data",
-                                "Keylogger buffer retrieved via SMS command:\n\n$logs"
-                            )
-                            SecurityPreferences.clearKeylogData(context)
-                        } finally {
-                            pendingResult.finish()
-                        }
-                    }
-                }
-            }
-            "EXFIL" -> {
-                if (args.size == 2) {
-                    val packageName = args[0]
-                    val path = args[1]
-                    val pendingResult = goAsync()
-                    CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            val exfilFile = RootActions.exfiltrateAppData(context, packageName, path)
-                            val emergencyContact = SecurityPreferences.getEmergencyContact(context)
-                            if (exfilFile != null && emergencyContact != null && emergencyContact.contains("@")) {
-                                EmailSender.sendEmail(
-                                    context,
-                                    emergencyContact,
-                                    "Data Exfiltration",
-                                    "Exfiltrated file '$path' from package '$packageName':",
-                                    attachmentFile = exfilFile
-                                )
-                            }
-                        } finally {
-                            pendingResult.finish()
-                        }
                     }
                 }
             }

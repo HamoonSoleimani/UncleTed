@@ -3,19 +3,35 @@ package com.hamoon.uncleted
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
+import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.preference.PreferenceManager
 import com.hamoon.uncleted.util.LocaleManager
+import com.hamoon.uncleted.util.NativeSecurityBridge
 
 class UncleTedApplication : Application() {
+
+    companion object {
+        private const val TAG = "UncleTedApplication"
+    }
 
     override fun onCreate() {
         super.onCreate()
 
+        // 1. Enforce Native Hardware MTE Tagging & Anti-Debugging Memory Flags
+        try {
+            val hardened = NativeSecurityBridge.enforceSecurityBaselines()
+            Log.i(TAG, "Native runtime memory defenses armed (Success: $hardened).")
+        } catch (e: Exception) {
+            Log.e(TAG, "Critical failure arming native runtime memory defenses", e)
+        }
+
+        // 2. Initialize App Localization & Locale Config
         val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
         val languageValue = sharedPreferences.getString("language", "system") ?: "system"
         LocaleManager.setLocale(languageValue)
 
+        // 3. Register Hardened UI Activity Lifecycle Callbacks
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityPreCreated(activity: Activity, savedInstanceState: Bundle?) {
                 val prefs = PreferenceManager.getDefaultSharedPreferences(this@UncleTedApplication)

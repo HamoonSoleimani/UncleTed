@@ -1,27 +1,15 @@
 package com.hamoon.uncleted.util
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
-import java.security.KeyStore
+import com.hamoon.uncleted.crypto.StrongBoxSecurityManager
+import java.security.MessageDigest
 import java.security.SecureRandom
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
-import kotlin.random.Random
 
 object AdvancedCrypto {
 
     private const val TAG = "AdvancedCrypto"
-    private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-    private const val KEY_ALIAS = "UncleTedMasterKey"
-    private const val TRANSFORMATION = "AES/GCM/NoPadding"
-    private const val IV_LENGTH = 12
-    private const val TAG_LENGTH = 16
 
     data class EncryptedData(
         val cipherText: String,
@@ -29,88 +17,55 @@ object AdvancedCrypto {
         val tag: String? = null
     )
 
-    init {
-        initializeKeystore()
+    /**
+     * Encrypts plaintext using discrete StrongBox KeyMint with volatile memory clearing.
+     */
+    fun encryptSensitiveData(context: Context, plaintext: String): EncryptedData? {
+        val plainBytes = plaintext.toByteArray(Charsets.UTF_8)
+        val payload = StrongBoxSecurityManager.encryptWithStrongBox(context, plainBytes)
+        NativeSecurityBridge.zeroByteArray(plainBytes)
+
+        if (payload == null) {
+            Log.e(TAG, "Failed to encrypt data via StrongBox KeyMint.")
+            return null
+        }
+
+        val (ctBase64, ivBase64) = payload.encodeToBase64()
+        return EncryptedData(
+            cipherText = ctBase64,
+            iv = ivBase64
+        )
     }
 
-    private fun initializeKeystore() {
-        try {
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
-            keyStore.load(null)
-
-            if (!keyStore.containsAlias(KEY_ALIAS)) {
-                generateKey()
-            }
+    /**
+     * Decrypts ciphertext using discrete StrongBox KeyMint.
+     */
+    fun decryptSensitiveData(context: Context, encryptedData: EncryptedData): String? {
+        val cipherBytes = try {
+            Base64.decode(encryptedData.cipherText, Base64.NO_WRAP)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize keystore", e)
+            return null
         }
+
+        val ivBytes = try {
+            Base64.decode(encryptedData.iv, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            return null
+        }
+
+        val payload = StrongBoxSecurityManager.StrongBoxPayload(cipherBytes, ivBytes)
+        val decryptedBytes = StrongBoxSecurityManager.decryptWithStrongBox(context, payload) ?: return null
+
+        val resultString = String(decryptedBytes, Charsets.UTF_8)
+        NativeSecurityBridge.zeroByteArray(decryptedBytes)
+        return resultString
     }
 
-    private fun generateKey() {
-        try {
-            val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-            val keyGenParameterSpec = KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setRandomizedEncryptionRequired(true)
-                .setUserAuthenticationRequired(false) // Set to true for biometric-protected keys
-                .build()
-
-            keyGenerator.init(keyGenParameterSpec)
-            keyGenerator.generateKey()
-
-            Log.i(TAG, "Master encryption key generated successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to generate encryption key", e)
-            throw e
-        }
-    }
-
-    fun encryptSensitiveData(plaintext: String): EncryptedData? {
-        return try {
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
-            keyStore.load(null)
-
-            val secretKey = keyStore.getKey(KEY_ALIAS, null) as SecretKey
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-
-            val iv = cipher.iv
-            val cipherText = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-
-            EncryptedData(
-                cipherText = Base64.encodeToString(cipherText, Base64.DEFAULT),
-                iv = Base64.encodeToString(iv, Base64.DEFAULT)
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to encrypt data", e)
-            null
-        }
-    }
-
-    fun decryptSensitiveData(encryptedData: EncryptedData): String? {
-        return try {
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
-            keyStore.load(null)
-
-            val secretKey = keyStore.getKey(KEY_ALIAS, null) as SecretKey
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-
-            val iv = Base64.decode(encryptedData.iv, Base64.DEFAULT)
-            val spec = GCMParameterSpec(TAG_LENGTH * 8, iv)
-            cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
-
-            val cipherText = Base64.decode(encryptedData.cipherText, Base64.DEFAULT)
-            val plaintext = cipher.doFinal(cipherText)
-
-            String(plaintext, Charsets.UTF_8)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to decrypt data", e)
-            null
-        }
+    /**
+     * Triggers instantaneous hardware silicon key erasure.
+     */
+    fun executeCryptographicSuicide(context: Context): Boolean {
+        return StrongBoxSecurityManager.executeMasterKeySuicide(context)
     }
 
     fun generateSecureToken(length: Int = 32): String {
@@ -126,9 +81,9 @@ object AdvancedCrypto {
         val combined = data + actualSalt
 
         return try {
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val digest = MessageDigest.getInstance("SHA-256")
             val hash = digest.digest(combined.toByteArray(Charsets.UTF_8))
-            Base64.encodeToString(hash, Base64.DEFAULT).trim() + ":$actualSalt"
+            Base64.encodeToString(hash, Base64.NO_WRAP).trim() + ":$actualSalt"
         } catch (e: Exception) {
             Log.e(TAG, "Failed to hash data", e)
             ""
@@ -144,24 +99,36 @@ object AdvancedCrypto {
             val salt = parts[1]
             val newHash = hashWithSalt(data, salt).split(":")[0]
 
-            originalHash == newHash
+            secureCompare(originalHash, newHash)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to verify hash", e)
             false
         }
     }
 
-    // Steganography-like data hiding in images (basic implementation)
-    fun hideDataInNoise(sensitiveData: String): ByteArray {
-        val encrypted = encryptSensitiveData(sensitiveData)
-        if (encrypted == null) return byteArrayOf()
+    fun generateSecurePin(length: Int = 6): String {
+        val secureRandom = SecureRandom()
+        return (1..length)
+            .map { secureRandom.nextInt(10) }
+            .joinToString("")
+    }
 
-        val dataToHide = "${encrypted.cipherText}|${encrypted.iv}".toByteArray()
-        val noiseSize = 1024 + dataToHide.size * 8 // Add significant noise
+    /**
+     * Constant-time comparison to prevent timing attacks.
+     */
+    fun secureCompare(a: String, b: String): Boolean {
+        val aBytes = a.toByteArray(Charsets.UTF_8)
+        val bBytes = b.toByteArray(Charsets.UTF_8)
+        return MessageDigest.isEqual(aBytes, bBytes)
+    }
+
+    fun hideDataInNoise(context: Context, sensitiveData: String): ByteArray {
+        val encrypted = encryptSensitiveData(context, sensitiveData) ?: return byteArrayOf()
+        val dataToHide = "${encrypted.cipherText}|${encrypted.iv}".toByteArray(Charsets.UTF_8)
+        val noiseSize = 1024 + dataToHide.size * 8
         val noise = ByteArray(noiseSize)
         SecureRandom().nextBytes(noise)
 
-        // Hide data in the least significant bits of the noise
         for (i in dataToHide.indices) {
             val byte = dataToHide[i]
             for (bit in 0..7) {
@@ -172,11 +139,10 @@ object AdvancedCrypto {
                 }
             }
         }
-
         return noise
     }
 
-    fun extractDataFromNoise(noiseData: ByteArray, dataLength: Int): String? {
+    fun extractDataFromNoise(context: Context, noiseData: ByteArray, dataLength: Int): String? {
         return try {
             val extractedBytes = ByteArray(dataLength)
 
@@ -193,10 +159,12 @@ object AdvancedCrypto {
             }
 
             val dataString = String(extractedBytes, Charsets.UTF_8)
+            NativeSecurityBridge.zeroByteArray(extractedBytes)
+
             val parts = dataString.split("|")
             if (parts.size == 2) {
                 val encryptedData = EncryptedData(parts[0], parts[1])
-                decryptSensitiveData(encryptedData)
+                decryptSensitiveData(context, encryptedData)
             } else {
                 null
             }
@@ -204,24 +172,5 @@ object AdvancedCrypto {
             Log.e(TAG, "Failed to extract data from noise", e)
             null
         }
-    }
-
-    // Generate cryptographically secure PINs
-    fun generateSecurePin(length: Int = 6): String {
-        val secureRandom = SecureRandom()
-        return (1..length)
-            .map { secureRandom.nextInt(10) }
-            .joinToString("")
-    }
-
-    // Secure comparison to prevent timing attacks
-    fun secureCompare(a: String, b: String): Boolean {
-        if (a.length != b.length) return false
-
-        var result = 0
-        for (i in a.indices) {
-            result = result or (a[i].code xor b[i].code)
-        }
-        return result == 0
     }
 }

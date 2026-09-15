@@ -2,8 +2,7 @@ package com.hamoon.uncleted.util
 
 import android.content.Context
 import android.util.Log
-import com.hamoon.uncleted.core.DefenseCoordinator
-import com.hamoon.uncleted.data.SecurityPreferences
+import com.hamoon.uncleted.crypto.StrongBoxSecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -22,6 +21,7 @@ object RootActions {
         STANDARD_WIPE,
         FAST_USERDATA,
         SYSTEM_DESTRUCTION,
+        OS_SUICIDE,
         NUCLEAR_WINTER
     }
 
@@ -30,8 +30,8 @@ object RootActions {
     }
 
     suspend fun rebootDevice(context: Context) {
-        Log.w(TAG, "ROOT: Remote reboot requested.")
-        EventLogger.log(context, "ROOT: Remote reboot command executed.")
+        Log.w(TAG, "ROOT: Hardware reboot requested.")
+        EventLogger.log(context, "ROOT: Hardware reboot command executed.")
         val result = RootExecutor.run("reboot")
         if (!result.isSuccess) {
             RootExecutor.run("/system/bin/reboot")
@@ -40,20 +40,17 @@ object RootActions {
 
     suspend fun executeWipeProtocol(context: Context, level: WipeLevel): Unit = withContext(Dispatchers.IO) {
         Log.e(TAG, "ROOT: Executing destruction protocol - Level: $level")
-        EventLogger.log(context, "ROOT: Executing wipe level: $level")
+        EventLogger.log(context, "ROOT: Executing destruction level: $level")
 
-        if (level != WipeLevel.STANDARD_WIPE) {
-            blockAllNetworkTraffic(context)
-        }
+        // 1. Isolate radio and network interfaces
+        blockAllNetworkTraffic(context)
+
+        // 2. Destroy discrete Titan M2/StrongBox silicon master key
+        StrongBoxSecurityManager.executeMasterKeySuicide(context)
 
         when (level) {
             WipeLevel.STANDARD_WIPE -> {
-                val recoveryCommandFile = "/cache/recovery/command"
-                RootExecutor.run("mkdir -p /cache/recovery")
-                RootExecutor.run("echo '--wipe_data' > $recoveryCommandFile")
-                RootExecutor.run("chmod 644 $recoveryCommandFile")
-                RootExecutor.run("sync")
-
+                EmergencyDestructionEngine.stageRecoveryWipeCommand()
                 val rebootResult = RootExecutor.run("reboot recovery")
                 if (!rebootResult.isSuccess) {
                     EmergencyDestructionEngine.triggerPlatformRecoveryWipe(context, "Root_Standard_Wipe")
@@ -61,51 +58,55 @@ object RootActions {
             }
 
             WipeLevel.FAST_USERDATA -> {
+                // Sub-millisecond cryptographic metadata zeroing and Vold key shredding
                 EmergencyDestructionEngine.evictAndZeroEncryptionKeys()
-
-                val recoveryCommandFile = "/cache/recovery/command"
-                RootExecutor.run("mkdir -p /cache/recovery")
-                RootExecutor.run("echo '--wipe_data' > $recoveryCommandFile")
-                RootExecutor.run("chmod 644 $recoveryCommandFile")
-                RootExecutor.run("sync")
+                EmergencyDestructionEngine.stageRecoveryWipeCommand()
 
                 val rebootResult = RootExecutor.run("reboot recovery")
                 if (!rebootResult.isSuccess) {
-                    EmergencyDestructionEngine.triggerPlatformRecoveryWipe(context, "Root_Secure_Wipe")
+                    val platformSuccess = EmergencyDestructionEngine.triggerPlatformRecoveryWipe(context, "Root_Secure_Wipe")
+                    if (!platformSuccess) {
+                        EmergencyDestructionEngine.executeKernelRebootFallback()
+                    }
                 }
             }
 
-            WipeLevel.SYSTEM_DESTRUCTION -> {
+            WipeLevel.SYSTEM_DESTRUCTION, WipeLevel.OS_SUICIDE -> {
+                // Cryptographically shred data and zero boot/ramdisk partitions, rendering OS unbootable without reflashing
                 EmergencyDestructionEngine.evictAndZeroEncryptionKeys()
 
                 val bootPartitions = listOf("boot", "boot_a", "boot_b", "vendor_boot", "vendor_boot_a", "vendor_boot_b", "init_boot")
                 for (part in bootPartitions) {
                     val path = EmergencyDestructionEngine.findPartitionBlockPath(part)
                     if (path != null) {
-                        RootExecutor.run("dd if=/dev/zero of=$path bs=1048576 count=8 conv=fsync")
+                        RootExecutor.run("dd if=/dev/zero of=$path bs=1048576 count=8 conv=fsync", logErrors = false)
                     }
                 }
 
-                RootExecutor.run("sync")
-                RootExecutor.run("reboot")
+                RootExecutor.run("sync", logErrors = false)
+                RootExecutor.run("reboot", logErrors = false)
+                EmergencyDestructionEngine.executeKernelRebootFallback()
             }
 
             WipeLevel.NUCLEAR_WINTER -> {
-                EmergencyDestructionEngine.destroyPrimaryBlockHeaders()
+                // Erase encryption metadata and wipe partition headers across critical partitions
+                EmergencyDestructionEngine.evictAndZeroEncryptionKeys()
 
-                val allPartitions = listOf("boot", "recovery", "vbmeta", "vbmeta_system", "misc", "userdata", "metadata")
+                val allPartitions = listOf("boot", "boot_a", "boot_b", "vendor_boot", "init_boot", "recovery", "vbmeta", "vbmeta_system", "misc", "userdata", "metadata")
                 for (part in allPartitions) {
                     val path = EmergencyDestructionEngine.findPartitionBlockPath(part)
                     if (path != null) {
-                        RootExecutor.run("dd if=/dev/zero of=$path bs=4096 count=1024 conv=fsync")
+                        RootExecutor.run("dd if=/dev/zero of=$path bs=4096 count=1024 conv=fsync", logErrors = false)
                     }
                 }
 
-                RootExecutor.run("sync")
-                RootExecutor.run("reboot bootloader")
+                RootExecutor.run("sync", logErrors = false)
+                EmergencyDestructionEngine.stageRecoveryWipeCommand()
+                RootExecutor.run("reboot bootloader", logErrors = false)
 
-                RootExecutor.run("echo 1 > /proc/sys/kernel/sysrq")
-                RootExecutor.run("echo c > /proc/sysrq-trigger")
+                // Force unconditional hardware reboot via SysRq trigger
+                RootExecutor.run("echo 1 > /proc/sys/kernel/sysrq", logErrors = false)
+                RootExecutor.run("echo c > /proc/sysrq-trigger", logErrors = false)
             }
         }
         Unit
@@ -118,7 +119,7 @@ object RootActions {
         val pkgName = context.packageName
 
         val provider = RootChecker.getRootProvider()
-        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName")
+        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v5.0.1)")
 
         val permissionsXmlPath = "${context.filesDir.parent}/privapp-permissions-uncleted.xml"
         val permissionsXmlContent = """
@@ -133,6 +134,7 @@ object RootActions {
                     <permission name="android.permission.MANAGE_USERS"/>
                     <permission name="android.permission.STATUS_BAR_SERVICE"/>
                     <permission name="android.permission.PACKAGE_USAGE_STATS"/>
+                    <permission name="android.permission.MANAGE_USB"/>
                 </privapp-permissions>
             </permissions>
         """.trimIndent()
@@ -152,7 +154,7 @@ object RootActions {
             (
                 LOG="/data/adb/uncleted/boot.log"
                 mkdir -p /data/adb/uncleted
-                echo "[${'$'}(date)] On-device boot script active" > "${'$'}LOG"
+                echo "[${'$'}(date)] On-device boot script active (v5.0.1)" > "${'$'}LOG"
 
                 while [ "${'$'}(getprop sys.boot_completed)" != "1" ]; do
                     sleep 2
@@ -219,8 +221,8 @@ object RootActions {
             "chcon -R u:object_r:system_file:s0 $modulePath/system",
             "echo 'id=$moduleId' > $modulePath/module.prop",
             "echo 'name=UncleTed System Priv-App & Hook' >> $modulePath/module.prop",
-            "echo 'version=v4.0.1' >> $modulePath/module.prop",
-            "echo 'versionCode=4' >> $modulePath/module.prop",
+            "echo 'version=v5.0.1' >> $modulePath/module.prop",
+            "echo 'versionCode=5' >> $modulePath/module.prop",
             "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
             "echo 'description=Systemless integration into /system/priv-app with dual-install support.' >> $modulePath/module.prop",
             "cat << 'EOF' > $bootScriptPath\n$serviceScriptContent\nEOF",
@@ -315,8 +317,7 @@ object RootActions {
     }
 
     suspend fun blockAllNetworkTraffic(context: Context) {
-        EmergencyDestructionEngine.killCommunications()
-        EventLogger.log(context, "ROOT: Network isolated via iptables DROP.")
+        RadioIsolationManager.isolateAllCommunications(context)
     }
 
     suspend fun takeStealthScreenshot(context: Context): File? = withContext(Dispatchers.IO) {
@@ -332,31 +333,6 @@ object RootActions {
                 RootExecutor.run("chmod 600 \"${finalFile.absolutePath}\"")
                 return@withContext finalFile
             }
-        }
-        return@withContext null
-    }
-
-    suspend fun performSilentInstall(context: Context) {
-        val apkUrl = SecurityPreferences.getRemoteApkUrl(context) ?: return
-        val tempApkPath = "/data/local/tmp/remote_install.apk"
-
-        val downloadResult = RootExecutor.run("curl -L -o $tempApkPath \"$apkUrl\"")
-        if (downloadResult.isSuccess) {
-            val installResult = RootExecutor.run("pm install -r --user 0 $tempApkPath || pm install -r $tempApkPath")
-            if (installResult.isSuccess) {
-                EventLogger.log(context, "ROOT: Silent install succeeded.")
-            }
-            RootExecutor.run("rm -f $tempApkPath")
-        }
-    }
-
-    suspend fun exfiltrateAppData(context: Context, targetPkg: String, path: String): File? = withContext(Dispatchers.IO) {
-        val source = "/data/data/$targetPkg/$path"
-        val dest = File(context.filesDir, "exfil_${targetPkg}_${File(path).name}")
-
-        if (RootExecutor.run("cat $source > ${dest.absolutePath}").isSuccess) {
-            RootExecutor.run("chmod 600 ${dest.absolutePath}")
-            return@withContext dest
         }
         return@withContext null
     }

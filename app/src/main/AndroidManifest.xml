@@ -17,7 +17,7 @@
         android:name="android.hardware.telephony"
         android:required="false" />
 
-    <!-- SYSTEM-LEVEL & DEVICE OWNER PERMISSIONS -->
+    <!-- SYSTEM-LEVEL & DEVICE OWNER PRIVILEGED PERMISSIONS -->
     <uses-permission android:name="android.permission.MASTER_CLEAR" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.REBOOT" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
@@ -26,6 +26,7 @@
     <uses-permission android:name="android.permission.MANAGE_USERS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.STATUS_BAR_SERVICE" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.MANAGE_DEVICE_ADMINS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.MANAGE_USB" tools:ignore="ProtectedPermissions" />
 
     <!-- STANDARD RUNTIME & SECURITY PERMISSIONS -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -71,6 +72,7 @@
     <application
         android:name=".UncleTedApplication"
         android:allowBackup="false"
+        android:memtagMode="sync"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -86,7 +88,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Dual-Route Operational Security: Native Device Owner AVB Defense or system_server Lockscreen Interception." />
+            android:value="Uncle Ted v5.0.1 - Hardened StrongBox KeyMint, Synchronous MTE, DPM Port Severing, and Vold Key Eviction." />
         <meta-data
             android:name="xposedminversion"
             android:value="93" />
@@ -143,11 +145,7 @@
             android:launchMode="singleInstance"
             android:theme="@style/Theme.UncleTed.Transparent" />
 
-        <!-- ============================================================= -->
-        <!-- HONEYPOT DECOY ACTIVITIES (RESTORED & REGISTERED)             -->
-        <!-- ============================================================= -->
-
-        <!-- Honeypot Fake Home Launcher Screen -->
+        <!-- Honeypot Bait Activities -->
         <activity
             android:name=".honeypot.HoneypotLauncherActivity"
             android:exported="false"
@@ -155,31 +153,25 @@
             android:launchMode="singleTask"
             android:theme="@style/Theme.UncleTed" />
 
-        <!-- Honeypot Trap 1: Fake Banking Login Bait -->
         <activity
             android:name=".honeypot.FakeBankingActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.UncleTed" />
 
-        <!-- Honeypot Trap 2: Fake Gallery Bait -->
         <activity
             android:name=".honeypot.FakeGalleryActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.UncleTed" />
 
-        <!-- Honeypot Trap 3: Fake Notes Bait -->
         <activity
             android:name=".honeypot.FakeNotesActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.UncleTed" />
 
-        <!-- ============================================================= -->
-        <!-- BACKGROUND SERVICES                                           -->
-        <!-- ============================================================= -->
-
+        <!-- Background Services -->
         <service
             android:name=".services.PanicActionService"
             android:exported="false"
@@ -273,11 +265,7 @@
             </intent-filter>
         </service>
 
-        <!-- ============================================================= -->
-        <!-- RECEIVERS                                                     -->
-        <!-- ============================================================= -->
-
-        <!-- Direct Boot Aware Enterprise Device Administrator Receiver -->
+        <!-- Receivers -->
         <receiver
             android:name=".receivers.AdminReceiver"
             android:exported="true"
@@ -295,7 +283,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- Direct Boot Aware Autonomous Tripwire Receiver -->
         <receiver
             android:name=".receivers.TripwireReceiver"
             android:exported="false"
@@ -305,7 +292,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- System Event Receivers -->
         <receiver
             android:name=".receivers.BootCompletedReceiver"
             android:exported="true"
@@ -368,7 +354,6 @@
             android:enabled="true"
             android:exported="true" />
 
-        <!-- Widgets -->
         <receiver
             android:name=".widgets.PanicWidgetProvider"
             android:exported="true"
@@ -385,7 +370,6 @@
             android:name=".receivers.WidgetActionReceiver"
             android:exported="false" />
 
-        <!-- FileProvider -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

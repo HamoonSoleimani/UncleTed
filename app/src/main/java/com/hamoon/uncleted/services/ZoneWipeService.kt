@@ -10,10 +10,15 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import com.google.android.gms.location.*
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
+import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.NotificationHelper
 import com.hamoon.uncleted.util.PermissionUtils
 import com.hamoon.uncleted.util.PolygonUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class ZoneWipeService : Service() {
 
@@ -50,7 +55,7 @@ class ZoneWipeService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start ZoneWipeService in foreground", e)
+            Log.e(TAG, "Failed starting ZoneWipeService in foreground", e)
             stopSelf()
             return
         }
@@ -62,7 +67,7 @@ class ZoneWipeService : Service() {
     @SuppressLint("MissingPermission")
     private fun startLocationMonitoring() {
         if (!PermissionUtils.hasLocationPermissions(this)) {
-            Log.e(TAG, "Missing location permissions. Zone Wipe disabled.")
+            Log.e(TAG, "Missing location permissions. Zone Wipe monitoring disabled.")
             stopSelf()
             return
         }
@@ -82,6 +87,7 @@ class ZoneWipeService : Service() {
 
         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
         Log.i(TAG, "Zone Wipe Service Armed with multi-zone support.")
+        EventLogger.log(this, "ZONE WIPE: Multi-zone perimeter monitoring active.")
     }
 
     private fun processLocationSample(location: Location?) {
@@ -92,10 +98,9 @@ class ZoneWipeService : Service() {
             return
         }
 
-        // Build list of active destruction zones
         val activeZones = mutableListOf<PolygonUtils.WipeZone>()
 
-        // 1. Built-in Evin Prison zone (if toggle is active)
+        // 1. Built-in Evin Prison perimeter
         if (SecurityPreferences.isGeofenceSuicideEnabled(this)) {
             activeZones.add(
                 PolygonUtils.WipeZone(
@@ -107,7 +112,7 @@ class ZoneWipeService : Service() {
             )
         }
 
-        // 2. User-defined custom destruction zones
+        // 2. Custom user-defined destruction zones
         activeZones.addAll(SecurityPreferences.getCustomWipeZones(this).filter { it.isEnabled })
 
         var breachedZoneName: String? = null
@@ -125,14 +130,19 @@ class ZoneWipeService : Service() {
             if (consecutiveBreachCount >= REQUIRED_CONSECUTIVE_BREACHES) {
                 Log.e(TAG, "!!! CONFIRMED DEVICE INSIDE DESTRUCTION ZONE: '$breachedZoneName' !!!")
                 Log.e(TAG, "!!! INITIATING IMMEDIATE GEOGRAPHIC SUICIDE !!!")
-
-                PanicActionService.trigger(
-                    this@ZoneWipeService,
-                    "GEOFENCE_SUICIDE_EVIN",
-                    PanicActionService.Severity.CRITICAL
-                )
+                EventLogger.log(this, "CRITICAL: Confirmed breach of destruction zone '$breachedZoneName'. Initiating wipe.")
 
                 fusedLocationClient.removeLocationUpdates(locationCallback)
+
+                CoroutineScope(Dispatchers.IO).launch {
+                    val strategy = DefenseCoordinator.resolveStrategy(this@ZoneWipeService)
+                    strategy.executeWipe("GEOFENCE_SUICIDE_$breachedZoneName")
+                    PanicActionService.trigger(
+                        this@ZoneWipeService,
+                        "GEOFENCE_SUICIDE_EVIN",
+                        PanicActionService.Severity.CRITICAL
+                    )
+                }
                 stopSelf()
             }
         } else {

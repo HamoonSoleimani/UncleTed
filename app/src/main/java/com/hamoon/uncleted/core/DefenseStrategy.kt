@@ -9,4 +9,5 @@ interface DefenseStrategy {
     suspend fun configureBruteForceThreshold(maxFailedAttempts: Int)
     suspend fun evictMemoryKeysAndLock()
     suspend fun disableBiometrics(disable: Boolean)
+    suspend fun isolateRadiosAndNetwork()
 }

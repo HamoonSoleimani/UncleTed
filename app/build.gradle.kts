@@ -6,15 +6,40 @@ plugins {
 android {
     namespace = "com.hamoon.uncleted"
     compileSdk = 34
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = "com.hamoon.uncleted"
         minSdk = 28
         targetSdk = 34
-        versionCode = 4
-        versionName = "4.0.1"
+        versionCode = 5
+        versionName = "5.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++17"
+                arguments(
+                    "-DANDROID_ARM_MODE=arm",
+                    "-DCMAKE_C_FLAGS=-march=armv8.5-a+memtag -fsanitize=memtag",
+                    "-DCMAKE_CXX_FLAGS=-march=armv8.5-a+memtag -fsanitize=memtag"
+                )
+                abiFilters("arm64-v8a")
+            }
+        }
+
+        ndk {
+            abiFilters.clear()
+            abiFilters.add("arm64-v8a")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     signingConfigs {
@@ -62,6 +87,9 @@ android {
             excludes += "META-INF/LICENSE.md"
             excludes += "META-INF/INDEX.LIST"
         }
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 }
 
@@ -70,7 +98,7 @@ dependencies {
     compileOnly("de.robv.android.xposed:api:82")
     compileOnly("de.robv.android.xposed:api:82:sources")
 
-    // --- CRYPTOGRAPHY & BOUNCY CASTLE (ED25519 ENGINE) ---
+    // --- CRYPTOGRAPHY & BOUNCY CASTLE (ED25519 & STRONGBOX ENGINE) ---
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
     // --- ANDROIDX & MATERIAL ---
@@ -84,7 +112,7 @@ dependencies {
     implementation(libs.sun.mail.android)
     implementation(libs.sun.activation.android)
 
-    // --- PREFERENCES & PERSISTENCE ---
+    // --- PREFERENCES & HARDENED PERSISTENCE ---
     implementation(libs.androidx.preference.ktx)
     implementation(libs.androidx.security.crypto)
 

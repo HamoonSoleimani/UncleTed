@@ -3,6 +3,7 @@ package com.hamoon.uncleted.hooks
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.os.IBinder
 import android.os.Process
 import android.os.UserHandle
 import android.util.Log
@@ -100,7 +101,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                     return
                 }
 
-                // 3. MASTERCLASS HONEYPOT: Native Android Multi-User Switch
+                // 3. MASTERCLASS HONEYPOT: Multi-User Switch + Vold CE Key Eviction
                 if (!honeypotPin.isNullOrEmpty() && enteredPin == honeypotPin) {
                     lastAttemptWasSpecialPin = true
                     Log.w(TAG, "HONEYPOT PIN matched at OS level! Initiating surveillance before session migration...")
@@ -111,14 +112,18 @@ class LockscreenHook : IXposedHookLoadPackage {
                     if (currentCtx != null && decoyUserId > 0) {
                         Thread {
                             try {
-                                Thread.sleep(1200)
+                                Thread.sleep(1000)
                                 val am = currentCtx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
                                 XposedHelpers.callMethod(am, "switchUser", decoyUserId)
                                 Log.i(TAG, "Native switchUser($decoyUserId) called successfully after evidence trigger.")
+
+                                // Evict User 0 CE keys directly from within system_server to ensure cold BFU state
+                                executeInProcessVoldLock(0)
                             } catch (t: Throwable) {
                                 Log.e(TAG, "Failed calling switchUser directly. Executing shell fallback.", t)
                                 try {
                                     Runtime.getRuntime().exec(arrayOf("am", "switch-user", decoyUserId.toString()))
+                                    Runtime.getRuntime().exec(arrayOf("vdc", "cryptfs", "lockuser", "0"))
                                 } catch (_: Throwable) {}
                             }
                         }.start()
@@ -219,6 +224,34 @@ class LockscreenHook : IXposedHookLoadPackage {
                 Log.d(TAG, "Hooked LockSettingsService.$method")
             } catch (_: Throwable) {}
         }
+    }
+
+    /**
+     * Executes in-process CE key eviction on the given user ID inside system_server via StorageManagerService.
+     */
+    private fun executeInProcessVoldLock(userId: Int) {
+        try {
+            Log.w(TAG, "Executing in-process lockUserKey($userId) from system_server...")
+            val smClass = XposedHelpers.findClass("android.os.ServiceManager", null)
+            val mountServiceBinder = XposedHelpers.callStaticMethod(smClass, "getService", "mount") as? IBinder
+                ?: XposedHelpers.callStaticMethod(smClass, "getService", "storaged") as? IBinder
+
+            if (mountServiceBinder != null) {
+                val stubClass = XposedHelpers.findClass("android.os.storage.IStorageManager\$Stub", null)
+                val mountService = XposedHelpers.callStaticMethod(stubClass, "asInterface", mountServiceBinder)
+                if (mountService != null) {
+                    XposedHelpers.callMethod(mountService, "lockUserKey", userId)
+                    Log.i(TAG, "lockUserKey($userId) invoked successfully via in-process StorageManager.")
+                    return
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "In-process lockUserKey reflection failed: ${t.message}. Falling back to vdc.")
+        }
+
+        try {
+            Runtime.getRuntime().exec(arrayOf("vdc", "cryptfs", "lockuser", userId.toString()))
+        } catch (_: Throwable) {}
     }
 
     private fun extractPinFromArguments(args: Array<Any?>?): String? {

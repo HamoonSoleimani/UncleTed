@@ -22,5 +22,8 @@
 
         <!-- Grants access to usage analytics for behavioral threat detection -->
         <permission name="android.permission.PACKAGE_USAGE_STATS"/>
+
+        <!-- Grants access to physical USB controller status and management -->
+        <permission name="android.permission.MANAGE_USB"/>
     </privapp-permissions>
 </permissions>

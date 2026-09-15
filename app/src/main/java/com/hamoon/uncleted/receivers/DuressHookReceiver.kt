@@ -6,8 +6,12 @@ import android.content.Intent
 import android.util.Log
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.PanicActionService
+import com.hamoon.uncleted.util.DecoyUserManager
 import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.PermissionUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class DuressHookReceiver : BroadcastReceiver() {
 
@@ -35,13 +39,24 @@ class DuressHookReceiver : BroadcastReceiver() {
                 )
             }
             ACTION_HONEYPOT_TRIGGERED -> {
-                Log.w(TAG, "Honeypot PIN detected by native hook. Triggering covert surveillance protocol.")
-                EventLogger.log(context, "OS Hook: Honeypot PIN entered. Switched to native Decoy space.")
+                Log.w(TAG, "Honeypot PIN detected by native hook. Engaging surveillance and volatile RAM eviction.")
+                EventLogger.log(context, "OS Hook: Honeypot PIN entered. Migrating session and evicting User 0 keys.")
+
                 PanicActionService.trigger(
                     context,
                     "HONEYPOT_PIN_LOCKSCREEN",
                     PanicActionService.Severity.HIGH
                 )
+
+                // Asynchronous watchdog fallback: ensure Vold eviction completes even if system_server reflection was delayed
+                val pendingResult = goAsync()
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        DecoyUserManager.evictPrimaryUserCeKeys(context)
+                    } finally {
+                        pendingResult.finish()
+                    }
+                }
             }
             ACTION_LOCKSCREEN_FAILED_ATTEMPT -> {
                 if (PermissionUtils.isDeviceAdminActive(context)) {

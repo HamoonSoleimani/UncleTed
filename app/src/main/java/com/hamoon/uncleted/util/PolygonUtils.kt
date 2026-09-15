@@ -20,8 +20,8 @@ object PolygonUtils {
         val name: String,
         val centerLat: Double = 0.0,
         val centerLon: Double = 0.0,
-        val radiusMeters: Float = 0f, // > 0 indicates a circular zone
-        val polygon: List<Pair<Double, Double>> = emptyList(), // non-empty indicates polygon zone
+        val radiusMeters: Float = 0f,
+        val polygon: List<Pair<Double, Double>> = emptyList(),
         val isEnabled: Boolean = true
     )
 

@@ -40,6 +40,7 @@ object TripwireManager {
 
         setHardwareAlarm(context, triggerAtEpoch)
         Log.i(TAG, "Hardware Tripwire armed via AlarmManager for $durationHours hours (Epoch: $triggerAtEpoch)")
+        EventLogger.log(context, "TRIPWIRE: Armed for $durationHours hours.")
     }
 
     fun cancelTripwire(context: Context) {
@@ -47,6 +48,7 @@ object TripwireManager {
         val pendingIntent = getAlarmPendingIntent(context)
         alarmManager.cancel(pendingIntent)
         Log.i(TAG, "Hardware Tripwire alarm canceled.")
+        EventLogger.log(context, "TRIPWIRE: Disarmed.")
     }
 
     fun checkIn(context: Context) {
@@ -60,12 +62,13 @@ object TripwireManager {
     }
 
     /**
-     * Evaluates tripwire state during Direct Boot (BFU) immediately after locked boot completed.
+     * Evaluates tripwire state during Direct Boot (BFU) immediately upon LOCKED_BOOT_COMPLETED.
      * Computes elapsed time using Device-Protected storage timestamps.
+     * If the phone was isolated in a Faraday bag or powered down past the deadline, it triggers immediate erasure.
      */
     fun scheduleFromLastCheckIn(context: Context) {
         if (!SecurityPreferences.isTripwireEnabled(context)) {
-            Log.d(TAG, "Tripwire disabled in BFU preferences. Not scheduling.")
+            Log.d(TAG, "Tripwire disabled in BFU preferences. Skipping BFU evaluation.")
             return
         }
 
@@ -80,7 +83,8 @@ object TripwireManager {
         val remainingMillis = deadlineEpoch - System.currentTimeMillis()
 
         if (remainingMillis <= 0L) {
-            Log.e(TAG, "CRITICAL: Tripwire deadline expired while device was offline/powered down! Executing immediate wipe.")
+            Log.e(TAG, "CRITICAL: Tripwire deadline expired while offline/powered down! Executing BFU wipe.")
+            EventLogger.log(context, "CRITICAL: Dead-man tripwire expired during downtime. Initiating wipe.")
             CoroutineScope(Dispatchers.IO).launch {
                 val strategy = DefenseCoordinator.resolveStrategy(context)
                 strategy.executeWipe("BFU_TRIPWIRE_EXPIRED_DURING_DOWNTIME")
@@ -88,7 +92,7 @@ object TripwireManager {
             return
         }
 
-        Log.i(TAG, "Re-arming tripwire in BFU state. Remaining time: ${remainingMillis / 1000 / 60} minutes.")
+        Log.i(TAG, "Re-arming tripwire in BFU state. Remaining: ${remainingMillis / 1000 / 60} minutes.")
         setHardwareAlarm(context, deadlineEpoch)
     }
 

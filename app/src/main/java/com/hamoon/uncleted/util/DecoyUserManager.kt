@@ -1,7 +1,6 @@
 package com.hamoon.uncleted.util
 
 import android.content.Context
-import android.os.Build
 import android.os.UserManager
 import android.util.Log
 import com.hamoon.uncleted.data.SecurityPreferences
@@ -59,7 +58,6 @@ object DecoyUserManager {
         val createResult = RootExecutor.run("pm create-user \"$DECOY_USER_NAME\"")
 
         if (createResult.isSuccess) {
-            // Parses output: 'Success: created user id 10'
             val rawOutput = createResult.output.joinToString(" ")
             val parsedId = Regex("""\b(\d+)\b""").findAll(rawOutput).lastOrNull()?.value?.toIntOrNull()
 
@@ -67,7 +65,7 @@ object DecoyUserManager {
                 decoyId = parsedId
                 Log.i(TAG, "Successfully provisioned Decoy User space (UserHandle $decoyId).")
 
-                // Remove Keyguard PIN requirement on Decoy User so switching lands directly onto the home screen
+                // Remove Keyguard PIN requirement on Decoy User so switching lands directly onto the decoy home screen
                 RootExecutor.run("locksettings clear --user $decoyId")
 
                 // Clone essential baseline system apps to make the decoy space look authentic
@@ -83,7 +81,58 @@ object DecoyUserManager {
     }
 
     /**
-     * Clones common pre-installed system packages into the decoy user space so it has a browser, calculator, etc.
+     * RAM Anti-Forensics: Evicts User 0 Credential-Encrypted (CE) keys from the Linux kernel keyring.
+     * Invokes Vold daemon to revert the Primary Owner's File-Based Encryption into Before First Unlock (BFU) state.
+     */
+    suspend fun evictPrimaryUserCeKeys(context: Context): Boolean = withContext(Dispatchers.IO) {
+        Log.w(TAG, "!!! INITIATING VOLATILE RAM KEYRING EVICTION FOR USER 0 !!!")
+        EventLogger.log(context, "ANTI-FORENSICS: Purging User 0 CE encryption keys from volatile RAM.")
+
+        val commands = listOf(
+            // Method 1: Vold direct daemon command to lock CE storage
+            "vdc cryptfs lockuser 0",
+            // Method 2: StorageManager CLI session lock
+            "sm lock-user-key 0",
+            // Method 3: LockSettings service user lock
+            "cmd locksettings lock-user 0 2>/dev/null || true",
+            // Flush file system caches and drop kernel dentries/inodes from memory
+            "sync",
+            "echo 3 > /proc/sys/vm/drop_caches"
+        )
+
+        val result = RootExecutor.runMultiple(commands, logErrors = false)
+        val success = result.any { it.isSuccess }
+
+        if (success) {
+            Log.i(TAG, "Primary user CE encryption keys evicted from kernel keyring. User 0 is now in BFU state.")
+            EventLogger.log(context, "SUCCESS: Primary user CE keys purged. User 0 locked into BFU state.")
+        } else {
+            Log.e(TAG, "Failed to evict User 0 keys via Vold daemon.")
+        }
+
+        return@withContext success
+    }
+
+    /**
+     * Performs atomic session migration:
+     * Switches active display to the decoy space and drops User 0's encryption keys from memory.
+     */
+    suspend fun switchToDecoyWithCeEviction(context: Context, decoyUserId: Int): Boolean = withContext(Dispatchers.IO) {
+        if (decoyUserId <= 0) return@withContext false
+
+        Log.w(TAG, "Switching session to Decoy User ($decoyUserId) and evicting User 0 keys...")
+
+        // 1. Switch active display session to Decoy User
+        val switchResult = RootExecutor.run("am switch-user $decoyUserId")
+
+        // 2. Immediately purge User 0 encryption keys from memory
+        evictPrimaryUserCeKeys(context)
+
+        return@withContext switchResult.isSuccess
+    }
+
+    /**
+     * Clones common pre-installed system packages into the decoy user space so it has an authentic app drawer.
      */
     private suspend fun cloneEssentialAppsToDecoy(decoyUserId: Int) {
         val packagesToClone = listOf(
@@ -98,15 +147,6 @@ object DecoyUserManager {
         for (pkg in packagesToClone) {
             RootExecutor.run("pm install-existing --user $decoyUserId $pkg 2>/dev/null || true")
         }
-    }
-
-    /**
-     * Switches the active OS session to the decoy space for initial setup by the owner.
-     */
-    suspend fun switchToDecoyUser(decoyUserId: Int): Boolean = withContext(Dispatchers.IO) {
-        if (decoyUserId <= 0) return@withContext false
-        val result = RootExecutor.run("am switch-user $decoyUserId")
-        return@withContext result.isSuccess
     }
 
     /**
@@ -133,7 +173,6 @@ object DecoyUserManager {
     }
 
     private suspend fun findExistingDecoyUserId(context: Context): Int {
-        // Method 1: System UserManager API
         try {
             val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
             if (userManager != null) {
@@ -145,12 +184,10 @@ object DecoyUserManager {
             }
         } catch (_: Exception) {}
 
-        // Method 2: Root Shell 'pm list users'
         val listResult = RootExecutor.run("pm list users")
         if (listResult.isSuccess) {
             for (line in listResult.output) {
                 if (line.contains(DECOY_USER_NAME, ignoreCase = true)) {
-                    // Line format: 'UserInfo{10:Personal:0}'
                     val match = Regex("""UserInfo\{(\d+):""").find(line)
                     val id = match?.groupValues?.get(1)?.toIntOrNull()
                     if (id != null && id > 0) return id

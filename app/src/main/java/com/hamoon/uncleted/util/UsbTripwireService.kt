@@ -8,7 +8,9 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
+import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.NotificationHelper
 import com.hamoon.uncleted.util.RootActions
 import com.hamoon.uncleted.util.UsbDetector
@@ -28,7 +30,7 @@ class UsbTripwireService : Service() {
         private const val POLLING_INTERVAL_MS = 1000L
 
         // Requires 2 consecutive positive evaluations (2 seconds apart)
-        // to avoid triggering on momentary voltage renegotiations when plugging into smart chargers.
+        // to filter momentary voltage transients when connecting to high-voltage USB-PD chargers.
         private const val REQUIRED_CONSECUTIVE_HITS = 2
     }
 
@@ -48,28 +50,29 @@ class UsbTripwireService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start UsbTripwireService in foreground", e)
+            Log.e(TAG, "Failed starting UsbTripwireService in foreground", e)
             stopSelf()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!SecurityPreferences.isUsbTripwireEnabled(this)) {
-            Log.w(TAG, "UsbTripwireService started but feature is disabled. Stopping service.")
+            Log.w(TAG, "UsbTripwireService invoked but disabled in settings. Stopping service.")
             stopSelf()
             return START_NOT_STICKY
         }
 
         if (!isMonitoring) {
             isMonitoring = true
-            startKernelMonitoring()
+            startHardwareBusSentinel()
         }
         return START_STICKY
     }
 
-    private fun startKernelMonitoring() {
+    private fun startHardwareBusSentinel() {
         serviceScope.launch {
-            Log.i(TAG, "USB Tripwire Armed. Monitoring Kernel UDC state...")
+            Log.i(TAG, "USB Tripwire Armed. Actively monitoring Kernel UDC state...")
+            EventLogger.log(this@UsbTripwireService, "USB Sentinel: Kernel UDC bus monitoring armed.")
 
             while (isActive) {
                 if (keyguardManager.isDeviceLocked) {
@@ -77,18 +80,26 @@ class UsbTripwireService : Service() {
 
                     if (isDataConnected) {
                         consecutiveDataHits++
-                        Log.w(TAG, "USB data connection detected while locked ($consecutiveDataHits/$REQUIRED_CONSECUTIVE_HITS)")
+                        Log.w(TAG, "Host data cable detected while locked ($consecutiveDataHits/$REQUIRED_CONSECUTIVE_HITS)")
 
                         if (consecutiveDataHits >= REQUIRED_CONSECUTIVE_HITS) {
-                            Log.e(TAG, "!!! CONFIRMED USB DATA CONNECTION TO HOST WHILE LOCKED !!!")
-                            Log.e(TAG, "!!! EXECUTING SYSTEM KILL SWITCH !!!")
+                            Log.e(TAG, "!!! HOST CONNECTION CONFIRMED WHILE LOCKED: EXECUTING KILLSWITCH !!!")
+                            EventLogger.log(this@UsbTripwireService, "CRITICAL: Physical USB data host breach detected!")
 
-                            RootActions.blockAllNetworkTraffic(this@UsbTripwireService)
+                            // 1. Instantly sever data bus signaling and isolate radios via DefenseStrategy
+                            val strategy = DefenseCoordinator.resolveStrategy(this@UsbTripwireService)
+                            strategy.setUsbDataPortEnabled(false)
+                            strategy.isolateRadiosAndNetwork()
 
+                            // 2. Execute configured destruction tier
                             try {
-                                RootActions.performSecureWipePlus(this@UsbTripwireService)
+                                if (strategy.isHardwareSecured) {
+                                    strategy.executeWipe("USB_HARDWARE_TRIPWIRE_BREACH")
+                                } else {
+                                    RootActions.performSecureWipePlus(this@UsbTripwireService)
+                                }
                             } catch (e: Exception) {
-                                Log.e(TAG, "Direct secure wipe failed, triggering panic fallback", e)
+                                Log.e(TAG, "Direct secure wipe failed, triggering emergency panic fallback", e)
                                 PanicActionService.trigger(
                                     this@UsbTripwireService,
                                     "USB_TRIPWIRE_FAIL",
