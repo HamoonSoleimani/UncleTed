@@ -1,5 +1,6 @@
 package com.hamoon.uncleted.receivers
 
+import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -10,6 +11,7 @@ import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.MonitoringService
 import com.hamoon.uncleted.services.UsbTripwireService
 import com.hamoon.uncleted.services.ZoneWipeService
+import com.hamoon.uncleted.util.SafeBootPolicy
 import com.hamoon.uncleted.util.TripwireManager
 import com.hamoon.uncleted.util.WatchdogManager
 
@@ -28,6 +30,19 @@ class BootCompletedReceiver : BroadcastReceiver() {
         if (!isPrimaryUser) {
             Log.d(TAG, "Running under secondary user space (UID: ${Process.myUid()}). Skipping core security daemons.")
             return
+        }
+
+        when (action) {
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            DevicePolicyManager.ACTION_DEVICE_OWNER_CHANGED -> {
+                SafeBootPolicy.enforce(context)
+                return
+            }
+
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_LOCKED_BOOT_COMPLETED -> SafeBootPolicy.enforce(context)
+
+            else -> return
         }
 
         val isUnlocked = SecurityPreferences.isUserUnlocked(context)

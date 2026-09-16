@@ -8,7 +8,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.UserHandle
-import android.os.UserManager
 import android.util.Log
 import com.hamoon.uncleted.LockScreenActivity
 import com.hamoon.uncleted.R
@@ -18,6 +17,7 @@ import com.hamoon.uncleted.services.PanicActionService
 import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.GodMode
 import com.hamoon.uncleted.util.RootChecker
+import com.hamoon.uncleted.util.SafeBootPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,6 +40,7 @@ class AdminReceiver : DeviceAdminReceiver() {
         super.onEnabled(context, intent)
         Log.i(TAG, "Device Admin enabled. Initializing hardware baseline policies.")
         EventLogger.log(context, "Device Admin enabled successfully.")
+        SafeBootPolicy.enforce(context)
 
         val dpm = getManager(context)
         val admin = getWho(context)
@@ -52,15 +53,18 @@ class AdminReceiver : DeviceAdminReceiver() {
                     dpm.setPasswordQuality(admin, DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX)
                     dpm.setPasswordMinimumLength(admin, 6)
 
-                    // Permanently disallow safe mode to prevent bypassing security sentinels
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT)
-
-                    Log.i(TAG, "Device Owner hardware zero-trust baseline enforced (including DISALLOW_SAFE_BOOT).")
+                    Log.i(TAG, "Device Owner hardware zero-trust baseline enforced.")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed configuring initial Device Owner policies", e)
                 }
             }
         }
+    }
+
+    override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
+        super.onProfileProvisioningComplete(context, intent)
+        Log.i(TAG, "Profile provisioning completed. Reconciling safe-boot policy.")
+        SafeBootPolicy.enforce(context)
     }
 
     override fun onPasswordFailed(context: Context, intent: Intent) {

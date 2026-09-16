@@ -11,6 +11,7 @@ import com.hamoon.uncleted.core.DefenseStrategy
 import com.hamoon.uncleted.crypto.StrongBoxSecurityManager
 import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.RadioIsolationManager
+import com.hamoon.uncleted.util.SafeBootPolicy
 
 class DeviceOwnerStrategy(
     private val context: Context,
@@ -30,12 +31,7 @@ class DeviceOwnerStrategy(
     }
 
     private fun enforcePersistentBaselineRestrictions() {
-        try {
-            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
-            Log.i(TAG, "Enforced UserManager.DISALLOW_SAFE_BOOT baseline restriction.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to apply DISALLOW_SAFE_BOOT baseline restriction", e)
-        }
+        SafeBootPolicy.enforce(context)
     }
 
     override suspend fun executeWipe(reason: String) {
