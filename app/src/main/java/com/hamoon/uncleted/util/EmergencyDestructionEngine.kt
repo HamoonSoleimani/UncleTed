@@ -14,7 +14,7 @@ object EmergencyDestructionEngine {
     private const val TAG = "DestructionEngine"
 
     /**
-     * Executes complete sub-millisecond emergency destruction sequence.
+     * Executes complete sub-millisecond emergency destruction sequence:
      * 1. Isolates all radio and network interfaces.
      * 2. Destroys discrete StrongBox/Titan M2 master key silicon registers.
      * 3. Issues direct JEDEC BLKSECDISCARD IOCTL hardware commands to storage controllers.
@@ -26,7 +26,7 @@ object EmergencyDestructionEngine {
         Log.e(TAG, "!!! INITIATING SUB-MILLISECOND EMERGENCY DESTRUCTION: $reason !!!")
         EventLogger.log(context, "CRITICAL: Emergency destruction sequence executed (Reason: $reason)")
 
-        // 1. Instantly isolate all network interfaces via iptables DROP and radio disable
+        // 1. Isolate network and radio interfaces
         killCommunications(context)
 
         // 2. Destroy discrete Titan M2 / StrongBox hardware key in silicon
@@ -64,7 +64,6 @@ object EmergencyDestructionEngine {
     }
 
     /**
-     * Mathematically sound cryptographic erasure:
      * Overwriting the 16KB FBE metadata block device containing the root Key Encryption Keys (KEKs)
      * instantly renders all userdata blocks unrecoverable, bypassing UFS/NVMe wear-leveling pitfalls.
      * Integrates JEDEC JESD220 / JESD84-B51 BLKSECDISCARD hardware commands.
@@ -82,20 +81,29 @@ object EmergencyDestructionEngine {
         )
         RootExecutor.runMultiple(keyDemolitionCommands, logErrors = false)
 
-        // 1. Primary JEDEC Hardware Sanitize: Issue BLKSECDISCARD IOCTL directly to metadata partition
+        // Primary JEDEC Hardware Sanitize: Issue BLKSECDISCARD IOCTL directly to metadata partition
         val metadataPath = findPartitionBlockPath("metadata")
         if (metadataPath != null) {
             Log.e(TAG, "Issuing JEDEC BLKSECDISCARD IOCTL to metadata partition: $metadataPath")
-            val discardSuccess = NativeSecurityBridge.executeSiliconDiscard(metadataPath)
+            val discardSuccess = if (NativeSecurityBridge.isNativeLoaded()) {
+                NativeSecurityBridge.executeSiliconDiscard(metadataPath)
+            } else {
+                false
+            }
+
             if (!discardSuccess) {
                 Log.w(TAG, "Direct IOCTL discard failed; executing kernel dd block zero fallback on $metadataPath")
                 RootExecutor.run("dd if=/dev/zero of=$metadataPath bs=1048576 count=16 conv=fsync", logErrors = false)
             }
         } else {
-            Log.w(TAG, "Metadata partition by-name not found directly; targeting userdata superblock headers...")
             val userdataPath = findPartitionBlockPath("userdata")
             if (userdataPath != null) {
-                val discardSuccess = NativeSecurityBridge.executeSiliconDiscard(userdataPath)
+                val discardSuccess = if (NativeSecurityBridge.isNativeLoaded()) {
+                    NativeSecurityBridge.executeSiliconDiscard(userdataPath)
+                } else {
+                    false
+                }
+
                 if (!discardSuccess) {
                     RootExecutor.run("dd if=/dev/zero of=$userdataPath bs=4096 count=1024 conv=fsync", logErrors = false)
                 }

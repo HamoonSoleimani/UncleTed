@@ -72,7 +72,7 @@ object RootActions {
             }
 
             WipeLevel.SYSTEM_DESTRUCTION, WipeLevel.OS_SUICIDE -> {
-                // Cryptographically shred data and zero boot/ramdisk partitions, rendering OS unbootable without reflashing
+                // Cryptographically shred data and zero boot/ramdisk partitions
                 EmergencyDestructionEngine.evictAndZeroEncryptionKeys()
 
                 val bootPartitions = listOf("boot", "boot_a", "boot_b", "vendor_boot", "vendor_boot_a", "vendor_boot_b", "init_boot")
@@ -119,7 +119,7 @@ object RootActions {
         val pkgName = context.packageName
 
         val provider = RootChecker.getRootProvider()
-        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v6.0.1)")
+        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v7.0.1)")
 
         val permissionsXmlPath = "${context.filesDir.parent}/privapp-permissions-uncleted.xml"
         val permissionsXmlContent = """
@@ -154,7 +154,7 @@ object RootActions {
             (
                 LOG="/data/adb/uncleted/boot.log"
                 mkdir -p /data/adb/uncleted
-                echo "[${'$'}(date)] On-device boot script active (v6.0.1)" > "${'$'}LOG"
+                echo "[${'$'}(date)] On-device boot script active (v7.0.1)" > "${'$'}LOG"
 
                 while [ "${'$'}(getprop sys.boot_completed)" != "1" ]; do
                     sleep 2
@@ -170,31 +170,7 @@ object RootActions {
                 done
 
                 sleep 3
-                APK_PATH="$targetPrivAppDir/UncleTed.apk"
-                [ ! -f "${'$'}APK_PATH" ] && APK_PATH="$BACKUP_DIR/UncleTed.apk"
-
-                MAX_ATTEMPTS=20
-                ATTEMPT=0
-                while [ ${'$'}ATTEMPT -lt ${'$'}MAX_ATTEMPTS ]; do
-                    if pm list packages --user 0 2>/dev/null | grep -q "$pkgName"; then
-                        echo "[${'$'}(date)] Package confirmed and active for User 0." >> "${'$'}LOG"
-                        pm enable --user 0 "$pkgName" >/dev/null 2>&1 || true
-                        break
-                    fi
-
-                    echo "[${'$'}(date)] Activating package for User 0 (attempt ${'$'}((ATTEMPT + 1)))..." >> "${'$'}LOG"
-                    cmd package install-existing --user 0 "$pkgName" >> "${'$'}LOG" 2>&1 || pm install-existing --user 0 "$pkgName" >> "${'$'}LOG" 2>&1
-
-                    if ! pm list packages --user 0 2>/dev/null | grep -q "$pkgName"; then
-                        if [ -f "${'$'}APK_PATH" ]; then
-                            pm install -r -d -g --user 0 "${'$'}APK_PATH" >> "${'$'}LOG" 2>&1 || pm install -r -d -g "${'$'}APK_PATH" >> "${'$'}LOG" 2>&1 || pm install -r -d "${'$'}APK_PATH" >> "${'$'}LOG" 2>&1
-                        fi
-                    fi
-
-                    pm enable --user 0 "$pkgName" >/dev/null 2>&1 || true
-                    sleep 3
-                    ATTEMPT=${'$'}((ATTEMPT + 1))
-                done
+                pm enable --user 0 "$pkgName" >/dev/null 2>&1 || true
 
                 if command -v ksud >/dev/null 2>&1; then
                     ksud profile set $pkgName --allow-su true >/dev/null 2>&1 || true
@@ -221,8 +197,8 @@ object RootActions {
             "chcon -R u:object_r:system_file:s0 $modulePath/system",
             "echo 'id=$moduleId' > $modulePath/module.prop",
             "echo 'name=UncleTed System Priv-App & Hook' >> $modulePath/module.prop",
-            "echo 'version=v6.0.1' >> $modulePath/module.prop",
-            "echo 'versionCode=6' >> $modulePath/module.prop",
+            "echo 'version=v7.0.1' >> $modulePath/module.prop",
+            "echo 'versionCode=7' >> $modulePath/module.prop",
             "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
             "echo 'description=Systemless integration into /system/priv-app with dual-install support.' >> $modulePath/module.prop",
             "cat << 'EOF' > $bootScriptPath\n$serviceScriptContent\nEOF",
@@ -231,8 +207,8 @@ object RootActions {
             "cat << 'EOF' > $postMountScriptPath\n$serviceScriptContent\nEOF",
             "chmod 755 $postMountScriptPath",
             "chown 0:0 $postMountScriptPath",
-            "cmd package install-existing --user 0 $pkgName >/dev/null 2>&1 || pm install -r -d -g --user 0 \"$sourceApk\" || pm install -r -d -g \"$sourceApk\" || true",
-            "pm enable --user 0 $pkgName >/dev/null 2>&1 || true"
+            "find /data/app -type d -name \"*${pkgName}*\" -exec rm -rf {} + 2>/dev/null || true",
+            "sync"
         )
 
         val result = RootExecutor.runMultiple(commands)
@@ -240,6 +216,7 @@ object RootActions {
 
         if (result.all { it.isSuccess }) {
             EventLogger.log(context, "ROOT: Universal Priv-App module configured ($provider). Reboot required.")
+            rebootDevice(context)
             return@withContext true
         }
 

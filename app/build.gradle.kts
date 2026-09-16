@@ -12,8 +12,8 @@ android {
         applicationId = "com.hamoon.uncleted"
         minSdk = 28
         targetSdk = 34
-        versionCode = 6
-        versionName = "6.0.1"
+        versionCode = 7
+        versionName = "7.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

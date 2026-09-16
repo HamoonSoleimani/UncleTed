@@ -67,7 +67,7 @@ class ZoneWipeService : Service() {
     @SuppressLint("MissingPermission")
     private fun startLocationMonitoring() {
         if (!PermissionUtils.hasLocationPermissions(this)) {
-            Log.e(TAG, "Missing location permissions. Zone Wipe monitoring disabled.")
+            Log.e(TAG, "Missing location permissions. Zone Wipe monitoring aborted.")
             stopSelf()
             return
         }

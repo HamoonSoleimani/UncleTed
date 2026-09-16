@@ -36,10 +36,12 @@ object TripwireManager {
         }
 
         val durationHours = SecurityPreferences.getTripwireDuration(context).toLong()
-        val triggerAtEpoch = System.currentTimeMillis() + TimeUnit.HOURS.toMillis(durationHours)
+        val lastCheckIn = SecurityPreferences.getLastTripwireCheckIn(context)
+        val baselineEpoch = if (lastCheckIn > 0L) lastCheckIn else System.currentTimeMillis()
+        val triggerAtEpoch = baselineEpoch + TimeUnit.HOURS.toMillis(durationHours)
 
         setHardwareAlarm(context, triggerAtEpoch)
-        Log.i(TAG, "Hardware Tripwire armed via AlarmManager for $durationHours hours (Epoch: $triggerAtEpoch)")
+        Log.i(TAG, "Hardware Dead-Man Tripwire armed via AlarmManager for $durationHours hours (Deadline: $triggerAtEpoch)")
         EventLogger.log(context, "TRIPWIRE: Armed for $durationHours hours.")
     }
 
@@ -55,10 +57,21 @@ object TripwireManager {
         if (!SecurityPreferences.isTripwireEnabled(context)) {
             return
         }
+        val now = System.currentTimeMillis()
         Log.i(TAG, "Device activity/network check-in verified. Resetting tripwire hardware alarm.")
-        SecurityPreferences.setLastTripwireCheckIn(context, System.currentTimeMillis())
+        SecurityPreferences.setLastTripwireCheckIn(context, now)
         cancelTripwire(context)
         armTripwire(context)
+    }
+
+    fun getRemainingTimeMillis(context: Context): Long {
+        if (!SecurityPreferences.isTripwireEnabled(context)) return -1L
+        val lastCheckIn = SecurityPreferences.getLastTripwireCheckIn(context)
+        if (lastCheckIn == 0L) return -1L
+
+        val durationMillis = TimeUnit.HOURS.toMillis(SecurityPreferences.getTripwireDuration(context).toLong())
+        val deadlineEpoch = lastCheckIn + durationMillis
+        return deadlineEpoch - System.currentTimeMillis()
     }
 
     /**
@@ -112,7 +125,7 @@ object TripwireManager {
                     alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpoch, pendingIntent)
                 }
             } catch (e: SecurityException) {
-                Log.w(TAG, "Exact alarm permission missing, scheduling via setAndAllowWhileIdle", e)
+                Log.w(TAG, "Exact alarm permission missing; scheduling via setAndAllowWhileIdle fallback", e)
                 alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpoch, pendingIntent)
             }
         } else {

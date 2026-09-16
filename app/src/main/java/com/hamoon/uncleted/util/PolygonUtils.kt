@@ -7,7 +7,7 @@ import java.util.UUID
 
 object PolygonUtils {
 
-    // Default Evin Prison perimeter vertices: Pair(Latitude, Longitude)
+    // Pre-configured perimeter coordinates: Pair(Latitude, Longitude) for Evin Prison
     val EVIN_PRISON_PERIMETER = listOf(
         Pair(35.79211607672131, 51.38142755893173),
         Pair(35.79284579163674, 51.38666960999226),
@@ -26,8 +26,9 @@ object PolygonUtils {
     )
 
     /**
-     * Numerically robust Ray-Casting Point-in-Polygon Algorithm.
-     * Uses half-open latitude intervals to eliminate vertex double-counting and division by zero.
+     * Numerically robust Ray-Casting Point-in-Polygon (PIP) Algorithm.
+     * Uses half-open latitude intervals [vLatI, vLatJ) to eliminate vertex double-counting
+     * and horizontal collinear ray division-by-zero artifacts.
      */
     fun isLocationInZone(location: Location, polygon: List<Pair<Double, Double>>): Boolean {
         if (polygon.size < 3) return false
@@ -43,6 +44,7 @@ object PolygonUtils {
             val vLatJ = polygon[j].first
             val vLonJ = polygon[j].second
 
+            // Check if horizontal ray crosses edge (vI, vJ) using half-open test
             if ((vLatI > pLat) != (vLatJ > pLat)) {
                 val intersectLon = vLonI + (pLat - vLatI) * (vLonJ - vLonI) / (vLatJ - vLatI)
                 if (pLon < intersectLon) {
@@ -56,17 +58,18 @@ object PolygonUtils {
     }
 
     /**
-     * Universal zone evaluation supporting both polygon bounds and circular radii.
+     * Universal zone boundary resolver supporting both multi-point polygon boundaries
+     * and circular radius perimeters.
      */
     fun isLocationInWipeZone(location: Location, zone: WipeZone): Boolean {
         if (!zone.isEnabled) return false
 
-        // 1. Polygon Zone Check
+        // 1. Polygon Zone Evaluation
         if (zone.polygon.size >= 3) {
             return isLocationInZone(location, zone.polygon)
         }
 
-        // 2. Circular Zone Check
+        // 2. Circular Geofence Radius Evaluation
         if (zone.radiusMeters > 0f) {
             val results = FloatArray(1)
             Location.distanceBetween(
@@ -109,7 +112,7 @@ object PolygonUtils {
     }
 
     fun deserializeZones(json: String): List<WipeZone> {
-        if (json.isEmpty()) return emptyList()
+        if (json.isBlank()) return emptyList()
         val zones = mutableListOf<WipeZone>()
         try {
             val array = JSONArray(json)

@@ -25,6 +25,19 @@ class DeviceOwnerStrategy(
     override val profileName: String = "DEVICE_OWNER_AVB_LOCKED"
     override val isHardwareSecured: Boolean = true
 
+    init {
+        enforcePersistentBaselineRestrictions()
+    }
+
+    private fun enforcePersistentBaselineRestrictions() {
+        try {
+            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
+            Log.i(TAG, "Enforced UserManager.DISALLOW_SAFE_BOOT baseline restriction.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to apply DISALLOW_SAFE_BOOT baseline restriction", e)
+        }
+    }
+
     override suspend fun executeWipe(reason: String) {
         Log.e(TAG, "Executing hardware cryptographic erasure via Secure Element (Reason: $reason)")
         EventLogger.log(context, "CRITICAL: Hardware-backed cryptographic wipe triggered: $reason")

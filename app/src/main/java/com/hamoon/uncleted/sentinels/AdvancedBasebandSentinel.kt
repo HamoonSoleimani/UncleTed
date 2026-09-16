@@ -32,7 +32,6 @@ class AdvancedBasebandSentinel(private val context: Context) {
         @Volatile
         private var lastAlertTimestamp = 0L
 
-        // Telephony network type bitmasks (Android 11+ / API 30+)
         private const val NETWORK_TYPE_BITMASK_GSM_LOCAL = 1L shl (TelephonyManager.NETWORK_TYPE_GSM - 1)
         private const val NETWORK_TYPE_BITMASK_GPRS_LOCAL = 1L shl (TelephonyManager.NETWORK_TYPE_GPRS - 1)
         private const val NETWORK_TYPE_BITMASK_EDGE_LOCAL = 1L shl (TelephonyManager.NETWORK_TYPE_EDGE - 1)
@@ -53,12 +52,10 @@ class AdvancedBasebandSentinel(private val context: Context) {
             return
         }
 
-        // 1. Enforce modem-level 2G radio bitmask restriction if configured
         if (SecurityPreferences.isHardware2GDisabled(context)) {
             enforceModemLevel2GBlock()
         }
 
-        // 2. Register real-time telephony callback (Android 12+ / API 31+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
                 val callback = object : TelephonyCallback(),
@@ -66,11 +63,15 @@ class AdvancedBasebandSentinel(private val context: Context) {
                     TelephonyCallback.CellInfoListener {
 
                     override fun onServiceStateChanged(serviceState: ServiceState) {
-                        evaluateServiceStateDowngrade(serviceState)
+                        if (SecurityPreferences.isBasebandSentinelEnabled(context)) {
+                            evaluateServiceStateDowngrade(serviceState)
+                        }
                     }
 
                     override fun onCellInfoChanged(cellInfo: MutableList<CellInfo>) {
-                        evaluateRogueBaseStationSignatures(cellInfo)
+                        if (SecurityPreferences.isBasebandSentinelEnabled(context)) {
+                            evaluateRogueBaseStationSignatures(cellInfo)
+                        }
                     }
                 }
 
@@ -80,7 +81,7 @@ class AdvancedBasebandSentinel(private val context: Context) {
                 )
                 registeredCallback = callback
                 isMonitoring = true
-                Log.i(TAG, "Advanced Baseband Sentinel armed with cell-info anomaly detection.")
+                Log.i(TAG, "Advanced Baseband Sentinel armed.")
                 EventLogger.log(context, "BASEBAND: Advanced IMSI-Catcher & cell anomaly sentinel armed.")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed registering advanced telephony callbacks", e)
@@ -104,9 +105,6 @@ class AdvancedBasebandSentinel(private val context: Context) {
         }
     }
 
-    /**
-     * Physically commands the baseband modem firmware to exclude 2G radio scanning.
-     */
     fun enforceModemLevel2GBlock() {
         if (telephonyManager == null) return
 
@@ -133,9 +131,6 @@ class AdvancedBasebandSentinel(private val context: Context) {
         }
     }
 
-    /**
-     * Re-enables all normal network types (e.g. for maintenance or emergency calling).
-     */
     fun restoreModemNetworkTypes() {
         if (telephonyManager == null) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -149,6 +144,7 @@ class AdvancedBasebandSentinel(private val context: Context) {
                     restoredMask
                 )
                 Log.i(TAG, "Baseband modem network types restored.")
+                EventLogger.log(context, "BASEBAND: Baseband modem 2G bitmask restored.")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed restoring network types bitmask", e)
             }
@@ -182,7 +178,6 @@ class AdvancedBasebandSentinel(private val context: Context) {
         val maxAllowedTimingAdvance = SecurityPreferences.getTimingAdvanceThreshold(context)
 
         for (info in cellInfoList) {
-            // Threat Signature 1: Rogue 2G/GSM Cell Tower Active Despite Security Restrictions
             if (info is CellInfoGsm) {
                 if (SecurityPreferences.isHardware2GDisabled(context)) {
                     triggerBasebandThreatAlert(
@@ -193,7 +188,6 @@ class AdvancedBasebandSentinel(private val context: Context) {
                 }
             }
 
-            // Threat Signature 2: Impossible RF Topology (Stingray High Power + Extreme Timing Advance)
             if (info is CellInfoLte) {
                 val signalStrength = info.cellSignalStrength
                 val rsrp = signalStrength.rsrp
@@ -203,7 +197,7 @@ class AdvancedBasebandSentinel(private val context: Context) {
                     val estimatedMeters = timingAdvance * 78
                     triggerBasebandThreatAlert(
                         "STINGRAY_TIMING_ADVANCE_SPOOF",
-                        "Impossible RF topology: Signal is high-power (${rsrp}dBm) but Timing Advance reports ${timingAdvance} (~${estimatedMeters}m)."
+                        "Impossible RF topology: High power (${rsrp}dBm) with Timing Advance ${timingAdvance} (~${estimatedMeters}m)."
                     )
                     return
                 }

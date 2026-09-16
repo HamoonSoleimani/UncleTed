@@ -7,42 +7,41 @@ import com.hamoon.uncleted.crypto.StrongBoxSecurityManager
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.NativeSecurityBridge
+import org.bouncycastle.crypto.modes.ChaCha20Poly1305
+import org.bouncycastle.crypto.params.KeyParameter
+import org.bouncycastle.crypto.params.ParametersWithIV
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.SecureRandom
+import java.util.zip.Deflater
+import java.util.zip.Inflater
 
 object PlausibleDeniabilityVault {
 
     private const val TAG = "DeniabilityVault"
     private const val DEFAULT_CONTAINER_NAME = "RAW_20240812_0042.dng"
 
-    // TIFF / DNG Header magic numbers (Little Endian: 'II', version 42)
-    private val DNG_MAGIC_LE = byteArrayOf(0x49, 0x49, 0x2A, 0x00)
-    private val DNG_SUBIFD_TAG = byteArrayOf(0x44, 0x4E, 0x47, 0x01) // Custom private tag anchor
+    private val TIFF_MAGIC_LE = byteArrayOf(0x49, 0x49, 0x2A, 0x00)
+    private const val PRIVATE_PAYLOAD_TAG_ID: Short = 0xC634.toShort()
 
     @Synchronized
     fun storeSecretBlob(context: Context, label: String, rawSecret: ByteArray): Boolean {
-        if (!NativeSecurityBridge.isNativeLoaded()) {
-            Log.e(TAG, "Native security library missing. Aborting vault storage.")
-            return false
-        }
-
         NativeSecurityBridge.pinMemory(rawSecret)
 
         return try {
             val masterKeyBytes = deriveVaultKey(context)
             if (masterKeyBytes == null) {
-                Log.e(TAG, "Could not derive master vault key from StrongBox.")
+                Log.e(TAG, "Failed deriving master vault key from StrongBox HSM.")
                 return false
             }
 
             val nonce = ByteArray(12)
             SecureRandom().nextBytes(nonce)
 
-            // 1. Pack Label + Secret
             val labelBytes = label.toByteArray(Charsets.UTF_8)
             val packedBuffer = ByteBuffer.allocate(4 + labelBytes.size + 4 + rawSecret.size)
                 .order(ByteOrder.LITTLE_ENDIAN)
@@ -52,22 +51,25 @@ object PlausibleDeniabilityVault {
                 .put(rawSecret)
                 .array()
 
-            // 2. Compress & Encrypt via Native CES Pipeline (zlib + ChaCha20-Poly1305)
-            val ciphertextWithTag = NativeSecurityBridge.compressAndEncrypt(packedBuffer, masterKeyBytes, nonce)
+            val ciphertextWithTag = if (NativeSecurityBridge.isNativeLoaded()) {
+                NativeSecurityBridge.compressAndEncrypt(packedBuffer, masterKeyBytes, nonce)
+            } else {
+                compressAndEncryptFallback(packedBuffer, masterKeyBytes, nonce)
+            }
+
             NativeSecurityBridge.zeroByteArray(masterKeyBytes)
             NativeSecurityBridge.zeroByteArray(packedBuffer)
 
             if (ciphertextWithTag == null) {
-                Log.e(TAG, "Native CES compression/encryption failed.")
+                Log.e(TAG, "Compression and encryption pipeline failed during vault write.")
                 return false
             }
 
-            // 3. Shape Entropy & Embed in Polyglot DNG Container
             val containerFile = getTargetContainerFile(context)
-            val polyglotStream = synthesizeDngPolyglot(nonce, ciphertextWithTag)
+            val polyglotDngStream = synthesizeAuthenticDng(nonce, ciphertextWithTag)
 
             FileOutputStream(containerFile).use { fos ->
-                fos.write(polyglotStream)
+                fos.write(polyglotDngStream)
                 fos.flush()
             }
 
@@ -84,8 +86,6 @@ object PlausibleDeniabilityVault {
 
     @Synchronized
     fun extractSecretBlob(context: Context, label: String): ByteArray? {
-        if (!NativeSecurityBridge.isNativeLoaded()) return null
-
         val containerFile = getTargetContainerFile(context)
         if (!containerFile.exists()) {
             Log.w(TAG, "Vault container file not found: ${containerFile.absolutePath}")
@@ -99,14 +99,19 @@ object PlausibleDeniabilityVault {
             return null
         }
 
-        val parsed = extractCesPayloadFromDng(fileBytes) ?: return null
+        val parsed = extractPayloadFromDng(fileBytes) ?: return null
         val masterKeyBytes = deriveVaultKey(context) ?: return null
 
-        val decryptedPacked = NativeSecurityBridge.decryptAndDecompress(parsed.ciphertextWithTag, masterKeyBytes, parsed.nonce)
+        val decryptedPacked = if (NativeSecurityBridge.isNativeLoaded()) {
+            NativeSecurityBridge.decryptAndDecompress(parsed.ciphertextWithTag, masterKeyBytes, parsed.nonce)
+        } else {
+            decryptAndDecompressFallback(parsed.ciphertextWithTag, masterKeyBytes, parsed.nonce)
+        }
+
         NativeSecurityBridge.zeroByteArray(masterKeyBytes)
 
         if (decryptedPacked == null) {
-            Log.e(TAG, "Authentication tag mismatch or decompression error during vault extraction.")
+            Log.e(TAG, "Decryption authentication failed or tag mismatch during extraction.")
             return null
         }
 
@@ -146,9 +151,8 @@ object PlausibleDeniabilityVault {
         val containerFile = getTargetContainerFile(context)
         if (containerFile.exists()) {
             try {
-                // Secure overwrite of carrier container prior to file unlink
                 val len = containerFile.length().toInt()
-                val randomJunk = ByteArray(if (len > 0) len else 4096)
+                val randomJunk = ByteArray(if (len > 0) len else 8192)
                 SecureRandom().nextBytes(randomJunk)
 
                 FileOutputStream(containerFile).use { fos ->
@@ -156,7 +160,7 @@ object PlausibleDeniabilityVault {
                     fos.flush()
                 }
                 containerFile.delete()
-                Log.i(TAG, "Plausible deniability vault carrier permanently unlinked and overwritten.")
+                Log.i(TAG, "Plausible deniability vault container permanently unlinked and overwritten.")
                 EventLogger.log(context, "VAULT: Overwritten and purged deniable carrier container.")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed purging vault container file", e)
@@ -164,72 +168,110 @@ object PlausibleDeniabilityVault {
         }
     }
 
-    private fun synthesizeDngPolyglot(nonce: ByteArray, ciphertextWithTag: ByteArray): ByteArray {
-        val headerSize = 32
-        val payloadLen = ciphertextWithTag.size
-        val nonceLen = nonce.size
+    private fun synthesizeAuthenticDng(nonce: ByteArray, ciphertextWithTag: ByteArray): ByteArray {
+        val payloadEnvelope = ByteBuffer.allocate(4 + nonce.size + 4 + ciphertextWithTag.size)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(nonce.size)
+            .put(nonce)
+            .putInt(ciphertextWithTag.size)
+            .put(ciphertextWithTag)
+            .array()
 
-        // Generate deterministic pseudorandom chaff to skew entropy toward typical uncompressed RAW images (H ~ 7.3)
-        val chaffSize = 1024 + (payloadLen % 512)
-        val chaff = ByteArray(chaffSize)
-        SecureRandom().nextBytes(chaff)
+        val sensorChaffSize = 4096 + (ciphertextWithTag.size % 1024)
+        val sensorChaff = ByteArray(sensorChaffSize)
+        SecureRandom().nextBytes(sensorChaff)
 
-        val totalSize = headerSize + 4 + nonceLen + 4 + payloadLen + chaffSize
+        val ifdOffset = 8
+        val numEntries: Short = 7
+        val ifdSize = 2 + (numEntries * 12) + 4
+
+        val payloadOffset = ifdOffset + ifdSize
+        val payloadLen = payloadEnvelope.size
+
+        val totalSize = payloadOffset + payloadLen + sensorChaffSize
         val output = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN)
 
-        // 1. TIFF / DNG File Header
-        output.put(DNG_MAGIC_LE) // 'II' + 42
-        output.putInt(8)         // Offset to first IFD
-        output.put(DNG_SUBIFD_TAG)
-        output.putLong(System.currentTimeMillis())
-        output.putInt(0x00000001) // Version anchor
-        output.putInt(0x00000000) // Padding
+        // 1. TIFF Header
+        output.put(TIFF_MAGIC_LE)
+        output.putInt(ifdOffset)
 
-        // 2. Encapsulated Payload Envelope
-        output.putInt(nonceLen)
-        output.put(nonce)
-        output.putInt(payloadLen)
-        output.put(ciphertextWithTag)
+        // 2. IFD0 Entries
+        output.putShort(numEntries)
+        writeIfdEntry(output, 0x00FE.toShort(), 4, 1, 0)
+        writeIfdEntry(output, 0x0100.toShort(), 3, 1, 4032)
+        writeIfdEntry(output, 0x0101.toShort(), 3, 1, 3024)
+        writeIfdEntry(output, 0x0102.toShort(), 3, 1, 16)
+        writeIfdEntry(output, 0x0103.toShort(), 3, 1, 1)
+        writeIfdEntry(output, 0xC612.toShort(), 1, 4, 0x01040000)
+        writeIfdEntry(output, PRIVATE_PAYLOAD_TAG_ID, 7, payloadLen, payloadOffset)
+        output.putInt(0)
 
-        // 3. Statistical Chaff Tail (Entropy Shaping Buffer)
-        output.put(chaff)
+        // 3. Payload & Chaff
+        output.put(payloadEnvelope)
+        output.put(sensorChaff)
 
         return output.array()
     }
 
+    private fun writeIfdEntry(buffer: ByteBuffer, tag: Short, type: Short, count: Int, valueOrOffset: Int) {
+        buffer.putShort(tag)
+        buffer.putShort(type)
+        buffer.putInt(count)
+        buffer.putInt(valueOrOffset)
+    }
+
     private data class ParsedCarrier(val nonce: ByteArray, val ciphertextWithTag: ByteArray)
 
-    private fun extractCesPayloadFromDng(fileBytes: ByteArray): ParsedCarrier? {
-        if (fileBytes.size < 48) return null
+    private fun extractPayloadFromDng(fileBytes: ByteArray): ParsedCarrier? {
+        if (fileBytes.size < 64) return null
 
         val buffer = ByteBuffer.wrap(fileBytes).order(ByteOrder.LITTLE_ENDIAN)
 
         val magic = ByteArray(4)
         buffer.get(magic)
-        if (!magic.contentEquals(DNG_MAGIC_LE)) {
-            Log.e(TAG, "Carrier header mismatch: Not a valid DNG/TIFF polyglot container.")
+        if (!magic.contentEquals(TIFF_MAGIC_LE)) {
+            Log.e(TAG, "Carrier header mismatch: Not a Little-Endian TIFF/DNG structure.")
             return null
         }
 
-        buffer.position(12)
-        val anchor = ByteArray(4)
-        buffer.get(anchor)
-        if (!anchor.contentEquals(DNG_SUBIFD_TAG)) {
-            Log.e(TAG, "Carrier anchor tag invalid.")
+        val ifdOffset = buffer.int
+        if (ifdOffset <= 0 || ifdOffset >= fileBytes.size - 2) return null
+
+        buffer.position(ifdOffset)
+        val numEntries = buffer.short
+
+        var payloadOffset = -1
+        var payloadLength = -1
+
+        for (i in 0 until numEntries) {
+            val tag = buffer.short
+            buffer.short
+            val count = buffer.int
+            val valueOrOffset = buffer.int
+
+            if (tag == PRIVATE_PAYLOAD_TAG_ID) {
+                payloadLength = count
+                payloadOffset = valueOrOffset
+                break
+            }
+        }
+
+        if (payloadOffset <= 0 || payloadLength <= 16 || payloadOffset + payloadLength > fileBytes.size) {
+            Log.e(TAG, "DNG PrivateData payload tag not found or corrupt.")
             return null
         }
 
-        buffer.position(32)
+        buffer.position(payloadOffset)
         val nonceLen = buffer.int
         if (nonceLen != 12) return null
 
         val nonce = ByteArray(nonceLen)
         buffer.get(nonce)
 
-        val payloadLen = buffer.int
-        if (payloadLen <= 16 || payloadLen > buffer.remaining()) return null
+        val cipherLen = buffer.int
+        if (cipherLen <= 16 || cipherLen > buffer.remaining()) return null
 
-        val ciphertextWithTag = ByteArray(payloadLen)
+        val ciphertextWithTag = ByteArray(cipherLen)
         buffer.get(ciphertextWithTag)
 
         return ParsedCarrier(nonce, ciphertextWithTag)
@@ -246,12 +288,76 @@ object PlausibleDeniabilityVault {
 
     private fun getTargetContainerFile(context: Context): File {
         val customName = SecurityPreferences.getVaultCarrierFileName(context)
-        val targetName = if (customName.isNullOrBlank()) DEFAULT_CONTAINER_NAME else customName
+        val targetName = if (customName.isBlank()) DEFAULT_CONTAINER_NAME else customName
 
-        val dcimDir = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "Camera")
-        if (!dcimDir.exists()) {
-            dcimDir.mkdirs()
+        val externalPictures = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        val cameraDir = File(externalPictures, "Camera")
+        if (!cameraDir.exists()) {
+            cameraDir.mkdirs()
         }
-        return File(dcimDir, targetName)
+
+        return if (cameraDir.exists() && cameraDir.canWrite()) {
+            File(cameraDir, targetName)
+        } else {
+            val internalCamera = File(context.filesDir, "Camera")
+            if (!internalCamera.exists()) internalCamera.mkdirs()
+            File(internalCamera, targetName)
+        }
+    }
+
+    private fun compressAndEncryptFallback(plaintext: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray? {
+        return try {
+            val deflater = Deflater(Deflater.BEST_COMPRESSION)
+            deflater.setInput(plaintext)
+            deflater.finish()
+
+            val compressedStream = ByteArrayOutputStream()
+            val buffer = ByteArray(1024)
+            while (!deflater.finished()) {
+                val count = deflater.deflate(buffer)
+                compressedStream.write(buffer, 0, count)
+            }
+            deflater.end()
+            val compressedData = compressedStream.toByteArray()
+
+            val cipher = ChaCha20Poly1305()
+            cipher.init(true, ParametersWithIV(KeyParameter(key), nonce))
+
+            val output = ByteArray(cipher.getOutputSize(compressedData.size))
+            val len = cipher.processBytes(compressedData, 0, compressedData.size, output, 0)
+            cipher.doFinal(output, len)
+
+            output
+        } catch (e: Exception) {
+            Log.e(TAG, "Fallback encryption failed", e)
+            null
+        }
+    }
+
+    private fun decryptAndDecompressFallback(ciphertextWithTag: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray? {
+        return try {
+            val cipher = ChaCha20Poly1305()
+            cipher.init(false, ParametersWithIV(KeyParameter(key), nonce))
+
+            val decryptedCompressed = ByteArray(cipher.getOutputSize(ciphertextWithTag.size))
+            val len = cipher.processBytes(ciphertextWithTag, 0, ciphertextWithTag.size, decryptedCompressed, 0)
+            cipher.doFinal(decryptedCompressed, len)
+
+            val inflater = Inflater()
+            inflater.setInput(decryptedCompressed)
+
+            val decompressedStream = ByteArrayOutputStream()
+            val buffer = ByteArray(1024)
+            while (!inflater.finished()) {
+                val count = inflater.inflate(buffer)
+                decompressedStream.write(buffer, 0, count)
+            }
+            inflater.end()
+
+            decompressedStream.toByteArray()
+        } catch (e: Exception) {
+            Log.e(TAG, "Fallback decryption failed", e)
+            null
+        }
     }
 }

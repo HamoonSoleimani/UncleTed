@@ -20,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import com.hamoon.uncleted.MainActivity
 import com.hamoon.uncleted.R
 import com.hamoon.uncleted.data.SecurityPreferences
+import com.hamoon.uncleted.proximity.BleProximitySentinel
 import com.hamoon.uncleted.receivers.ScreenStateReceiver
 import com.hamoon.uncleted.receivers.WidgetActionReceiver
 import com.hamoon.uncleted.sentinels.AdvancedBasebandSentinel
@@ -44,6 +45,7 @@ class MonitoringService : LifecycleService(), SensorEventListener {
     private var advancedBasebandSentinel: AdvancedBasebandSentinel? = null
     private var spectralSentinel: SpectralSentinel? = null
     private var pmicSentinel: PmicTamperSentinel? = null
+    private var bleProximitySentinel: BleProximitySentinel? = null
     private var screenStateReceiver: ScreenStateReceiver? = null
 
     private var sentinelPollerJob: Job? = null
@@ -109,7 +111,15 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 // 5. PMIC Battery Micro-Telemetry & Anti-Disassembly Tripwire
                 pmicSentinel = PmicTamperSentinel(applicationContext)
 
-                // 6. Dynamic Registration of Screen State Receiver (ACTION_SCREEN_OFF cannot be static)
+                // 6. BLE/UWB Proximity Key Sharding Sentinel (Shamir 2-of-2 Hardware Separation)
+                if (SecurityPreferences.isProximityShardingEnabled(applicationContext)) {
+                    bleProximitySentinel = BleProximitySentinel(applicationContext).apply {
+                        start()
+                    }
+                    Log.i("MonitoringService", "BLE Proximity Sentinel initialized.")
+                }
+
+                // 7. Dynamic Screen State Receiver (ACTION_SCREEN_OFF for ZRAM/drop_caches)
                 val screenFilter = IntentFilter().apply {
                     addAction(Intent.ACTION_SCREEN_OFF)
                     addAction(Intent.ACTION_USER_PRESENT)
@@ -121,7 +131,7 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 startSentinelPoller()
             }
 
-            Log.i("MonitoringService", "MonitoringService: Sensors, ScreenState, Spectral, and PMIC Sentinels active.")
+            Log.i("MonitoringService", "MonitoringService: Sensors, Spectral, PMIC, Baseband, and Proximity Sentinels active.")
         } catch (e: Exception) {
             Log.e("MonitoringService", "Failed to initialize monitoring components", e)
         }
@@ -201,7 +211,7 @@ class MonitoringService : LifecycleService(), SensorEventListener {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText("Expand for security controls.")
+            .setContentText("Expand for defense controls.")
             .setSmallIcon(R.drawable.ic_shield_check_24)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -239,6 +249,8 @@ class MonitoringService : LifecycleService(), SensorEventListener {
             } catch (_: Exception) {}
         }
         screenStateReceiver = null
+        bleProximitySentinel?.stop()
+        bleProximitySentinel = null
         MotionDetector.stop()
         advancedBasebandSentinel?.stop()
         advancedBasebandSentinel = null

@@ -16,20 +16,18 @@ class PmicTamperSentinel(private val context: Context) {
 
     private val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
 
+    @Volatile
     private var baselineResistance: Long = -1L
+    @Volatile
     private var baselineTemp: Long = -1L
+    @Volatile
     private var isCalibrated = false
 
     companion object {
         private const val TAG = "PmicTamperSentinel"
 
-        // Step change: > 35 mΩ (35,000 µΩ) shift indicates benchtop DC power supply micro-clamp splice
-        private const val RESISTANCE_DELTA_THRESHOLD_UOHM = 35_000L
-
-        // Temperature thresholds (tenths of a degree Celsius: 150 = 15.0°C, 600 = 60.0°C)
-        private const val MIN_PLAUSIBLE_BATTERY_TEMP = 50L  // 5.0°C
-        private const val MAX_PLAUSIBLE_BATTERY_TEMP = 650L // 65.0°C
-        private const val THERMAL_GRADIENT_SHOCK_DELTA = 120L // Rapid 12.0°C drop from chassis opening
+        private const val MIN_PLAUSIBLE_BATTERY_TEMP = 50L  // 5.0°C (in 0.1°C units)
+        private const val MAX_PLAUSIBLE_BATTERY_TEMP = 650L // 65.0°C (in 0.1°C units)
 
         private val RESISTANCE_CANDIDATE_PATHS = listOf(
             "/sys/class/power_supply/bms/resistance",
@@ -45,13 +43,35 @@ class PmicTamperSentinel(private val context: Context) {
         )
     }
 
+    fun getLiveTelemetry(): Pair<Long, Long> {
+        val r = readFirstAvailableNode(RESISTANCE_CANDIDATE_PATHS)
+        val t = readFirstAvailableNode(TEMP_CANDIDATE_PATHS)
+        return Pair(r, t)
+    }
+
+    fun recalibrateBaseline(): Boolean {
+        val currentResistance = readFirstAvailableNode(RESISTANCE_CANDIDATE_PATHS)
+        val currentTemp = readFirstAvailableNode(TEMP_CANDIDATE_PATHS)
+
+        if (currentResistance <= 0L && currentTemp <= 0L) {
+            Log.w(TAG, "Cannot recalibrate: BMS telemetry nodes unavailable on this SoC.")
+            return false
+        }
+
+        baselineResistance = currentResistance
+        baselineTemp = currentTemp
+        isCalibrated = true
+        Log.i(TAG, "Hardware PMIC baseline recalibrated: R_int=${baselineResistance}uOhm, Temp=${baselineTemp}")
+        EventLogger.log(context, "PMIC SENTINEL: Baseline recalibrated (R_int=${baselineResistance}uOhm, Temp=${baselineTemp}).")
+        return true
+    }
+
     fun inspectHardwareTelemetry() {
         if (!SecurityPreferences.isPmicTamperEnabled(context)) {
             isCalibrated = false
             return
         }
 
-        // Only enforce anti-disassembly tripwires when screen is locked
         val isLocked = keyguardManager?.isDeviceLocked ?: true
         if (!isLocked) {
             isCalibrated = false
@@ -62,7 +82,6 @@ class PmicTamperSentinel(private val context: Context) {
         val currentTemp = readFirstAvailableNode(TEMP_CANDIDATE_PATHS)
 
         if (currentResistance <= 0L && currentTemp <= 0L) {
-            // Hardware platform does not expose BMS telemetry nodes
             return
         }
 
@@ -74,38 +93,41 @@ class PmicTamperSentinel(private val context: Context) {
             return
         }
 
-        // Vector 1: Battery Connector Splicing / External Power Supply Jig Insertion
+        val maxAllowedResistanceDelta = SecurityPreferences.getPmicImpedanceDeltaThreshold(context)
+        val maxAllowedThermalShockDelta = SecurityPreferences.getPmicThermalShockDelta(context)
+
+        // Vector 1: Battery Terminal Splicing / Benchtop DC Jig Attachment
         if (baselineResistance > 0L && currentResistance > 0L) {
             val resistanceDelta = Math.abs(currentResistance - baselineResistance)
-            if (resistanceDelta >= RESISTANCE_DELTA_THRESHOLD_UOHM) {
-                Log.e(TAG, "TAMPER BREACH: Impedance step-jump of ${resistanceDelta}uOhm detected! Bench power supply clamp attached.")
-                EventLogger.log(context, "FATAL: Battery terminal impedance jump (${resistanceDelta}uOhm). Power jig intrusion.")
+            if (resistanceDelta >= maxAllowedResistanceDelta) {
+                Log.e(TAG, "TAMPER BREACH: Impedance step-jump of ${resistanceDelta}uOhm detected (Threshold: ${maxAllowedResistanceDelta}uOhm)! Bench power supply clamp attached.")
+                EventLogger.log(context, "FATAL: Battery terminal impedance jump (${resistanceDelta}uOhm). External DC jig intrusion.")
                 triggerHardwareSanitize("BATTERY_SPLICING_DC_JIG_DETECTED")
                 return
             }
         }
 
-        // Vector 2: Chassis Opening / Rear Glass Removal Thermal Dissipation Shock
+        // Vector 2: Chassis Unsealing / Thermal Dissipation Shock
         if (currentTemp > 0L) {
             if (currentTemp < MIN_PLAUSIBLE_BATTERY_TEMP || currentTemp > MAX_PLAUSIBLE_BATTERY_TEMP) {
-                Log.e(TAG, "TAMPER BREACH: Unnatural thermal reading (${currentTemp}). Chassis thermistor fault.")
-                EventLogger.log(context, "FATAL: Out-of-bounds battery thermal reading ($currentTemp). Hardware breach.")
+                Log.e(TAG, "TAMPER BREACH: Out-of-bounds thermal reading (${currentTemp}). Chassis thermistor disconnected/damaged.")
+                EventLogger.log(context, "FATAL: Out-of-bounds battery thermal reading ($currentTemp). Hardware tampering.")
                 triggerHardwareSanitize("CHASSIS_OPEN_THERMAL_ANOMALY")
                 return
             }
 
             if (baselineTemp > 0L) {
                 val tempDrop = baselineTemp - currentTemp
-                if (tempDrop >= THERMAL_GRADIENT_SHOCK_DELTA) {
-                    Log.e(TAG, "TAMPER BREACH: Rapid thermal gradient shock drop (${tempDrop / 10.0}°C). Rear enclosure unsealed.")
-                    EventLogger.log(context, "FATAL: Thermal gradient shock drop detected. Enclosure breach.")
+                if (tempDrop >= maxAllowedThermalShockDelta) {
+                    Log.e(TAG, "TAMPER BREACH: Rapid thermal gradient shock drop (${tempDrop / 10.0}°C >= ${maxAllowedThermalShockDelta / 10.0}°C). Rear enclosure unsealed.")
+                    EventLogger.log(context, "FATAL: Thermal gradient shock drop detected (${tempDrop / 10.0}°C). Enclosure breach.")
                     triggerHardwareSanitize("THERMAL_ENCLOSURE_DISASSEMBLY")
                     return
                 }
             }
         }
 
-        // Smooth moving average calibration
+        // Running calibration moving average
         if (currentResistance > 0L) {
             baselineResistance = (baselineResistance * 7 + currentResistance) / 8
         }

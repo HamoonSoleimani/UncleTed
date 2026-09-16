@@ -8,13 +8,22 @@
     <string name="nav_header_subtitle">کلبه‌ای در جنگل دیجیتال.</string>
 
     <!-- Menu Items -->
-    <string name="menu_dashboard">داشبورد</string>
-    <string name="menu_permissions">سرویس‌های اصلی</string>
+    <string name="menu_dashboard">داشبورد و تله‌متری</string>
+    <string name="menu_hardware_sentinels">دفاع سیلیکونی و سخت‌افزاری</string>
+    <string name="menu_crypto_engine">رمزنگاری و انکارپذیری</string>
+    <string name="menu_authentication">احراز هویت و طعمه‌ها</string>
+    <string name="menu_proximity_tripwire">مجاورت و تله خودکار</string>
+    <string name="menu_remote_signaling">سیگنال‌دهی مخفی و فرماندهی</string>
+    <string name="menu_surveillance">نظارت و شواهد</string>
+    <string name="menu_destruction">پروتکل‌های انهدام</string>
+    <string name="menu_permissions">دسترسی‌های سیستمی</string>
+    <string name="menu_settings">تنظیمات برنامه</string>
+    <string name="menu_about">درباره</string>
+
     <string name="menu_pins">احراز هویت</string>
     <string name="menu_remote">کنترل از راه دور</string>
     <string name="menu_features">ویژگی‌ها</string>
-    <string name="menu_settings">تنظیمات</string>
-    <string name="menu_about">درباره</string>
+    <string name="menu_manual_actions">اقدامات دستی</string>
 
     <!-- General UI -->
     <string name="save">ذخیره</string>
@@ -286,7 +295,7 @@
     <!-- About Screen -->
     <string name="about_title">درباره عمو تد</string>
     <string name="about_developer_credit">طراحی و توسعه توسط هامون سلیمانی</string>
-    <string name="about_app_version">نسخه ۶.۰.۱</string>
+    <string name="about_app_version">نسخه ۷.۰.۱</string>
     <string name="about_legal_disclaimer_title">سلب مسئولیت قانونی و اخلاقی</string>
     <string name="about_legal_disclaimer_body">این برنامه فقط برای اهداف آموزشی و امنیتی دفاعی طراحی شده است. هرگز بدون رضایت صریح مالک از این نرم‌افزار استفاده نکنید.</string>
     <string name="about_github">گیت‌هاب</string>
@@ -302,7 +311,6 @@
     <string name="manual_wipe_confirmation_title">تایید پاک‌سازی داده‌ها</string>
     <string name="manual_wipe_confirmation_message">آیا کاملاً مطمئن هستید؟ این کار داده‌ها را حذف می‌کند.</string>
     <string name="manual_wipe_confirm_button">بله، دستگاه را پاک کن</string>
-    <string name="menu_manual_actions">اقدامات دستی</string>
     <string name="manual_action_honeypot">انتقال به فضای طعمه (Decoy)</string>
     <string name="manual_honeypot_confirmation_title">ورود به فضای طعمه؟</string>
     <string name="manual_honeypot_confirmation_message">این کار کاربر جاری را به فضای مجزای ثانویه اندروید منتقل می‌کند.</string>

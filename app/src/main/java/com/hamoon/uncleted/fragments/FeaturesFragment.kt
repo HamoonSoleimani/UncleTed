@@ -3,6 +3,7 @@ package com.hamoon.uncleted.fragments
 import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -523,8 +524,12 @@ class FeaturesFragment : Fragment() {
 
             binding.switchRootFirewallTripwire.isChecked = SecurityPreferences.isFirewallTripwireEnabled(context)
             binding.switchRootSecureWipe.isChecked = SecurityPreferences.isSecureWipeEnabled(context)
-            binding.switchRootSystemApp.isChecked = SecurityPreferences.isSystemAppEnabled(context)
-            binding.switchRootSystemApp.isEnabled = !SecurityPreferences.isSystemAppEnabled(context)
+
+            // Validate against the Android PackageManager FLAG_SYSTEM status directly
+            val isActualSystemApp = (context.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            binding.switchRootSystemApp.isChecked = isActualSystemApp
+            binding.switchRootSystemApp.isEnabled = !isActualSystemApp
+            SecurityPreferences.setSystemAppEnabled(context, isActualSystemApp)
 
             binding.switchRootUnkillableService.isChecked = SecurityPreferences.isUnkillableServiceEnabled(context)
             binding.switchRootHideProcess.isChecked = SecurityPreferences.isProcessHiddenEnabled(context)

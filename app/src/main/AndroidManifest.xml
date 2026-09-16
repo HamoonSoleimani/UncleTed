@@ -105,7 +105,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Uncle Ted v6.0.1 - Hardened StrongBox KeyMint, Synchronous MTE, DPM Port Severing, and Vold Key Eviction." />
+            android:value="Uncle Ted v7.0.1 - NIST PQC Hybrid, OHTTP Canary, Hardware StrongBox, MTE, and Vold Eviction." />
         <meta-data
             android:name="xposedminversion"
             android:value="93" />

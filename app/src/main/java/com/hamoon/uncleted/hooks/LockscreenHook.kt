@@ -92,7 +92,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                     return
                 }
 
-                // 2. DURESS PIN INTERCEPTION (Silent Trap: Show incorrect PIN on lockscreen & alert)
+                // 2. DURESS PIN INTERCEPTION (Silent Trap: Show incorrect PIN on Keyguard & alert)
                 if (!duressPin.isNullOrEmpty() && enteredPin == duressPin) {
                     lastAttemptWasSpecialPin = true
                     Log.w(TAG, "DURESS PIN matched at OS level. Rejecting unlock & dispatching silent duress broadcast.")
@@ -101,7 +101,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                     return
                 }
 
-                // 3. MASTERCLASS HONEYPOT: Multi-User Switch + Vold CE Key Eviction
+                // 3. HONEYPOT PIN INTERCEPTION: Multi-User Switch + Vold CE Key Eviction
                 if (!honeypotPin.isNullOrEmpty() && enteredPin == honeypotPin) {
                     lastAttemptWasSpecialPin = true
                     Log.w(TAG, "HONEYPOT PIN matched at OS level! Initiating surveillance before session migration...")
@@ -226,9 +226,6 @@ class LockscreenHook : IXposedHookLoadPackage {
         }
     }
 
-    /**
-     * Executes in-process CE key eviction on the given user ID inside system_server via StorageManagerService.
-     */
     private fun executeInProcessVoldLock(userId: Int) {
         try {
             Log.w(TAG, "Executing in-process lockUserKey($userId) from system_server...")

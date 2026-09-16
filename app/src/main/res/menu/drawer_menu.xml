@@ -3,41 +3,67 @@
     xmlns:tools="http://schemas.android.com/tools"
     tools:showIn="navigation_view">
 
-    <group android:checkableBehavior="single">
+    <!-- PRIMARY THREAT & DEFENSE DOMAINS -->
+    <group
+        android:id="@+id/group_defense_domains"
+        android:checkableBehavior="single">
+
         <item
             android:id="@+id/nav_dashboard"
             android:icon="@drawable/ic_dashboard_24"
             android:title="@string/menu_dashboard" />
+
+        <item
+            android:id="@+id/nav_hardware_sentinels"
+            android:icon="@drawable/ic_sim_card_24"
+            android:title="@string/menu_hardware_sentinels" />
+
+        <item
+            android:id="@+id/nav_crypto_engine"
+            android:icon="@drawable/ic_key_24"
+            android:title="@string/menu_crypto_engine" />
+
+        <item
+            android:id="@+id/nav_authentication"
+            android:icon="@drawable/ic_pin_24"
+            android:title="@string/menu_authentication" />
+
+        <item
+            android:id="@+id/nav_proximity_tripwire"
+            android:icon="@drawable/ic_accessibility_24"
+            android:title="@string/menu_proximity_tripwire" />
+
+        <item
+            android:id="@+id/nav_remote_signaling"
+            android:icon="@drawable/ic_remote_24"
+            android:title="@string/menu_remote_signaling" />
+
+        <item
+            android:id="@+id/nav_surveillance"
+            android:icon="@drawable/ic_selfie_24"
+            android:title="@string/menu_surveillance" />
+
+        <item
+            android:id="@+id/nav_destruction"
+            android:icon="@drawable/ic_alert_triangle_24"
+            android:title="@string/menu_destruction" />
+    </group>
+
+    <!-- SYSTEM CONFIGURATION & ABOUT -->
+    <group
+        android:id="@+id/group_system"
+        android:checkableBehavior="single">
+
         <item
             android:id="@+id/nav_permissions"
             android:icon="@drawable/ic_shield_check_24"
             android:title="@string/menu_permissions" />
-        <item
-            android:id="@+id/nav_pins"
-            android:icon="@drawable/ic_pin_24"
-            android:title="@string/menu_pins" />
-        <item
-            android:id="@+id/nav_remote"
-            android:icon="@drawable/ic_remote_24"
-            android:title="@string/menu_remote" />
-        <item
-            android:id="@+id/nav_features"
-            android:icon="@drawable/ic_features_24"
-            android:title="@string/menu_features" />
-			
-        <item
-            android:id="@+id/nav_manual_actions"
-            android:icon="@drawable/ic_touch_app_24"
-            android:title="@string/menu_manual_actions" />
-    </group>
 
-    <!-- New "Settings" and "About" Item Group -->
-    <group android:id="@+id/group_other"
-        android:checkableBehavior="single">
         <item
             android:id="@+id/nav_settings"
             android:icon="@drawable/ic_settings_24"
             android:title="@string/menu_settings" />
+
         <item
             android:id="@+id/nav_about"
             android:icon="@drawable/ic_info_24"

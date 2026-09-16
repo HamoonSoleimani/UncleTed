@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.UserHandle
+import android.os.UserManager
 import android.util.Log
 import com.hamoon.uncleted.LockScreenActivity
 import com.hamoon.uncleted.R
@@ -51,7 +52,10 @@ class AdminReceiver : DeviceAdminReceiver() {
                     dpm.setPasswordQuality(admin, DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX)
                     dpm.setPasswordMinimumLength(admin, 6)
 
-                    Log.i(TAG, "Device Owner hardware zero-trust baseline enforced.")
+                    // Permanently disallow safe mode to prevent bypassing security sentinels
+                    dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT)
+
+                    Log.i(TAG, "Device Owner hardware zero-trust baseline enforced (including DISALLOW_SAFE_BOOT).")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed configuring initial Device Owner policies", e)
                 }

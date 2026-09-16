@@ -20,11 +20,22 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 
 class BleProximitySentinel(private val context: Context) {
+
+    data class SentinelStatus(
+        val isArmed: Boolean = false,
+        val connectionState: String = "DISCONNECTED",
+        val lastRssi: Int = 0,
+        val consecutiveBreaches: Int = 0,
+        val isShardBLoaded: Boolean = false
+    )
 
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
         val manager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
@@ -43,10 +54,12 @@ class BleProximitySentinel(private val context: Context) {
         private const val HEARTBEAT_INTERVAL_MS = 1500L
         private const val HEARTBEAT_TIMEOUT_MS = 6000L
 
-        // Primary Sharding Service UUID
-        val SERVICE_UUID: UUID = UUID.fromString("0000UT01-0000-1000-8000-00805F9B34FB")
-        // Shard B Transmission Characteristic
-        val SHARD_CHARACTERISTIC_UUID: UUID = UUID.fromString("0000UT02-0000-1000-8000-00805F9B34FB")
+        // Valid 128-bit hexadecimal UUID constants
+        val SERVICE_UUID: UUID = UUID.fromString("0000FE01-0000-1000-8000-00805F9B34FB")
+        val SHARD_CHARACTERISTIC_UUID: UUID = UUID.fromString("0000FE02-0000-1000-8000-00805F9B34FB")
+
+        private val _statusFlow = MutableStateFlow(SentinelStatus())
+        val statusFlow: StateFlow<SentinelStatus> = _statusFlow.asStateFlow()
     }
 
     @SuppressLint("MissingPermission")
@@ -75,6 +88,8 @@ class BleProximitySentinel(private val context: Context) {
 
         connectGatt(targetAddress)
         startHeartbeatLoop()
+
+        updateStatus("CONNECTING", 0)
         Log.i(TAG, "BLE Proximity Sentinel armed against target: $targetAddress")
         EventLogger.log(context, "PROXIMITY: BLE Hardware Sentinel connected to target $targetAddress.")
     }
@@ -96,6 +111,7 @@ class BleProximitySentinel(private val context: Context) {
         activeGatt = null
 
         ProximityShardingEngine.purgeVolatileShard(context)
+        updateStatus("DISCONNECTED", 0)
         Log.i(TAG, "BLE Proximity Sentinel stopped.")
     }
 
@@ -127,14 +143,12 @@ class BleProximitySentinel(private val context: Context) {
     private fun checkHeartbeatAndQueryRssi() {
         val now = SystemClock.elapsedRealtime()
 
-        // 1. Verify Remote Heartbeat Timeout
         if (now - lastHeartbeatTime > HEARTBEAT_TIMEOUT_MS) {
             Log.e(TAG, "BREACH: Proximity token heartbeat timeout! Peripheral disconnected or confiscated.")
             triggerProximityBreachEviction("PERIPHERAL_HEARTBEAT_TIMEOUT")
             return
         }
 
-        // 2. Poll Remote RSSI
         activeGatt?.let { gatt ->
             try {
                 gatt.readRemoteRssi()
@@ -152,9 +166,11 @@ class BleProximitySentinel(private val context: Context) {
                 Log.i(TAG, "GATT connected to proximity peripheral. Discovering services...")
                 lastHeartbeatTime = SystemClock.elapsedRealtime()
                 consecutiveRssiBreaches = 0
+                updateStatus("CONNECTED", 0)
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.w(TAG, "GATT connection severed with proximity token.")
+                updateStatus("DISCONNECTED", 0)
                 triggerProximityBreachEviction("PERIPHERAL_DISCONNECTED")
             }
         }
@@ -182,6 +198,7 @@ class BleProximitySentinel(private val context: Context) {
                 if (value != null && value.isNotEmpty()) {
                     ProximityShardingEngine.loadVolatileShardB(context, value)
                     lastHeartbeatTime = SystemClock.elapsedRealtime()
+                    updateStatus("AUTHENTICATED", _statusFlow.value.lastRssi)
                 }
             }
         }
@@ -199,6 +216,7 @@ class BleProximitySentinel(private val context: Context) {
         val breachLimit = SecurityPreferences.getProximityMissedHeartbeatThreshold(context)
 
         Log.d(TAG, "Proximity token RSSI: $rssi dBm (Threshold: $threshold dBm)")
+        updateStatus(_statusFlow.value.connectionState, rssi)
 
         if (rssi < threshold) {
             consecutiveRssiBreaches++
@@ -218,7 +236,7 @@ class BleProximitySentinel(private val context: Context) {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // 1. Purge volatile Shard B from memory immediately
+                // 1. Purge volatile Shard B immediately through native barriers
                 ProximityShardingEngine.purgeVolatileShard(context)
 
                 // 2. Drop kernel Vold CE keys and lock device
@@ -236,5 +254,15 @@ class BleProximitySentinel(private val context: Context) {
                 Log.e(TAG, "Error executing proximity breach sequence", e)
             }
         }
+    }
+
+    private fun updateStatus(connectionState: String, rssi: Int) {
+        _statusFlow.value = SentinelStatus(
+            isArmed = isRunning,
+            connectionState = connectionState,
+            lastRssi = rssi,
+            consecutiveBreaches = consecutiveRssiBreaches,
+            isShardBLoaded = ProximityShardingEngine.isShardBActive()
+        )
     }
 }

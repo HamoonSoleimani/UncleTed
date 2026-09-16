@@ -7,17 +7,24 @@ import android.util.Base64
 object CryptoPreferences {
 
     private const val PREFS_NAME = "hardened_crypto_store"
+
+    // Asymmetric Remote Signaling & Replay Defense
     private const val KEY_TRUSTED_PUBKEY = "trusted_ed25519_pubkey"
     private const val KEY_LAST_SEQUENCE = "last_wire_sequence"
     private const val KEY_CLEARTEXT_SMS_ALLOWED = "allow_cleartext_sms"
+    private const val KEY_WIRE_DRIFT_WINDOW_MS = "wire_drift_window_ms"
+
+    // Hardware Keystore & Silicon Suicide
     private const val KEY_STRONGBOX_ENFORCED = "strongbox_enforced"
     private const val KEY_SUICIDE_EXECUTED = "cryptographic_suicide_executed"
     private const val KEY_HARDWARE_ATTESTED = "hardware_attestation_verified"
+    private const val KEY_ROLLBACK_RESISTANT_ENFORCED = "rollback_resistant_enforced"
 
-    // Hardware Monotonic Counter & Anti-Rollback State
+    // Hardware Monotonic Counter & Anti-Rollback (RPMB Anchor)
     private const val KEY_HARDWARE_MONOTONIC_COUNTER = "hardware_rpmb_monotonic_counter"
 
-    // Post-Quantum Hybrid ML-KEM-768 / X25519 Key Pairs
+    // NIST FIPS 203 Hybrid Post-Quantum Keys (ML-KEM-768 + X25519)
+    private const val KEY_PQC_HYBRID_ENABLED = "pqc_hybrid_enabled"
     private const val KEY_PQC_LOCAL_PUBLIC = "pqc_local_hybrid_public_key"
     private const val KEY_PQC_LOCAL_PRIVATE_X = "pqc_local_private_x25519"
     private const val KEY_PQC_LOCAL_PRIVATE_K = "pqc_local_private_kyber768"
@@ -31,6 +38,9 @@ object CryptoPreferences {
         }
     }
 
+    // =========================================================================
+    // 1. Ed25519 Remote Signaling & Replay Defense
+    // =========================================================================
     fun getTrustedPublicKey(context: Context): String? {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getString(KEY_TRUSTED_PUBKEY, null)
@@ -61,6 +71,19 @@ object CryptoPreferences {
         prefs.edit().putBoolean(KEY_CLEARTEXT_SMS_ALLOWED, allowed).commit()
     }
 
+    fun getWireDriftWindowMs(context: Context): Long {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getLong(KEY_WIRE_DRIFT_WINDOW_MS, 120_000L)
+    }
+
+    fun setWireDriftWindowMs(context: Context, windowMs: Long) {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putLong(KEY_WIRE_DRIFT_WINDOW_MS, windowMs).commit()
+    }
+
+    // =========================================================================
+    // 2. Hardware Keystore, StrongBox & Anti-Rollback Monotonic Counters
+    // =========================================================================
     fun isStrongBoxEnforced(context: Context): Boolean {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getBoolean(KEY_STRONGBOX_ENFORCED, false)
@@ -69,6 +92,16 @@ object CryptoPreferences {
     fun setStrongBoxEnforced(context: Context, enforced: Boolean) {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putBoolean(KEY_STRONGBOX_ENFORCED, enforced).commit()
+    }
+
+    fun isRollbackResistantEnforced(context: Context): Boolean {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_ROLLBACK_RESISTANT_ENFORCED, true)
+    }
+
+    fun setRollbackResistantEnforced(context: Context, enforced: Boolean) {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_ROLLBACK_RESISTANT_ENFORCED, enforced).commit()
     }
 
     fun isSuicideExecuted(context: Context): Boolean {
@@ -96,7 +129,6 @@ object CryptoPreferences {
         prefs.edit().putBoolean(KEY_HARDWARE_ATTESTED, verified).commit()
     }
 
-    // Monotonic Counter Persistence for Anti-NAND Mirroring Traps
     fun getHardwareMonotonicCounter(context: Context): Long {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getLong(KEY_HARDWARE_MONOTONIC_COUNTER, 0L)
@@ -107,7 +139,19 @@ object CryptoPreferences {
         prefs.edit().putLong(KEY_HARDWARE_MONOTONIC_COUNTER, counter).commit()
     }
 
-    // Post-Quantum Hybrid Key Storage (ML-KEM-768 + X25519)
+    // =========================================================================
+    // 3. NIST FIPS 203 Post-Quantum Hybrid Cryptography (ML-KEM-768 + X25519)
+    // =========================================================================
+    fun isPqcHybridEnabled(context: Context): Boolean {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_PQC_HYBRID_ENABLED, true)
+    }
+
+    fun setPqcHybridEnabled(context: Context, enabled: Boolean) {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_PQC_HYBRID_ENABLED, enabled).commit()
+    }
+
     fun getTrustedPqcPublicKey(context: Context): String? {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getString(KEY_PQC_TRUSTED_REMOTE_PUB, null)
@@ -145,5 +189,14 @@ object CryptoPreferences {
         } catch (_: Exception) {
             null
         }
+    }
+
+    fun clearLocalPqcKeyPair(context: Context) {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove(KEY_PQC_LOCAL_PUBLIC)
+            .remove(KEY_PQC_LOCAL_PRIVATE_X)
+            .remove(KEY_PQC_LOCAL_PRIVATE_K)
+            .commit()
     }
 }

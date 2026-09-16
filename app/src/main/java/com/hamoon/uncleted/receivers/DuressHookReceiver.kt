@@ -38,6 +38,7 @@ class DuressHookReceiver : BroadcastReceiver() {
                     PanicActionService.Severity.HIGH
                 )
             }
+
             ACTION_HONEYPOT_TRIGGERED -> {
                 Log.w(TAG, "Honeypot PIN detected by native hook. Engaging surveillance and volatile RAM eviction.")
                 EventLogger.log(context, "OS Hook: Honeypot PIN entered. Migrating session and evicting User 0 keys.")
@@ -48,7 +49,6 @@ class DuressHookReceiver : BroadcastReceiver() {
                     PanicActionService.Severity.HIGH
                 )
 
-                // Asynchronous watchdog fallback: ensure Vold eviction completes even if system_server reflection was delayed
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
@@ -58,6 +58,7 @@ class DuressHookReceiver : BroadcastReceiver() {
                     }
                 }
             }
+
             ACTION_LOCKSCREEN_FAILED_ATTEMPT -> {
                 if (PermissionUtils.isDeviceAdminActive(context)) {
                     Log.d(TAG, "Device Admin active; delegating failure tracking to AdminReceiver.")
@@ -88,6 +89,7 @@ class DuressHookReceiver : BroadcastReceiver() {
                     )
                 }
             }
+
             ACTION_LOCKSCREEN_SUCCESS -> {
                 Log.i(TAG, "Lockscreen unlocked successfully. Resetting failed attempt count.")
                 SecurityPreferences.resetFailedAttempts(context)

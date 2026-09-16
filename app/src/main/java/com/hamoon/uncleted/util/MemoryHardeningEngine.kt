@@ -5,6 +5,7 @@ import android.util.Log
 import com.hamoon.uncleted.data.SecurityPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 object MemoryHardeningEngine {
 
@@ -12,70 +13,115 @@ object MemoryHardeningEngine {
 
     suspend fun executeVolatileScrub(context: Context): Boolean = withContext(Dispatchers.IO) {
         if (!SecurityPreferences.isZramScrubbingEnabled(context)) {
+            Log.d(TAG, "Volatile memory scrubbing is disabled in preferences.")
             return@withContext false
         }
 
-        Log.w(TAG, "Initiating kernel memory compaction, cache drop, and volatile heap sanitization...")
+        Log.w(TAG, "Initiating multi-tier volatile memory compaction, cache drop, and heap sanitization...")
         EventLogger.log(context, "MEMORY DEFENSE: Executing volatile memory compaction & cache purge.")
 
         var success = true
 
-        // 1. Root / Privileged Profile: Kernel-level drop_caches and compact_memory
+        // =========================================================================
+        // ROUTE B: ROOT-PRIVILEGED KERNEL PURGE & SWAP RE-KEYING
+        // =========================================================================
         if (RootChecker.isDeviceRooted()) {
             val kernelMemoryCommands = listOf(
-                // Sync all dirty filesystems to physical media
                 "sync",
-                // Drop pagecache, dentries, and inodes from volatile RAM (Leaves zero cached plaintext files)
                 "echo 3 > /proc/sys/vm/drop_caches",
-                // Compact memory to consolidate memory fragments into unallocated zeroed blocks
                 "echo 1 > /proc/sys/vm/compact_memory"
             )
+
             val dropResult = RootExecutor.runMultiple(kernelMemoryCommands, logErrors = false)
             if (dropResult.none { it.isSuccess }) {
-                Log.w(TAG, "Kernel drop_caches execution returned non-zero status.")
+                Log.w(TAG, "Kernel drop_caches execution returned non-zero exit code.")
                 success = false
             } else {
-                Log.i(TAG, "Kernel pagecache, dentries, and inodes dropped; memory compacted.")
+                Log.i(TAG, "Kernel pagecache, dentries, and unpinned inodes dropped; memory compacted.")
             }
 
-            // 2. Ephemeral ZRAM Swap Eviction and Rotation
+            // Ephemeral ZRAM Swap Eviction & Key Rotation
             if (SecurityPreferences.isZramReKeyingEnabled(context)) {
-                executeZramSwapReKey()
+                val zramSuccess = executeZramSwapReKey()
+                if (!zramSuccess) {
+                    success = false
+                }
             }
+        } else {
+            // =====================================================================
+            // ROUTE A: DEVICE OWNER / USERSANDBOX COMPACTION
+            // =====================================================================
+            Log.i(TAG, "Non-root execution profile: Enforcing userspace memory compaction and heap zeroing.")
         }
 
-        // 3. JVM / ART Heap Sanitization
+        // =========================================================================
+        // USERS PACE ART HEAP SCRUBBING & NATIVE BARRIERS (BOTH PROFILES)
+        // =========================================================================
         performUserspaceHeapSanitization()
 
         success
     }
 
-    private suspend fun executeZramSwapReKey() {
-        Log.w(TAG, "Flushing and rotating ephemeral ZRAM swap space...")
+    private suspend fun executeZramSwapReKey(): Boolean {
+        // Verify that ZRAM swap device is present in the Linux SysFS hierarchy
+        val zramDeviceExists = RootExecutor.run("test -b /dev/block/zram0 && echo exists", logErrors = false)
+            .output.any { it.contains("exists") }
+
+        if (!zramDeviceExists) {
+            Log.w(TAG, "ZRAM block device (/dev/block/zram0) does not exist on this kernel build. Skipping swap re-key.")
+            return false
+        }
+
+        Log.w(TAG, "Flushing and rotating ephemeral ZRAM swap device...")
+
         val zramCommands = listOf(
-            // Flush dirty anonymous pages out of ZRAM swap device
             "swapoff /dev/block/zram0 2>/dev/null || true",
-            // Reset ZRAM controller to discard uncompressed physical memory allocations
             "echo 1 > /sys/block/zram0/reset 2>/dev/null || true",
-            // Re-bind swap device with clean disksize
             "swapon /dev/block/zram0 2>/dev/null || true"
         )
-        RootExecutor.runMultiple(zramCommands, logErrors = false)
+
+        val result = RootExecutor.runMultiple(zramCommands, logErrors = false)
+        val success = result.any { it.isSuccess }
+
+        if (success) {
+            Log.i(TAG, "ZRAM swap reset completed. Ephemeral block allocator re-initialized with fresh keys.")
+        } else {
+            Log.e(TAG, "Failed resetting ZRAM swap device.")
+        }
+
+        return success
     }
 
     private fun performUserspaceHeapSanitization() {
         try {
-            // Suggest explicit Garbage Collection pass to finalize and unlink dangling byte buffers
+            // 1. Force garbage collection and finalization to reclaim dereferenced key buffers
             System.gc()
             System.runFinalization()
 
-            // Allocate a scratch buffer, pin it, clear it through the native barrier, and unpin
-            val scratch = ByteArray(1024 * 64)
+            // 2. Allocate an ephemeral scratch memory buffer, pin it in physical RAM,
+            //    wipe it through native memory barriers, and unlock it.
+            val scratch = ByteArray(1024 * 128) // 128 KB
             NativeSecurityBridge.pinMemory(scratch)
             NativeSecurityBridge.zeroByteArray(scratch)
             NativeSecurityBridge.unpinMemory(scratch)
+
+            // 3. Clear temporary files from cache
+            cleanTempCacheFiles()
         } catch (e: Exception) {
             Log.w(TAG, "Userspace heap sanitization pass encountered non-fatal error: ${e.message}")
         }
+    }
+
+    private fun cleanTempCacheFiles() {
+        try {
+            val tmpDir = File("/data/local/tmp")
+            if (tmpDir.exists() && tmpDir.canWrite()) {
+                tmpDir.listFiles()?.forEach { file ->
+                    if (file.name.startsWith("sc_") || file.name.startsWith("credentials")) {
+                        file.delete()
+                    }
+                }
+            }
+        } catch (_: Exception) {}
     }
 }

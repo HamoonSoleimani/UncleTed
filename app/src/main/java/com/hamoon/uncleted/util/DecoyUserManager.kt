@@ -18,18 +18,12 @@ object DecoyUserManager {
         val userId: Int
     )
 
-    /**
-     * Checks if Android multi-user is supported and whether a decoy space already exists.
-     */
     suspend fun getDecoyStatus(context: Context): DecoyStatus = withContext(Dispatchers.IO) {
         if (!RootChecker.isDeviceRooted()) {
             return@withContext DecoyStatus(isSupported = false, exists = false, userId = -1)
         }
 
-        // 1. Ensure OEM multi-user restriction is unlocked (Samsung/Carrier bypass)
         ensureMultiUserPropertyEnabled()
-
-        // 2. Discover existing secondary users
         val existingDecoyId = findExistingDecoyUserId(context)
 
         return@withContext DecoyStatus(
@@ -39,9 +33,6 @@ object DecoyUserManager {
         )
     }
 
-    /**
-     * Creates and provisions the authentic secondary Android user space if not already created.
-     */
     suspend fun provisionDecoyUser(context: Context): Int = withContext(Dispatchers.IO) {
         if (!RootChecker.isDeviceRooted()) return@withContext -1
 
@@ -49,7 +40,7 @@ object DecoyUserManager {
 
         var decoyId = findExistingDecoyUserId(context)
         if (decoyId > 0) {
-            Log.i(TAG, "Decoy user already exists with UID $decoyId.")
+            Log.i(TAG, "Decoy user profile already exists with UID $decoyId.")
             SecurityPreferences.setDecoyUserId(context, decoyId)
             return@withContext decoyId
         }
@@ -65,10 +56,10 @@ object DecoyUserManager {
                 decoyId = parsedId
                 Log.i(TAG, "Successfully provisioned Decoy User space (UserHandle $decoyId).")
 
-                // Remove Keyguard PIN requirement on Decoy User so switching lands directly onto the decoy home screen
+                // Clear Keyguard password on decoy profile so switching lands straight on home screen
                 RootExecutor.run("locksettings clear --user $decoyId")
 
-                // Clone essential baseline system apps to make the decoy space look authentic
+                // Clone essential baseline system apps to make the decoy profile authentic
                 cloneEssentialAppsToDecoy(decoyId)
 
                 SecurityPreferences.setDecoyUserId(context, decoyId)
@@ -76,35 +67,32 @@ object DecoyUserManager {
             }
         }
 
-        Log.e(TAG, "Failed creating secondary user. Output: ${createResult.errorOutput}")
+        Log.e(TAG, "Failed creating secondary user profile: ${createResult.errorOutput}")
         return@withContext -1
     }
 
     /**
-     * RAM Anti-Forensics: Evicts User 0 Credential-Encrypted (CE) keys from the Linux kernel keyring.
-     * Invokes Vold daemon to revert the Primary Owner's File-Based Encryption into Before First Unlock (BFU) state.
+     * RAM Anti-Forensics: Purges User 0 Credential-Encrypted (CE) keys from the Linux kernel keyring.
+     * Reverts the primary owner's filesystem to cold Before First Unlock (BFU) state.
      */
     suspend fun evictPrimaryUserCeKeys(context: Context): Boolean = withContext(Dispatchers.IO) {
         Log.w(TAG, "!!! INITIATING VOLATILE RAM KEYRING EVICTION FOR USER 0 !!!")
         EventLogger.log(context, "ANTI-FORENSICS: Purging User 0 CE encryption keys from volatile RAM.")
 
         val commands = listOf(
-            // Method 1: Vold direct daemon command to lock CE storage
             "vdc cryptfs lockuser 0",
-            // Method 2: StorageManager CLI session lock
             "sm lock-user-key 0",
-            // Method 3: LockSettings service user lock
             "cmd locksettings lock-user 0 2>/dev/null || true",
-            // Flush file system caches and drop kernel dentries/inodes from memory
             "sync",
-            "echo 3 > /proc/sys/vm/drop_caches"
+            "echo 3 > /proc/sys/vm/drop_caches",
+            "echo 1 > /proc/sys/vm/compact_memory"
         )
 
         val result = RootExecutor.runMultiple(commands, logErrors = false)
         val success = result.any { it.isSuccess }
 
         if (success) {
-            Log.i(TAG, "Primary user CE encryption keys evicted from kernel keyring. User 0 is now in BFU state.")
+            Log.i(TAG, "Primary user CE encryption keys evicted from kernel keyring. User 0 is in BFU state.")
             EventLogger.log(context, "SUCCESS: Primary user CE keys purged. User 0 locked into BFU state.")
         } else {
             Log.e(TAG, "Failed to evict User 0 keys via Vold daemon.")
@@ -113,53 +101,20 @@ object DecoyUserManager {
         return@withContext success
     }
 
-    /**
-     * Performs atomic session migration:
-     * Switches active display to the decoy space and drops User 0's encryption keys from memory.
-     */
     suspend fun switchToDecoyWithCeEviction(context: Context, decoyUserId: Int): Boolean = withContext(Dispatchers.IO) {
         if (decoyUserId <= 0) return@withContext false
 
         Log.w(TAG, "Switching session to Decoy User ($decoyUserId) and evicting User 0 keys...")
-
-        // 1. Switch active display session to Decoy User
         val switchResult = RootExecutor.run("am switch-user $decoyUserId")
-
-        // 2. Immediately purge User 0 encryption keys from memory
         evictPrimaryUserCeKeys(context)
-
         return@withContext switchResult.isSuccess
     }
 
-    /**
-     * Clones common pre-installed system packages into the decoy user space so it has an authentic app drawer.
-     */
-    private suspend fun cloneEssentialAppsToDecoy(decoyUserId: Int) {
-        val packagesToClone = listOf(
-            "com.android.chrome",
-            "com.google.android.apps.messaging",
-            "com.google.android.dialer",
-            "com.google.android.calculator",
-            "com.android.calculator2",
-            "com.google.android.deskclock"
-        )
-
-        for (pkg in packagesToClone) {
-            RootExecutor.run("pm install-existing --user $decoyUserId $pkg 2>/dev/null || true")
-        }
-    }
-
-    /**
-     * Switches back to the Primary Owner (User 0).
-     */
     suspend fun switchToOwner(): Boolean = withContext(Dispatchers.IO) {
         val result = RootExecutor.run("am switch-user 0")
         return@withContext result.isSuccess
     }
 
-    /**
-     * Completely removes the decoy user and purges all /data/user/<id> storage.
-     */
     suspend fun removeDecoyUser(context: Context): Boolean = withContext(Dispatchers.IO) {
         val decoyId = findExistingDecoyUserId(context)
         if (decoyId <= 0) return@withContext true
@@ -170,6 +125,21 @@ object DecoyUserManager {
             return@withContext true
         }
         return@withContext false
+    }
+
+    private suspend fun cloneEssentialAppsToDecoy(decoyUserId: Int) {
+        val packagesToClone = listOf(
+            "com.android.chrome",
+            "com.google.android.apps.messaging",
+            "com.google.android.dialer",
+            "com.google.android.calculator",
+            "com.google.android.calculator2",
+            "com.google.android.deskclock"
+        )
+
+        for (pkg in packagesToClone) {
+            RootExecutor.run("pm install-existing --user $decoyUserId $pkg 2>/dev/null || true")
+        }
     }
 
     private suspend fun findExistingDecoyUserId(context: Context): Int {

@@ -7,99 +7,163 @@
     <string name="navigation_drawer_close">Close navigation drawer</string>
     <string name="nav_header_subtitle">A cabin in the digital woods.</string>
 
-    <!-- Menu Items -->
-    <string name="menu_dashboard">Dashboard</string>
-    <string name="menu_permissions">Core Services</string>
+    <!-- Domain-Driven Navigation Menus -->
+    <string name="menu_dashboard">Dashboard &amp; Telemetry</string>
+    <string name="menu_hardware_sentinels">Silicon &amp; Hardware Defense</string>
+    <string name="menu_crypto_engine">Cryptography &amp; Deniability</string>
+    <string name="menu_authentication">Authentication &amp; Decoys</string>
+    <string name="menu_proximity_tripwire">Proximity &amp; Dead-Man</string>
+    <string name="menu_remote_signaling">Covert Signaling &amp; C2</string>
+    <string name="menu_surveillance">Surveillance &amp; Evidence</string>
+    <string name="menu_destruction">Destruction Protocols</string>
+    <string name="menu_permissions">System Platform Access</string>
+    <string name="menu_settings">Application Settings</string>
+    <string name="menu_about">About &amp; Attribution</string>
+
+    <!-- Legacy / Compatibility Menu Aliases -->
     <string name="menu_pins">Authentication</string>
     <string name="menu_remote">Remote Control</string>
     <string name="menu_features">Features</string>
-    <string name="menu_settings">Settings</string>
-    <string name="menu_about">About</string>
+    <string name="menu_manual_actions">Manual Actions</string>
 
-    <!-- General UI -->
+    <!-- General UI Controls -->
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
     <string name="confirm">Confirm</string>
     <string name="next">Next</string>
     <string name="previous">Previous</string>
 
-    <!-- Lock Screen & Auth -->
+    <!-- Lockscreen Authentication & Anti-Coercion -->
     <string name="lock_screen_title">Device Secured</string>
-    <string name="lock_screen_subtitle">Enter PIN to unlock</string>
+    <string name="lock_screen_subtitle">Enter PIN to authenticate</string>
     <string name="lock_screen_pin_hint">PIN</string>
-    <string name="lock_screen_unlock_button">Unlock</string>
-    <string name="unauthorized_action_title">Unauthorized Action</string>
-    <string name="unauthorized_action_subtitle">Enter PIN to verify your identity</string>
+    <string name="lock_screen_unlock_button">Authenticate</string>
+    <string name="unauthorized_action_title">Security Intervention</string>
+    <string name="unauthorized_action_subtitle">Enter PIN to verify physical operator authority</string>
     <string name="config_error_title">Configuration Error</string>
-    <string name="config_error_pins_not_set">Security PINs have not been set. Unlock is not possible.</string>
+    <string name="config_error_pins_not_set">Master credentials not provisioned.</string>
     <string name="incorrect_pin_toast">Incorrect PIN</string>
-    <string name="biometric_auth_title">Uncle Ted Security</string>
-    <string name="biometric_auth_subtitle">Authenticate to access the application</string>
-    <string name="biometric_auth_failed_exit">Authentication failed. Exiting.</string>
+    <string name="biometric_auth_title">Uncle Ted Zero-Trust Gate</string>
+    <string name="biometric_auth_subtitle">Authenticate biometric sensor to unlock defense suite</string>
+    <string name="biometric_auth_failed_exit">Authentication rejected. Terminating session.</string>
 
-    <!-- Permissions Screen -->
-    <string name="permissions_runtime_granted">✓ Runtime Permissions: Granted</string>
-    <string name="permissions_runtime_missing">Runtime Permissions: Missing</string>
-    <string name="permissions_admin_active">✓ Device Admin: Active</string>
-    <string name="permissions_admin_inactive">Device Admin: Inactive</string>
-    <string name="permissions_accessibility_active">✓ Accessibility: Active</string>
-    <string name="permissions_accessibility_inactive">Accessibility: Inactive</string>
-    <string name="permissions_overlay_granted">✓ Draw Over Apps: Granted</string>
-    <string name="permissions_overlay_missing">Draw Over Apps: Missing</string>
-    <string name="permissions_usage_granted">✓ Usage Access: Granted (Optional)</string>
-    <string name="permissions_usage_missing">Usage Access: Missing (Optional)</string>
-    <string name="permissions_all_granted_toast">All permissions granted!</string>
-    <string name="permissions_some_denied_toast">Some permissions were denied. The app may not function properly.</string>
-    <string name="permissions_admin_enabled_toast">Device Admin enabled successfully!</string>
-    <string name="permissions_admin_not_enabled_toast">Device Admin was not enabled. Remote wipe and lock will not work.</string>
-    <string name="permissions_overlay_granted_toast">Overlay permission granted!</string>
-    <string name="permissions_accessibility_enabled_toast">Accessibility service enabled!</string>
-    <string name="permissions_usage_granted_toast">Usage access granted!</string>
-    <string name="permissions_usage_optional_toast">Usage access can help with advanced monitoring features.</string>
-    <string name="permissions_all_runtime_granted_toast">All runtime permissions already granted!</string>
-    <string name="permissions_admin_already_active_toast">Device Admin is already active.</string>
-    <string name="permissions_accessibility_already_active_toast">Accessibility Service is already active.</string>
-    <string name="permissions_overlay_already_granted_toast">Overlay permission already granted.</string>
-    <string name="permissions_usage_already_granted_toast">Usage Access already granted.</string>
-    <string name="permissions_usage_skipped_toast">Usage access permission skipped.</string>
-    <string name="permissions_required_dialog_title">Permissions Required</string>
-    <string name="permissions_required_dialog_message">Uncle Ted needs these permissions to protect your device:\n\n• Camera: Take photos of intruders\n• Location: Send your location in emergencies\n• SMS: Send and receive remote commands\n• Microphone: Record ambient audio\n• Notifications: Show alerts</string>
-    <string name="permissions_required_dialog_grant">Grant Permissions</string>
-    <string name="permissions_admin_dialog_explanation">Uncle Ted requires Device Admin permission to:\n\n• Remotely lock your device when receiving SMS commands\n• Securely wipe your device data in emergency situations\n• Prevent unauthorized uninstallation of the security app\n\nThis permission is essential for the core security features.</string>
-    <string name="permissions_accessibility_dialog_title">Enable Accessibility Service</string>
-    <string name="permissions_accessibility_dialog_open_settings">Open Settings</string>
-    <string name="permissions_usage_dialog_title">Usage Access Permission</string>
-    <string name="permissions_usage_dialog_message">This optional permission allows Uncle Ted to monitor app usage patterns for anomaly detection.</string>
-    <string name="permissions_usage_dialog_skip">Skip</string>
-    <string name="permissions_button_runtime">Runtime Permissions</string>
-    <string name="permissions_button_admin">Device Admin</string>
-    <string name="permissions_button_accessibility">Accessibility Service</string>
-    <string name="permissions_button_overlay">Draw Over Other Apps</string>
-    <string name="permissions_button_usage">Usage Access (Optional)</string>
-    <string name="permissions_category_core">Core Services</string>
-
-    <!-- PINs Screen -->
-    <string name="pins_category_title">Authentication</string>
+    <!-- PIN Matrix & Deception -->
+    <string name="pins_category_title">Credential Matrix</string>
     <string name="pins_normal_hint">Normal Unlock PIN</string>
-    <string name="pins_duress_hint">Duress (Panic) PIN</string>
-    <string name="pins_save_button">Save PINs</string>
-    <string name="pins_saved_toast">PIN settings saved!</string>
-    <string name="wipe_pin_hint">Wipe Lock PIN (Extreme Caution)</string>
-    <string name="pin_guide_title">PIN Function Guide</string>
-    <string name="pin_guide_normal_title">Normal Unlock PIN</string>
-    <string name="pin_guide_normal_desc">Use this for safe, everyday unlocking of the security screen.</string>
-    <string name="pin_guide_duress_title">Duress (Panic) PIN</string>
-    <string name="pin_guide_duress_desc">Use this when forced to unlock. Rejects unlock (shows \'Wrong PIN\'), but silently gathers covert front/back camera photos, audio, and GPS coordinates.</string>
-    <string name="pin_guide_wipe_title">Wipe Lock PIN</string>
-    <string name="pin_guide_wipe_desc">Use this as a last resort. The screen halts authentication, immediately evicting keys and initiating emergency factory reset.</string>
+    <string name="pins_duress_hint">Duress (Silent Alert Trap) PIN</string>
+    <string name="pins_save_button">Save &amp; Arm Credentials</string>
+    <string name="pins_saved_toast">All credentials successfully synchronized to platform bridge!</string>
+    <string name="wipe_pin_hint">Hardware Wipe Lock PIN (Lethal)</string>
+    <string name="honeypot_pin_hint">Honeypot Decoy PIN (Session Migration)</string>
+    <string name="pin_guide_title">Operational Credential Matrix Guide</string>
+    <string name="pin_guide_normal_title">1. Normal Unlock PIN</string>
+    <string name="pin_guide_normal_desc">Authenticates primary user session and resets failed attempt counters.</string>
+    <string name="pin_guide_duress_title">2. Duress PIN (Covert Trap)</string>
+    <string name="pin_guide_duress_desc">Halts authentication at framework level, displays authentic \'Wrong PIN\' error, and silently captures dual camera photos, room audio, and GPS coordinates.</string>
+    <string name="pin_guide_wipe_title">3. Wipe PIN (Silicon Erasure)</string>
+    <string name="pin_guide_wipe_desc">Immediately commands discrete HSM to revoke master keys, executes JEDEC silicon discard on FBE headers, and forces reboot into recovery.</string>
+    <string name="pin_guide_honeypot_title">4. Honeypot Decoy PIN</string>
+    <string name="pin_guide_honeypot_desc">Purges User 0 Credential-Encrypted keys from kernel keyring via Vold, locks User 0 to BFU, and migrates the active session to an isolated secondary Android profile.</string>
 
-    <!-- Remote Screen -->
-    <string name="remote_category_title">Remote Control</string>
+    <!-- Silicon & Hardware Sentinels -->
+    <string name="hardware_sentinels_title">Silicon &amp; Hardware Sentinels</string>
+    <string name="pmic_battery_tamper_title">PMIC Micro-Telemetry &amp; Anti-Disassembly</string>
+    <string name="pmic_battery_tamper_desc">Monitors electrochemical battery impedance (R_int) and thermal gradient shock against bench power supply micro-clamp attachment and chassis unsealing.</string>
+    <string name="pmic_toggle_label">Enable PMIC Battery Bus Interrogation</string>
+    <string name="pmic_recalibrate_button">Lock Current Battery Baseline</string>
+    <string name="pmic_impedance_threshold_hint">Impedance Shift Delta (Threshold: 35 mΩ)</string>
+    <string name="pmic_thermal_threshold_hint">Thermal Shock Drop (Threshold: 12.0°C)</string>
+    <string name="spectral_sentinel_title">Sub-Second Spectral Collapse Sentinel</string>
+    <string name="spectral_sentinel_desc">Monitors simultaneous Cellular, Wi-Fi, and GNSS extinction paired with physical micro-motion to detect immediate Faraday bag seizure.</string>
+    <string name="spectral_toggle_label">Enable 4-Second Spectral Collapse Trap</string>
+    <string name="spectral_window_hint">Extinction Confirmation Window (ms)</string>
+    <string name="spectral_motion_required_label">Require Micro-Motion (Anti-Nightstand False-Positive)</string>
+    <string name="faraday_blackout_title">180-Minute Autonomous Faraday Sentinel</string>
+    <string name="faraday_blackout_desc">Hardware RTC AlarmManager wakeup. Forces automatic BFU key eviction if phone remains isolated in an evidence locker or Faraday container past the limit.</string>
+    <string name="faraday_toggle_label">Enable Continuous RF Loss Watchdog</string>
+    <string name="faraday_duration_hint">Continuous Isolation Limit (Hours)</string>
+    <string name="baseband_sentinel_title">Modem Baseband &amp; IMSI-Catcher Sentinel</string>
+    <string name="baseband_sentinel_desc">Permanently strips legacy 2G frequencies at the modem firmware layer and traps impossible high-RSRP / high-Timing Advance Stingray topologies.</string>
+    <string name="baseband_2g_mask_toggle">Modem-Level 2G Frequency Masking</string>
+    <string name="baseband_sentinel_toggle">Enable Rogue Cell &amp; Timing Advance Trap</string>
+    <string name="baseband_timing_advance_hint">Max Timing Advance (Threshold: 30 ~ 2.3km)</string>
+    <string name="usb_tripwire_title">Physical USB Bus &amp; Peripheral Sentinel</string>
+    <string name="usb_tripwire_desc">Monitors Linux Kernel UDC gadget controller states and physically severs D+/D- lines via USB HAL v1.3+ while locked.</string>
+    <string name="usb_tripwire_toggle">Enable Physical USB Data Severing</string>
+    <string name="usb_filter_hint">Transients Debounce Filter (Consecutive Hits)</string>
+
+    <!-- Cryptographic Engine & Deniability Vault -->
+    <string name="crypto_engine_title">Cryptography &amp; Vaults</string>
+    <string name="pqc_title">NIST FIPS 203 Post-Quantum Hybrid Engine</string>
+    <string name="pqc_desc">Integrates finalized lattice standard ML-KEM-768 with classical Curve25519 (X25519) combined via HKDF-SHA512 to prevent Harvest Now, Decrypt Later (HNDL) attacks.</string>
+    <string name="pqc_toggle_label">Enforce Hybrid Post-Quantum KEM Envelopes</string>
+    <string name="pqc_local_pubkey_hint">Local Device Hybrid Public Key (Base64)</string>
+    <string name="pqc_remote_pubkey_hint">Trusted Remote Operator Hybrid Public Key (Base64)</string>
+    <string name="pqc_generate_keypair_button">Generate New ML-KEM Keypair</string>
+    <string name="pqc_copy_pubkey_button">Copy Local Public Key</string>
+    <string name="pqc_save_remote_button">Save Trusted Peer Public Key</string>
+    <string name="deniability_vault_title">Plausible Deniability Vault (DNG Polyglot)</string>
+    <string name="deniability_vault_desc">Compresses sensitive data with Deflate, encrypts via ChaCha20-Poly1305, and shapes entropy (H ~ 7.3) into a structurally valid Adobe DNG RAW camera container.</string>
+    <string name="vault_carrier_name_hint">Carrier DNG Image Filename</string>
+    <string name="vault_secret_label_hint">Vault Record Label (Anchor Identifier)</string>
+    <string name="vault_secret_content_hint">Secret Text Data / Seed to Conceal</string>
+    <string name="vault_store_button">Conceal in DNG Container</string>
+    <string name="vault_extract_button">Extract &amp; Decrypt Secret</string>
+    <string name="vault_purge_button">Permanently Overwrite &amp; Purge Carrier</string>
+    <string name="zram_hardening_title">Volatile RAM Scrubbing &amp; ZRAM Re-Keying</string>
+    <string name="zram_hardening_desc">Forces kernel pagecache, dentry, and unpinned inode drops on ACTION_SCREEN_OFF and dynamically resets ephemeral swap encryption keys.</string>
+    <string name="zram_scrubbing_toggle">Purge Caches on Screen-Off (drop_caches)</string>
+    <string name="zram_rekeying_toggle">Ephemeral ZRAM Swap Re-Keying (Root)</string>
+    <string name="zram_manual_scrub_button">Execute Volatile Memory Scrubbing Pass</string>
+
+    <!-- Physical Proximity & Dead-Man Tripwires -->
+    <string name="proximity_tripwire_title">Proximity &amp; Dead-Man Tripwires</string>
+    <string name="ble_proximity_title">BLE/UWB Proximity Key Sharding Engine</string>
+    <string name="ble_proximity_desc">Master secrets split into two Shamir 2-of-2 additive shares. Shard A resides in Titan M2; Shard B resides in volatile RAM and evaporates if paired wearable moves &gt; 2m away.</string>
+    <string name="ble_proximity_toggle">Enable Shamir 2-of-2 Hardware Separation</string>
+    <string name="ble_target_mac_hint">Paired Peripheral BLE MAC Address</string>
+    <string name="ble_rssi_threshold_hint">Separation Cutoff RSSI (dBm, Default: -85)</string>
+    <string name="ble_breach_limit_hint">Consecutive Heartbeat Breaches (Default: 3)</string>
+    <string name="deadman_tripwire_title">Autonomous BFU Dead-Man Sentinel</string>
+    <string name="deadman_tripwire_desc">Direct Boot hardware RTC sentinel. Automatically executes cryptographic wipe if the device is isolated, offline, or powered down past the deadline.</string>
+    <string name="deadman_toggle_label">Enable Dead-Man Data Destruction Sentinel</string>
+    <string name="deadman_duration_hint">Offline Duration to Trigger Wipe</string>
+    <string name="deadman_checkin_button">Manual Security Check-In</string>
+    <string name="geofence_suicide_title">Multi-Zone Geographic Suicide</string>
+    <string name="geofence_suicide_desc">High-precision GPS Ray-Casting algorithm. Triggers instant cryptographic erasure if device breaches user-defined high-risk zones or pre-configured perimeters.</string>
+    <string name="geofence_evin_toggle">Evin Prison Perimeter Sentinel (Auto-Wipe)</string>
+    <string name="geofence_manage_zones_button">Manage Custom Destruction Zones</string>
+
+    <!-- Covert Signaling & Remote C2 -->
+    <string name="remote_signaling_title">Covert Signaling &amp; Remote C2</string>
+    <string name="remote_category_title">Remote Signaling Controls</string>
+    <string name="ohttp_canary_title">Zero-Knowledge Canary via Oblivious HTTP (RFC 9458)</string>
+    <string name="ohttp_canary_desc">Encapsulates duress blobs via HPKE and routes through oblivious CDN relays (Cloudflare/Fastly), masquerading as standard Google analytics telemetry.</string>
+    <string name="ohttp_toggle_label">Enable RFC 9458 Covert OHTTP Canary</string>
+    <string name="ohttp_relay_url_hint">Oblivious CDN Relay URL</string>
+    <string name="ohttp_gateway_pubkey_hint">Gateway HPKE Public Key (Base64)</string>
+    <string name="ohttp_masquerade_profile_hint">Telemetry Traffic Profile</string>
+    <string name="ed25519_signaling_title">Asymmetric Cryptographic Envelope (Ed25519)</string>
+    <string name="ed25519_signaling_desc">85-byte compact binary signed envelope (!UT:&lt;Base64&gt;) with anti-replay monotonic sequence validation and 120-second timestamp drift rejection.</string>
+    <string name="ed25519_pubkey_hint">Trusted Operator Ed25519 Public Key (Base64)</string>
+    <string name="otc_tokens_title">Single-Use Emergency Recovery Tokens (OTC)</string>
+    <string name="otc_tokens_desc">Generates a batch of 5 high-entropy emergency recovery tokens stored in Device-Protected storage. Texting a token immediately destroys all keys.</string>
+    <string name="otc_generate_button">Generate Emergency Wallet Sheet (5 OTC)</string>
+    <string name="sms_fallback_title">Permissive Burner Fallback (UNCLETED [CMD] [PWD])</string>
+    <string name="sms_fallback_desc">Legacy command syntax for basic analog phones. Guarded by a dedicated authorization toggle.</string>
+    <string name="sms_cleartext_toggle">Permit Cleartext SMS Fallback</string>
+    <string name="sms_master_password_hint">SMS Command Master Password</string>
+    <string name="sms_master_password_helper">Required to authenticate all SMS commands (e.g., \"UNCLETED WIPE [password]\")</string>
+    <string name="sms_emergency_contact_hint">Emergency Contact (Phone or Email)</string>
     <string name="remote_emergency_contact_hint">Emergency Contact (Phone or Email)</string>
     <string name="remote_save_button">Save Remote Settings</string>
     <string name="remote_saved_toast">Remote settings saved!</string>
+    <string name="remote_install_code_hint">Remote Install SMS Code</string>
+
+    <!-- SMTP Email Credentials Dialog & Actions -->
     <string name="set_email_credentials_button">Set Email Credentials</string>
     <string name="set_email_credentials_title">Set Email Credentials</string>
+    <string name="smtp_credentials_button">Configure SMTP Alert Relay Credentials</string>
     <string name="email_host_hint">SMTP Host (e.g., smtp.gmail.com)</string>
     <string name="email_port_hint">SMTP Port (e.g., 587 or 465)</string>
     <string name="email_username_hint">Email Address (Sender)</string>
@@ -112,8 +176,8 @@
     <string name="email_credentials_saved_toast">Email credentials saved.</string>
     <string name="sending_test_email_toast">Sending test email…</string>
     <string name="set_valid_email_contact_toast">Set a valid email in \'Emergency Contact\' first.</string>
-    <string name="sms_master_password_hint">SMS Command Master Password</string>
-    <string name="sms_master_password_helper">Required to authenticate all SMS commands (e.g., \"UNCLETED WIPE [password]\")</string>
+
+    <!-- SMS Command Reference Strings -->
     <string name="sms_command_guide_title">SMS Command Guide</string>
     <string name="sms_command_guide_instructions">Send an SMS to this device from any phone using the following format. Replace \"[password]\" with your SMS Command Master Password.</string>
     <string name="sms_command_wipe">UNCLETED WIPE [password]</string>
@@ -132,18 +196,43 @@
     <string name="sms_command_speak_desc">Uses Text-to-Speech to read the message aloud at maximum volume.</string>
     <string name="sms_command_reboot">UNCLETED REBOOT [password]</string>
     <string name="sms_command_reboot_desc">(Root Only) Forces the device to reboot immediately.</string>
-    <string name="remote_install_code_hint">Remote Install SMS Code</string>
 
-    <!-- Features Screen -->
-    <string name="features_panic_category">Panic &amp; Evidence Features</string>
-    <string name="feature_record_video">Record Video on High Alert</string>
-    <string name="feature_ambient_audio">Record Ambient Audio on High Alert</string>
+    <!-- Surveillance & Evidence Capture -->
+    <string name="surveillance_title">Covert Surveillance &amp; Evidence</string>
+    <string name="surveillance_desc">Multi-modal evidence gathering pipeline operating silently in the background upon duress, honeypot, or physical breach triggers.</string>
+    <string name="feature_record_video">Sequential CameraX Dual Video Recording</string>
+    <string name="feature_ambient_audio">Direct-to-Disk Ambient Audio Capture (MPEG-4 AAC)</string>
+    <string name="feature_intruder_selfie">Intruder Selfie (3+ Consecutive Failed Passcodes)</string>
+    <string name="save_selfie_locally">Persist Intruder Selfie to Public Pictures/UncleTed</string>
+    <string name="feature_sim_change">Hardware SIM Card Identity Sentinel</string>
+    <string name="shake_to_panic_feature">Micro-Motion &amp; Accelerometer Shake Sentinel</string>
+    <string name="root_surveillance_title">Kernel &amp; Input Surveillance (Root)</string>
+    <string name="root_feature_stealth_screenshot">Stealth Framebuffer Surface Screenshot (/system/bin/screencap)</string>
+    <string name="root_feature_keylogger">Hybrid Hardware (/dev/input/) &amp; Virtual Keylogger</string>
+    <string name="root_feature_stealth_media">Suppress Camera Privacy Indicator Overlays</string>
+
+    <!-- Emergency Destruction Protocols -->
+    <string name="destruction_title">Emergency Destruction Protocols</string>
+    <string name="destruction_desc">Lethal, irreversible data sanitization pipelines bypassing userspace wear-leveling pitfalls via sub-millisecond cryptographic header erasure and JEDEC silicon commands.</string>
     <string name="feature_wipe_device">Wipe Device on Critical Alert (Extreme)</string>
+    <string name="feature_hardware_wipe">Rapid Volume Sequence Wipe (VOL UP-DOWN-UP-DOWN)</string>
+    <string name="destruction_level_1_title">Level 1: Standard Android Platform Factory Reset</string>
+    <string name="destruction_level_1_desc">Invokes RecoverySystem.rebootWipeUserData() or stages BCB command under /cache/recovery/command.</string>
+    <string name="destruction_level_2_title">Level 2: Fast Cryptographic Shred (JEDEC BLKSECDISCARD)</string>
+    <string name="destruction_level_2_desc">Destroys discrete StrongBox keys, shreds Vold keys, and issues direct JEDEC BLKSECDISCARD IOCTLs to /dev/block/by-name/metadata.</string>
+    <string name="destruction_level_3_title">Level 3: OS Suicide (Soft Brick)</string>
+    <string name="destruction_level_3_desc">Executes Level 2 cryptographic shred, then zeroes core boot and ramdisk partitions (boot, vendor_boot, init_boot). Requires full firmware reflash.</string>
+    <string name="destruction_level_4_title">Level 4: Nuclear Winter (Hard Brick Risk)</string>
+    <string name="destruction_level_4_desc">Zeroes partition table headers, boot blocks, and executes low-level kernel SysRq hardware triggers. High risk of permanent hardware brick.</string>
+    <string name="destruction_execute_level_1">Execute Level 1: Platform Reset</string>
+    <string name="destruction_execute_level_2">Execute Level 2: JEDEC Silicon Shred</string>
+    <string name="destruction_execute_level_3">Execute Level 3: OS Suicide (Soft Brick)</string>
+    <string name="destruction_execute_level_4">EXECUTE LEVEL 4: NUCLEAR WINTER</string>
+
+    <!-- Automated Features & Categories (Features Layout Compatibility) -->
+    <string name="features_panic_category">Panic &amp; Evidence Features</string>
     <string name="features_triggers_category">Automated &amp; Environment Triggers</string>
-    <string name="feature_intruder_selfie">Intruder Selfie (3+ failed attempts)</string>
-    <string name="save_selfie_locally">Also save selfie to device\'s public Pictures folder</string>
-    <string name="feature_sim_change">SIM Change Alert</string>
-    <string name="shake_to_panic_feature">Shake to Panic</string>
+    <string name="features_config_category">App &amp; System Configuration</string>
     <string name="feature_geofence">Enable Safe Zone Geofence</string>
     <string name="feature_set_geofence_button">Set Current Location as Safe Zone</string>
     <string name="feature_geofence_permission_required">Location permission is required to set a geofence.</string>
@@ -153,7 +242,6 @@
     <string name="watchdog_interval_hint">Update Interval</string>
     <string name="tripwire_mode">Data Destruction Tripwire</string>
     <string name="tripwire_duration_hint">Offline Duration to Trigger Wipe</string>
-    <string name="features_config_category">App &amp; System Configuration</string>
     <string name="feature_stealth_mode">Stealth Mode (Hide App Icon)</string>
     <string name="secret_dialer_code_hint">Secret Code (Numbers Only)</string>
     <string name="secret_dialer_code_helper">To open, dial *#*#CODE#*#* (e.g., *#*#5796#*#*)</string>
@@ -163,6 +251,8 @@
     <string name="feature_maintenance_disabled_toast">Maintenance Mode Disabled.</string>
     <string name="feature_maintenance_enabled_toast">Maintenance Mode Enabled.</string>
     <string name="feature_event_log_button">View Security Event Log</string>
+
+    <!-- Root Feature Descriptions (Features Layout Compatibility) -->
     <string name="root_features_title">Root-Exclusive Features</string>
     <string name="root_features_unavailable">Root access not detected. These features are unavailable.</string>
     <string name="root_feature_gps_spoof">GPS Spoofing on Duress</string>
@@ -197,80 +287,62 @@
     <string name="factory_reset_flashing_toast">Attempting to flash loader…</string>
     <string name="factory_reset_success_toast">Loader flashed successfully.</string>
     <string name="factory_reset_failed_toast">FLASH FAILED. CHECK LOGS.</string>
-    <string name="root_surveillance_title">Advanced Surveillance</string>
-    <string name="root_feature_stealth_screenshot">Stealth Screenshot Capture</string>
-    <string name="root_feature_keylogger">Kernel-Level Keylogger</string>
-    <string name="root_feature_stealth_media">Stealth Media Capture</string>
 
-    <!-- Settings Screen -->
-    <string name="settings_title">App Settings</string>
-    <string name="category_appearance">Appearance</string>
-    <string name="theme_title">Theme</string>
-    <string name="theme_summary">Choose the app\'s appearance</string>
-    <string name="language_title">Language</string>
-    <string name="language_summary">Select the application language</string>
-    <string name="category_features">Features</string>
-    <string name="shake_sensitivity_title">Shake to Panic Sensitivity</string>
-    <string name="shake_sensitivity_summary">Set how hard the device must be shaken to trigger a panic alert</string>
+    <!-- Manual Actions Legacy Strings -->
+    <string name="manual_actions_title">Manual Actions</string>
+    <string name="manual_action_location">Send Location Alert</string>
+    <string name="manual_action_lock">Lock Device</string>
+    <string name="manual_action_siren">Trigger Siren</string>
+    <string name="manual_action_wipe">Wipe Data (Critical)</string>
+    <string name="manual_wipe_confirmation_title">Confirm Data Wipe</string>
+    <string name="manual_wipe_confirmation_message">Are you absolutely sure? This will permanently erase all user data.</string>
+    <string name="manual_wipe_confirm_button">Yes, Wipe Device</string>
+    <string name="manual_action_honeypot">Switch to Decoy Space</string>
+    <string name="manual_honeypot_confirmation_title">Switch to Decoy Space?</string>
+    <string name="manual_honeypot_confirmation_message">This switches the active OS profile to the isolated secondary Android user space.</string>
+    <string name="manual_honeypot_confirm_button">Yes, Switch Space</string>
 
-    <!-- Event Log Screen -->
-    <string name="event_log_title">Security Event Log</string>
-    <string name="event_log_info">All logs are stored securely on your device. Most recent events are shown first.</string>
+    <!-- Permissions Screen & Guide -->
+    <string name="permissions_category_core">System Privilege Boundaries</string>
+    <string name="permissions_runtime_granted">✓ Runtime Permissions: Granted</string>
+    <string name="permissions_runtime_missing">Runtime Permissions: Incomplete</string>
+    <string name="permissions_admin_active">✓ Device Owner / Admin: Enforcing</string>
+    <string name="permissions_admin_inactive">Device Owner / Admin: Inactive</string>
+    <string name="permissions_accessibility_active">✓ Accessibility Sentinel: Active</string>
+    <string name="permissions_accessibility_inactive">Accessibility Sentinel: Inactive</string>
+    <string name="permissions_overlay_granted">✓ System Alert Overlay: Granted</string>
+    <string name="permissions_overlay_missing">System Alert Overlay: Missing</string>
+    <string name="permissions_usage_granted">✓ App Usage Telemetry: Granted</string>
+    <string name="permissions_usage_missing">App Usage Telemetry: Missing (Optional)</string>
+    <string name="permissions_all_granted_toast">All permissions granted!</string>
+    <string name="permissions_some_denied_toast">Some permissions were denied. The app may not function properly.</string>
+    <string name="permissions_admin_enabled_toast">Device Admin enabled successfully!</string>
+    <string name="permissions_admin_not_enabled_toast">Device Admin was not enabled. Remote wipe and lock will not work.</string>
+    <string name="permissions_overlay_granted_toast">Overlay permission granted!</string>
+    <string name="permissions_accessibility_enabled_toast">Accessibility service enabled!</string>
+    <string name="permissions_usage_granted_toast">Usage access granted!</string>
+    <string name="permissions_usage_optional_toast">Usage access can help with advanced monitoring features.</string>
+    <string name="permissions_all_runtime_granted_toast">All runtime permissions already granted!</string>
+    <string name="permissions_admin_already_active_toast">Device Admin is already active.</string>
+    <string name="permissions_accessibility_already_active_toast">Accessibility Service is already active.</string>
+    <string name="permissions_overlay_already_granted_toast">Overlay permission already granted.</string>
+    <string name="permissions_usage_already_granted_toast">Usage Access already granted.</string>
+    <string name="permissions_usage_skipped_toast">Usage access permission skipped.</string>
+    <string name="permissions_required_dialog_title">Permissions Required</string>
+    <string name="permissions_required_dialog_message">Uncle Ted needs these permissions to protect your device:\n\n• Camera: Take photos of intruders\n• Location: Send your location in emergencies\n• SMS: Send and receive remote commands\n• Microphone: Record ambient audio\n• Notifications: Show alerts</string>
+    <string name="permissions_required_dialog_grant">Grant Permissions</string>
+    <string name="permissions_admin_dialog_explanation">Uncle Ted requires Device Admin permission to:\n\n• Remotely lock your device when receiving SMS commands\n• Securely wipe your device data in emergency situations\n• Prevent unauthorized uninstallation of the security app\n\nThis permission is essential for the core security features.</string>
+    <string name="permissions_accessibility_dialog_title">Enable Accessibility Service</string>
+    <string name="permissions_accessibility_dialog_open_settings">Open Settings</string>
+    <string name="permissions_usage_dialog_title">Usage Access Permission</string>
+    <string name="permissions_usage_dialog_message">This optional permission allows Uncle Ted to monitor app usage patterns for anomaly detection.</string>
+    <string name="permissions_usage_dialog_skip">Skip</string>
+    <string name="permissions_button_runtime">Runtime Permissions</string>
+    <string name="permissions_button_admin">Device Admin</string>
+    <string name="permissions_button_accessibility">Accessibility Service</string>
+    <string name="permissions_button_overlay">Draw Over Other Apps</string>
+    <string name="permissions_button_usage">Usage Access (Optional)</string>
 
-    <!-- Dashboard -->
-    <string name="dashboard_threat_critical">CRITICAL THREAT DETECTED</string>
-    <string name="dashboard_threat_critical_desc">Immediate action required. Review critical threats below.</string>
-    <string name="dashboard_threat_high">HIGH THREAT DETECTED</string>
-    <string name="dashboard_threat_high_desc">High-priority threats detected. Review security status below.</string>
-    <string name="dashboard_threat_medium">THREATS DETECTED</string>
-    <string name="dashboard_threat_medium_desc">Moderate threats detected. See details below.</string>
-    <string name="dashboard_status_active">Active</string>
-    <string name="dashboard_status_inactive">Inactive</string>
-    <string name="dashboard_status_detected">Detected</string>
-    <string name="dashboard_status_not_found">Not Found</string>
-    <string name="dashboard_threat_card_title">🛡️ Threat Assessment</string>
-    <string name="dashboard_threat_level">Threat Level: %s</string>
-    <string name="dashboard_threat_summary">%1$d threats detected (%2$d%% confidence)</string>
-    <string name="dashboard_threat_issues_title">Detected Issues:</string>
-    <string name="dashboard_threat_recommendations_title">\nRecommendations:\n</string>
-    <string name="dashboard_no_threats_title">No Threats Detected</string>
-    <string name="dashboard_no_threats_desc">The latest scan found no immediate threats.</string>
-
-    <!-- Security Levels -->
-    <string name="level_0_title">Security Level: Compromised</string>
-    <string name="level_0_desc">Critical permissions are missing. App is inactive.</string>
-    <string name="level_1_title">Security Level: Poor</string>
-    <string name="level_1_desc">Basic setup is incomplete. Device is vulnerable.</string>
-    <string name="level_2_title">Security Level: Fair</string>
-    <string name="level_2_desc">Core features are active. Consider enabling more.</string>
-    <string name="level_3_title">Security Level: Good</string>
-    <string name="level_3_desc">Strong protection is enabled. Great job!</string>
-    <string name="level_4_title">Security Level: Excellent</string>
-    <string name="level_4_desc">Advanced protection is active.</string>
-    <string name="level_5_title">Security Level: Maximum</string>
-    <string name="level_5_desc">All security features are configured and active.</string>
-    <string name="level_root_title">Security Level: God Mode</string>
-    <string name="level_root_desc">Root access detected. You have full control. Use with caution.</string>
-
-    <!-- Checklist Items -->
-    <string name="check_root_title">Root Access</string>
-    <string name="check_root_desc">Indicates if Magisk, KernelSU, or APatch superuser privileges are active.</string>
-    <string name="check_pins_title">Security PINs</string>
-    <string name="check_pins_desc">Set normal, duress, wipe, and honeypot PINs.</string>
-    <string name="check_admin_title">Device Admin</string>
-    <string name="check_admin_desc">Required for remote lock and wipe.</string>
-    <string name="check_accessibility_title">Accessibility Service</string>
-    <string name="check_accessibility_desc">Required for input filtering and monitoring.</string>
-    <string name="check_permissions_title">Runtime Permissions</string>
-    <string name="check_permissions_desc">Camera, Location, SMS, Notifications, and other core permissions.</string>
-    <string name="check_contact_title">Emergency Contact</string>
-    <string name="check_contact_desc">The phone/email that receives alerts.</string>
-    <string name="check_intruder_title">Intruder Selfie</string>
-    <string name="check_intruder_desc">Captures a photo after 3+ failed PIN attempts.</string>
-    <string name="check_sim_title">SIM Change Alert</string>
-    <string name="check_sim_desc">Sends an alert if the SIM card is swapped.</string>
-
-    <!-- Permissions Guide -->
     <string name="core_services_guide_title">Why These Services Are Needed</string>
     <string name="guide_runtime_title">Runtime Permissions</string>
     <string name="guide_runtime_desc">Enables covert capture, location fixes, and emergency dispatch.</string>
@@ -283,43 +355,96 @@
     <string name="guide_usage_title">Usage Access (Optional)</string>
     <string name="guide_usage_desc">Grants ability to monitor app usage patterns for anomalies.</string>
 
+    <!-- General Settings -->
+    <string name="settings_title">Application Preferences</string>
+    <string name="category_appearance">Appearance &amp; Display</string>
+    <string name="theme_title">Interface Theme</string>
+    <string name="theme_summary">Choose interface styling and dark mode behavior</string>
+    <string name="language_title">Localization</string>
+    <string name="language_summary">Select runtime localization</string>
+    <string name="category_features">Sensor Calibration</string>
+    <string name="shake_sensitivity_title">Accelerometer Panic Sensitivity</string>
+    <string name="shake_sensitivity_summary">Adjust G-force trigger threshold</string>
+
+    <!-- Event Log -->
+    <string name="event_log_title">Security Event Audit Log</string>
+    <string name="event_log_info">All security events, sentinel trips, and remote signals are recorded locally in Device-Protected storage.</string>
+
+    <!-- Dashboard & Threat Assessment -->
+    <string name="dashboard_threat_critical">CRITICAL HARDWARE TAMPER DETECTED</string>
+    <string name="dashboard_threat_critical_desc">Immediate defensive action required. Silicon breach or RF isolation in progress.</string>
+    <string name="dashboard_threat_high">HIGH PRIORITY SECURITY ANOMALY</string>
+    <string name="dashboard_threat_high_desc">Elevated threat signature detected. Review active sentinels below.</string>
+    <string name="dashboard_threat_medium">SECURITY ADVISORY</string>
+    <string name="dashboard_threat_medium_desc">Policy divergence or unconfigured defensive layers detected.</string>
+    <string name="dashboard_status_active">Armed</string>
+    <string name="dashboard_status_inactive">Disarmed</string>
+    <string name="dashboard_status_detected">Hardware Backed</string>
+    <string name="dashboard_status_not_found">TEE Degraded</string>
+    <string name="dashboard_threat_card_title">🛡️ Hardware Defense &amp; Sentinel Status</string>
+    <string name="dashboard_threat_level">Threat Level: %s</string>
+    <string name="dashboard_threat_summary">%1$d threats detected (%2$d%% confidence)</string>
+    <string name="dashboard_threat_issues_title">Detected Issues:</string>
+    <string name="dashboard_threat_recommendations_title">\nRecommendations:\n</string>
+    <string name="dashboard_no_threats_title">Zero Threats Detected</string>
+    <string name="dashboard_no_threats_desc">All hardware sentinels operational. Baseline integrity verified.</string>
+
+    <!-- Security Levels -->
+    <string name="level_0_title">Posture: Defenseless</string>
+    <string name="level_0_desc">Core permissions missing. App is inactive.</string>
+    <string name="level_1_title">Posture: Degraded</string>
+    <string name="level_1_desc">Basic setup incomplete. Device is vulnerable to extraction.</string>
+    <string name="level_2_title">Posture: Monitored</string>
+    <string name="level_2_desc">Core sentinels active. Enable PQC and hardware tripwires.</string>
+    <string name="level_3_title">Posture: Hardened</string>
+    <string name="level_3_desc">Discrete HSM and anti-coercion layers armed.</string>
+    <string name="level_4_title">Posture: Enterprise Defense</string>
+    <string name="level_4_desc">Device Owner, PQC hybrid, and spectral traps fully operational.</string>
+    <string name="level_5_title">Posture: Maximum Zero-Trust</string>
+    <string name="level_5_desc">All silicon, PQC, OHTTP, and BLE sharding sentinels active.</string>
+    <string name="level_root_title">Posture: God Mode (Root / LSPosed)</string>
+    <string name="level_root_desc">Low-level kernel manipulation, cold Vold eviction, and native hooks operational.</string>
+
+    <!-- Checklist Items -->
+    <string name="check_root_title">Privileged Execution State</string>
+    <string name="check_root_desc">Verifies Magisk, KernelSU, or APatch superuser status.</string>
+    <string name="check_pins_title">Operational Credential Matrix</string>
+    <string name="check_pins_desc">Normal, Duress, Wipe, and Honeypot PINs provisioned.</string>
+    <string name="check_admin_title">Hardware Security Policy Authority</string>
+    <string name="check_admin_desc">Required for Device Owner USB port severing and platform wipe.</string>
+    <string name="check_accessibility_title">Hardware Key Input Filtering</string>
+    <string name="check_accessibility_desc">Interprets physical hardware volume panic sequences.</string>
+    <string name="check_permissions_title">System Capabilities</string>
+    <string name="check_permissions_desc">Camera, Micro-telemetry, Telephony, and Foreground Services.</string>
+    <string name="check_contact_title">Remote Signaling Dispatch</string>
+    <string name="check_contact_desc">Authenticated emergency signaling channel.</string>
+    <string name="check_intruder_title">Anti-Tamper Surveillance</string>
+    <string name="check_intruder_desc">Intruder photo and audio dossier capture.</string>
+    <string name="check_sim_title">SIM Identity Anchor</string>
+    <string name="check_sim_desc">Detects IMSI/ICCID hardware changes without throwing exceptions.</string>
+
     <!-- About Screen -->
     <string name="about_title">About Uncle Ted</string>
-    <string name="about_developer_credit">Designed and Developed by Hamoon Soleimani</string>
-    <string name="about_app_version">Version 6.0.1</string>
-    <string name="about_legal_disclaimer_title">Legal &amp; Ethical Disclaimer</string>
-    <string name="about_legal_disclaimer_body">This application is designed for educational and defensive security purposes ONLY. Never install or use this application on a device without the owner\'s explicit and informed consent. Unauthorized use is strictly prohibited. The developer assumes no liability for any misuse of this software.</string>
-    <string name="about_github">GitHub</string>
-    <string name="about_website">Website</string>
+    <string name="about_developer_credit">Designed and Engineered by Hamoon Soleimani</string>
+    <string name="about_app_version">Version 6.0.1 (Architecture Redesign)</string>
+    <string name="about_legal_disclaimer_title">Legal &amp; Operational Security Disclaimer</string>
+    <string name="about_legal_disclaimer_body">Uncle Ted is engineered strictly for educational research, authorized defensive security auditing, high-risk operational privacy, and human rights protection against physical coercion and forensic seizure. Erasing cryptographic key material renders underlying storage mathematically and physically unrecoverable. Never install this software without explicit, informed authorization from the device owner.</string>
+    <string name="about_github">GitHub Repository</string>
+    <string name="about_website">Official Website</string>
     <string name="about_quotes_title">Ted Kaczynski</string>
 
     <!-- Services & Notifications -->
-    <string name="accessibility_service_label">Uncle Ted Security Sentinel</string>
-    <string name="accessibility_service_description">Monitors hardware volume button wipe sequences and security events.</string>
-    <string name="notification_title">Uncle Ted Protection Active</string>
-    <string name="notification_text">Monitoring for security events in the background.</string>
-    <string name="notification_channel_name">Uncle Ted Monitoring Service</string>
-    <string name="selfie_saved_notification_title">Intruder Selfie Saved</string>
-    <string name="selfie_saved_notification_body">Tap to view the saved image.</string>
-    <string name="selfie_saved_notification_channel_name">File Save Alerts</string>
-    <string name="admin_disable_warning">Disabling this service compromises device security. Action logged.</string>
-    <string name="watchdog_status_message">Uncle Ted: Device Status Update</string>
-    <string name="watchdog_status_body">Current Status:\nBattery: %1$s%%\nLocation: %2$s</string>
-
-    <!-- Manual Actions Screen -->
-    <string name="manual_actions_title">Manual Actions</string>
-    <string name="manual_action_location">Send Location Alert</string>
-    <string name="manual_action_lock">Lock Device</string>
-    <string name="manual_action_siren">Trigger Siren</string>
-    <string name="manual_action_wipe">Wipe Data (Critical)</string>
-    <string name="manual_wipe_confirmation_title">Confirm Data Wipe</string>
-    <string name="manual_wipe_confirmation_message">Are you absolutely sure? This will permanently erase all user data.</string>
-    <string name="manual_wipe_confirm_button">Yes, Wipe Device</string>
-    <string name="menu_manual_actions">Manual Actions</string>
-    <string name="manual_action_honeypot">Switch to Decoy Space</string>
-    <string name="manual_honeypot_confirmation_title">Switch to Decoy Space?</string>
-    <string name="manual_honeypot_confirmation_message">This switches the active OS profile to the isolated secondary Android user space.</string>
-    <string name="manual_honeypot_confirm_button">Yes, Switch Space</string>
+    <string name="accessibility_service_label">Uncle Ted Input Filter Sentinel</string>
+    <string name="accessibility_service_description">Monitors hardware volume button wipe sequences and physical security events.</string>
+    <string name="notification_title">Uncle Ted Defense Engine Active</string>
+    <string name="notification_text">Hardware sentinels and memory defenses armed.</string>
+    <string name="notification_channel_name">Uncle Ted Core Sentinel Service</string>
+    <string name="selfie_saved_notification_title">Intruder Dossier Captured</string>
+    <string name="selfie_saved_notification_body">Tap to view captured evidentiary photo.</string>
+    <string name="selfie_saved_notification_channel_name">Evidentiary File Alerts</string>
+    <string name="admin_disable_warning">Disabling this service compromises discrete hardware defenses. Incident logged.</string>
+    <string name="watchdog_status_message">Uncle Ted: Telemetry Heartbeat</string>
+    <string name="watchdog_status_body">Status:\nBattery: %1$s%%\nLocation: %2$s</string>
 
     <!-- Kaczynski Quotes Array -->
     <string-array name="kaczynski_quotes">

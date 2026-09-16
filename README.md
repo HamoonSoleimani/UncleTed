@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/Version-v6.0.1-brightgreen.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v7.0.1-brightgreen.svg" alt="Version">
   <img src="https://img.shields.io/badge/Target%20SDK-34%20(Android%2014)-green.svg" alt="Target SDK">
   <img src="https://img.shields.io/badge/Min%20SDK-28%20(Android%209)-orange.svg" alt="Min SDK">
   <img src="https://img.shields.io/badge/Hardware-Titan%20M2%20%2F%20StrongBox-blueviolet.svg" alt="Titan M2 StrongBox">
@@ -100,7 +100,7 @@ On modern Android (Android 9 through 14+), the platform enforces strict security
 
 ## 🏗️ System Architecture (Dual-Profile Engine)
 
-Uncle Ted v6.0.1 features a decoupled, strategy-based architecture coordinated by `DefenseCoordinator`. The platform dynamically analyzes execution privileges, hardware security module availability, and bootloader status at startup, binding the runtime to the optimal defensive strategy:
+Uncle Ted v7.0.1 features a decoupled, strategy-based architecture coordinated by `DefenseCoordinator`. The platform dynamically analyzes execution privileges, hardware security module availability, and bootloader status at startup, binding the runtime to the optimal defensive strategy:
 
 ```
                                   ┌───────────────────────────────┐
@@ -376,7 +376,19 @@ UncleTed-main/
 │   │   │   │   │   └── StrongBoxSecurityManager.kt <-- Discrete Titan M2 master suicide key
 │   │   │   │   ├── data/
 │   │   │   │   │   └── SecurityPreferences.kt    <-- Dual DE/CE persistent storage manager
-│   │   │   │   ├── fragments/                    <-- UI Views (Dashboard, PINs, Features, etc.)
+│   │   │   │   ├── fragments/                    <-- Domain-Driven UI Views
+│   │   │   │   │   ├── AboutFragment.kt          <-- About, quotes, and attribution
+│   │   │   │   │   ├── AuthenticationFragment.kt <-- Credential Matrix & Decoy migration
+│   │   │   │   │   ├── CryptoEngineFragment.kt   <-- PQC keys, StrongBox & Deniability vault
+│   │   │   │   │   ├── DashboardFragment.kt      <-- Threat score & posture meter
+│   │   │   │   │   ├── DestructionProtocolsFragment.kt <-- Multi-tier destruction pipelines
+│   │   │   │   │   ├── EventLogFragment.kt       <-- Security event audit log
+│   │   │   │   │   ├── HardwareSentinelsFragment.kt <-- PMIC, Spectral, Baseband & USB sentinels
+│   │   │   │   │   ├── PermissionsFragment.kt    <-- System privilege boundaries
+│   │   │   │   │   ├── ProximityTripwireFragment.kt <-- BLE/UWB Sharding & Dead-man tripwires
+│   │   │   │   │   ├── RemoteSignalingFragment.kt<-- OHTTP Canary, Ed25519 & SMS fallback
+│   │   │   │   │   ├── SettingsFragment.kt       <-- App preferences & calibration
+│   │   │   │   │   └── SurveillanceFragment.kt   <-- CameraX, audio & keylog evidence
 │   │   │   │   ├── honeypot/                     <-- Decoy Launcher & Trap Activities
 │   │   │   │   │   ├── FakeBankingActivity.kt    <-- Credential bait trap
 │   │   │   │   │   ├── FakeGalleryActivity.kt    <-- Photo bait trap
@@ -436,9 +448,9 @@ UncleTed-main/
 │   │   │   ├── LockScreenActivity.kt             <-- Hardened in-app lockscreen
 │   │   │   ├── MainActivity.kt                   <-- Main UI dashboard
 │   │   │   └── UncleTedApplication.kt            <-- Runtime MTE & sandboxing initializer
-│   │   └── build.gradle.kts                      <-- Version 6.0.1, NDK CMake MTE flags, PQC packaging
+│   │   └── build.gradle.kts                      <-- Version 7.0.1, NDK CMake MTE flags, PQC packaging
 │   └── proguard-rules.pro                        <-- Native bridge & StrongBox rule preservation
-├── package_module.py                             <-- Universal Root Module Packager (v6.0.1)
+├── package_module.py                             <-- Universal Root Module Packager (v7.0.1)
 └── settings.gradle.kts
 ```
 
@@ -454,8 +466,8 @@ UncleTed-main/
 
 ### Phase 1: Acquire the Release Artifacts
 Download the pre-built release artifacts directly from the **[GitHub Releases](https://github.com/HamoonSoleimani/UncleTed/releases)** page:
-- **`UncleTed-v6.0.1.apk`** (For Route A: Device Owner provisioning or direct installation).
-- **`UncleTed-PrivApp-v6.0.1.zip`** (For Route B: Magisk / KernelSU / APatch flashable module).
+- **`UncleTed-v7.0.1.apk`** (For Route A: Device Owner provisioning or direct installation).
+- **`UncleTed-PrivApp-v7.0.1.zip`** (For Route B: Magisk / KernelSU / APatch flashable module).
 
 ---
 
@@ -470,7 +482,7 @@ Download the pre-built release artifacts directly from the **[GitHub Releases](h
 4. Connect the phone to your computer via USB.
 5. Install the APK and assign Device Owner status via ADB:
    ```bash
-   adb install -r -d -g UncleTed-v6.0.1.apk
+   adb install -r -d -g UncleTed-v7.0.1.apk
    adb shell dpm set-device-owner com.hamoon.uncleted/.receivers.AdminReceiver
    ```
 6. Revoke USB Debugging and disable Developer Options in Settings:
@@ -483,13 +495,13 @@ Download the pre-built release artifacts directly from the **[GitHub Releases](h
 #### Route B: Flashing the Systemless Module (.zip) for Root & LSPosed
 *Recommended for native lockscreen PIN interception, cold Vold user key eviction, and covert surveillance.*
 
-1. Transfer `UncleTed-PrivApp-v6.0.1.zip` to your device's internal storage:
+1. Transfer `UncleTed-PrivApp-v7.0.1.zip` to your device's internal storage:
    ```bash
-   adb push UncleTed-PrivApp-v6.0.1.zip /sdcard/
+   adb push UncleTed-PrivApp-v7.0.1.zip /sdcard/
    ```
 2. Open **Magisk**, **KernelSU**, or **APatch Manager**.
 3. Navigate to the **Modules** tab.
-4. Tap **Install from storage**, select `UncleTed-PrivApp-v6.0.1.zip`, and allow the installer script to run.
+4. Tap **Install from storage**, select `UncleTed-PrivApp-v7.0.1.zip`, and allow the installer script to run.
 5. Tap **Reboot**.
 
 ---
@@ -508,16 +520,16 @@ Download the pre-built release artifacts directly from the **[GitHub Releases](h
 
 ### Phase 4: Configuring & Arming Credentials
 1. Open **UncleTed** on your device.
-2. Complete the permission authorizations in the **Core Services** tab.
-3. Open the **Authentication** tab:
+2. Complete the permission authorizations in the **System Platform Access** tab.
+3. Open the **Authentication & Decoys** tab:
    - Set a **Normal Unlock PIN** (e.g., `1111`).
    - Set a **Duress (Panic) PIN** (e.g., `2222`).
    - Set a **Wipe Lock PIN** (e.g., `9999`).
    - Set a **Honeypot PIN** (e.g., `5555`).
-4. Tap **Save PINs**.
-5. Open the **Remote Control** tab:
+4. Tap **Save & Arm Credentials**.
+5. Open the **Covert Signaling & C2** tab:
    - Paste your **Operator Ed25519 Public Key** (Base64) to enable cryptographic remote signaling.
-   - Configure your **Trusted PQC Hybrid Public Key (ML-KEM-768 + X25519)** for post-quantum sealed telemetry.
+   - Configure your **Trusted PQC Hybrid Public Key (ML-KEM-768 + X25519)** under the **Cryptography & Deniability** tab.
    - Tap **Generate Emergency Wallet Sheet (5 OTC)** and write down or print the single-use recovery tokens.
    - Configure your **Emergency Contact** (Email or Phone Number).
 
@@ -596,7 +608,7 @@ adb logcat -s "MonitoringService" "SpectralSentinel" "AdvancedBasebandSentinel" 
 ```
 *Expected output:*
 ```text
-MonitoringService: MonitoringService: Sensors, Advanced Baseband, Spectral, and PMIC Sentinels active.
+MonitoringService: MonitoringService: Sensors, Spectral, PMIC, Baseband, and Proximity Sentinels active.
 AdvancedBasebandSentinel: Baseband modem allowed network types bitmask updated (2G stripped: ...).
 PmicTamperSentinel: Hardware PMIC telemetry baseline locked: R_int=42000uOhm, Temp=245
 ```

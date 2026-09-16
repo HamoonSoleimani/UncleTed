@@ -5,7 +5,10 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
 import java.nio.ByteBuffer
 import kotlin.math.abs
 
-class SecureWireValidator(private val trustedPublicKeyBytes: ByteArray) {
+class SecureWireValidator(
+    private val trustedPublicKeyBytes: ByteArray,
+    private val allowedDriftMs: Long = 120_000L
+) {
 
     data class CommandPacket(
         val opCode: Byte,
@@ -37,7 +40,6 @@ class SecureWireValidator(private val trustedPublicKeyBytes: ByteArray) {
         const val WIRE_PACKET_SIZE = 85
         const val SIGNED_HEADER_SIZE = 21
         const val SIGNATURE_SIZE = 64
-        const val MAX_ALLOWED_TIMESTAMP_DRIFT_MS = 120_000L // 2-minute replay rejection window
     }
 
     /**
@@ -63,18 +65,18 @@ class SecureWireValidator(private val trustedPublicKeyBytes: ByteArray) {
         val signature = ByteArray(SIGNATURE_SIZE)
         buffer.get(signature)
 
-        // 1. Anti-Replay Guardrail: Timestamp must be within window
+        // 1. Anti-Replay: Timestamp within allowed drift window
         val now = System.currentTimeMillis()
-        if (abs(now - timestamp) > MAX_ALLOWED_TIMESTAMP_DRIFT_MS) {
+        if (abs(now - timestamp) > allowedDriftMs) {
             return null
         }
 
-        // 2. Anti-Replay Guardrail: Sequence must strictly exceed the highest observed sequence counter
+        // 2. Anti-Replay: Monotonic sequence strictly greater than last recorded
         if (sequence <= lastRecordedSequence) {
             return null
         }
 
-        // 3. Cryptographic Verification: Verify signature over the 21-byte envelope
+        // 3. Signature verification over the 21-byte envelope
         val signedData = ByteBuffer.allocate(SIGNED_HEADER_SIZE)
             .putLong(timestamp)
             .putLong(sequence)

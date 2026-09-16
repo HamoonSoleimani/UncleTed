@@ -32,15 +32,18 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private lateinit var binding: ActivityMainBinding
     private lateinit var toggle: ActionBarDrawerToggle
 
-    // Lazy load fragments to optimize startup performance
+    // Domain-Driven Fragment Instances (Lazy Loaded)
     private val dashboardFragment by lazy { DashboardFragment() }
+    private val hardwareSentinelsFragment by lazy { HardwareSentinelsFragment() }
+    private val cryptoEngineFragment by lazy { CryptoEngineFragment() }
+    private val authenticationFragment by lazy { AuthenticationFragment() }
+    private val proximityTripwireFragment by lazy { ProximityTripwireFragment() }
+    private val remoteSignalingFragment by lazy { RemoteSignalingFragment() }
+    private val surveillanceFragment by lazy { SurveillanceFragment() }
+    private val destructionProtocolsFragment by lazy { DestructionProtocolsFragment() }
     private val permissionsFragment by lazy { PermissionsFragment() }
-    private val pinsFragment by lazy { PinsFragment() }
-    private val remoteFragment by lazy { RemoteFragment() }
-    private val featuresFragment by lazy { FeaturesFragment() }
     private val settingsFragment by lazy { SettingsFragment() }
     private val aboutFragment by lazy { AboutFragment() }
-    private val manualActionsFragment by lazy { ManualActionsFragment() }
 
     private var activeFragment: Fragment = dashboardFragment
     private var isAuthenticating = true
@@ -54,17 +57,16 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // 1. Initial UI State: Show loading indicator while decrypting storage
+        // 1. Initial UI State: Hide drawer until storage & biometric authentication clears
         binding.drawerLayout.visibility = View.INVISIBLE
         binding.initialLoadingIndicator.visibility = View.VISIBLE
 
-        // 2. Background Initialization (God Mode & Security)
+        // 2. Background Initialization (God Mode, SELinux policies & Root verification)
         lifecycleScope.launch {
             val authResult = withContext(Dispatchers.IO) {
                 initializeSystemRequirements()
             }
 
-            // 3. Main Thread: Decide next step based on initialization
             if (authResult.requiresBiometric) {
                 promptBiometricAuth()
             } else {
@@ -72,27 +74,18 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             }
         }
 
-        // 4. Ensure Foreground Service is active for Primary User
+        // 3. Ensure Monitoring Foreground Service is active for Primary User
         startMonitoringServiceIfNeeded()
     }
 
-    /**
-     * Performs heavy initialization tasks on a background thread.
-     * Enforces primary user checks and functional root privilege verification.
-     */
     private suspend fun initializeSystemRequirements(): InitializationResult {
-        // Multi-User Guardrail: Prevent running root operations if active inside secondary user profile
         val isPrimaryUser = (Process.myUid() / 100000) == 0
-
         val isRooted = if (isPrimaryUser) RootChecker.isDeviceRooted() else false
 
         if (isRooted && isPrimaryUser) {
-            Log.i(TAG, "Root detected on primary user. Executing God Mode initialization sequences.")
+            Log.i(TAG, "Root detected on primary user. Executing God Mode initialization routines.")
             try {
-                // Bypass Android 13+ Restricted Settings for Accessibility
                 GodMode.forceEnableAccessibility(applicationContext)
-
-                // Bypass Android 6+ Doze Mode / App Standby
                 GodMode.whitelistFromBatteryOptimizations(applicationContext)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed executing God Mode startup routines", e)
@@ -178,9 +171,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             val serviceIntent = Intent(this, MonitoringService::class.java)
             try {
                 ContextCompat.startForegroundService(this, serviceIntent)
-                Log.i(TAG, "Ensured MonitoringService is active on primary user.")
+                Log.i(TAG, "MonitoringService active on primary user.")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start MonitoringService", e)
+                Log.e(TAG, "Failed starting MonitoringService", e)
             }
         }
     }
@@ -188,25 +181,31 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private fun setupFragments() {
         supportFragmentManager.commit {
             add(R.id.nav_host_fragment, dashboardFragment, "DASHBOARD").hide(dashboardFragment)
+            add(R.id.nav_host_fragment, hardwareSentinelsFragment, "HARDWARE").hide(hardwareSentinelsFragment)
+            add(R.id.nav_host_fragment, cryptoEngineFragment, "CRYPTO").hide(cryptoEngineFragment)
+            add(R.id.nav_host_fragment, authenticationFragment, "AUTH").hide(authenticationFragment)
+            add(R.id.nav_host_fragment, proximityTripwireFragment, "PROXIMITY").hide(proximityTripwireFragment)
+            add(R.id.nav_host_fragment, remoteSignalingFragment, "SIGNALING").hide(remoteSignalingFragment)
+            add(R.id.nav_host_fragment, surveillanceFragment, "SURVEILLANCE").hide(surveillanceFragment)
+            add(R.id.nav_host_fragment, destructionProtocolsFragment, "DESTRUCTION").hide(destructionProtocolsFragment)
             add(R.id.nav_host_fragment, permissionsFragment, "PERMISSIONS").hide(permissionsFragment)
-            add(R.id.nav_host_fragment, pinsFragment, "PINS").hide(pinsFragment)
-            add(R.id.nav_host_fragment, remoteFragment, "REMOTE").hide(remoteFragment)
-            add(R.id.nav_host_fragment, featuresFragment, "FEATURES").hide(featuresFragment)
             add(R.id.nav_host_fragment, settingsFragment, "SETTINGS").hide(settingsFragment)
             add(R.id.nav_host_fragment, aboutFragment, "ABOUT").hide(aboutFragment)
-            add(R.id.nav_host_fragment, manualActionsFragment, "MANUAL").hide(manualActionsFragment)
         }
     }
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         val (fragment, title) = when (item.itemId) {
             R.id.nav_dashboard -> dashboardFragment to getString(R.string.menu_dashboard)
+            R.id.nav_hardware_sentinels -> hardwareSentinelsFragment to getString(R.string.menu_hardware_sentinels)
+            R.id.nav_crypto_engine -> cryptoEngineFragment to getString(R.string.menu_crypto_engine)
+            R.id.nav_authentication -> authenticationFragment to getString(R.string.menu_authentication)
+            R.id.nav_proximity_tripwire -> proximityTripwireFragment to getString(R.string.menu_proximity_tripwire)
+            R.id.nav_remote_signaling -> remoteSignalingFragment to getString(R.string.menu_remote_signaling)
+            R.id.nav_surveillance -> surveillanceFragment to getString(R.string.menu_surveillance)
+            R.id.nav_destruction -> destructionProtocolsFragment to getString(R.string.menu_destruction)
             R.id.nav_permissions -> permissionsFragment to getString(R.string.menu_permissions)
-            R.id.nav_pins -> pinsFragment to getString(R.string.menu_pins)
-            R.id.nav_remote -> remoteFragment to getString(R.string.menu_remote)
-            R.id.nav_features -> featuresFragment to getString(R.string.menu_features)
-            R.id.nav_settings -> settingsFragment to getString(R.string.settings_title)
-            R.id.nav_manual_actions -> manualActionsFragment to getString(R.string.menu_manual_actions)
+            R.id.nav_settings -> settingsFragment to getString(R.string.menu_settings)
             R.id.nav_about -> aboutFragment to getString(R.string.menu_about)
             else -> return false
         }

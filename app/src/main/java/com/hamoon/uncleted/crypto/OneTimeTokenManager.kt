@@ -55,8 +55,7 @@ object OneTimeTokenManager {
     }
 
     /**
-     * Checks if the received SMS matches an active single-use token.
-     * If valid, the token is permanently removed using an immediate commit to prevent replay.
+     * Validates and immediately burns an incoming OTC token in DE storage.
      */
     fun validateAndBurnToken(context: Context, rawMessageBody: String): Boolean {
         val normalizedToken = rawMessageBody.trim()
@@ -69,7 +68,6 @@ object OneTimeTokenManager {
         val activeHashes = prefs.getStringSet(KEY_ACTIVE_TOKEN_HASHES, emptySet())?.toMutableSet() ?: return false
 
         if (activeHashes.contains(incomingHash)) {
-            // Invalidate the token permanently
             activeHashes.remove(incomingHash)
             prefs.edit().putStringSet(KEY_ACTIVE_TOKEN_HASHES, activeHashes).commit()
             return true

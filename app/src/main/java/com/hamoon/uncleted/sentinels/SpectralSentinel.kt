@@ -34,7 +34,6 @@ class SpectralSentinel(private val context: Context) {
 
     companion object {
         private const val TAG = "SpectralSentinel"
-        private const val QUARANTINE_THRESHOLD_MS = 4000L // 4-second sustained confirmation
         private const val RSRP_DEAD_ZONE_THRESHOLD = -135 // dBm
     }
 
@@ -44,7 +43,7 @@ class SpectralSentinel(private val context: Context) {
             return
         }
 
-        // Rule 1: Ignore state if user deliberately toggled Airplane Mode
+        // Rule 1: Do not trigger if user intentionally toggled Airplane Mode
         val isAirplaneMode = Settings.Global.getInt(
             context.contentResolver,
             Settings.Global.AIRPLANE_MODE_ON,
@@ -55,31 +54,30 @@ class SpectralSentinel(private val context: Context) {
             return
         }
 
-        // Rule 2: Only active when screen is locked
+        // Rule 2: Only enforce when screen is locked
         val isLocked = keyguardManager?.isDeviceLocked ?: true
         if (!isLocked) {
             zeroSignalStartEpoch = 0L
             return
         }
 
-        // 1. Telephony: Assess serving cell signals across physical modems
         val isCellularDead = evaluateCellularDeadState()
-
-        // 2. Wi-Fi: Active scan returns 0 visible BSSIDs
         val isWifiDead = evaluateWifiDeadState()
 
-        // 3. Movement Sensor: Verify device is handled or in physical transit
-        val isDeviceInMotion = MotionDetector.hasMicroMotion()
+        val motionRequired = SecurityPreferences.isSpectralMotionRequired(context)
+        val isMotionConditionMet = if (motionRequired) MotionDetector.hasMicroMotion() else true
 
-        if (isCellularDead && isWifiDead && isDeviceInMotion) {
+        if (isCellularDead && isWifiDead && isMotionConditionMet) {
             val now = SystemClock.elapsedRealtime()
+            val quarantineWindowMs = SecurityPreferences.getSpectralQuarantineMs(context)
+
             if (zeroSignalStartEpoch == 0L) {
                 zeroSignalStartEpoch = now
-                Log.w(TAG, "Spectral anomaly: Sudden multi-spectrum RF drop with physical motion detected. Verification clock started.")
-            } else if (now - zeroSignalStartEpoch >= QUARANTINE_THRESHOLD_MS) {
+                Log.w(TAG, "Spectral anomaly: Multi-spectrum RF collapse detected. Quarantine timer initiated ($quarantineWindowMs ms)...")
+            } else if (now - zeroSignalStartEpoch >= quarantineWindowMs) {
                 zeroSignalStartEpoch = 0L
-                Log.e(TAG, "!!! CONFIRMED FARADAY BAG ISOLATION SEIZURE DETECTED (SUSTAINED 4S) !!!")
-                EventLogger.log(context, "CRITICAL: Faraday bag physical seizure confirmed. Executing instant AFU -> BFU key eviction.")
+                Log.e(TAG, "!!! CONFIRMED FARADAY BAG ISOLATION SEIZURE DETECTED (SUSTAINED ${quarantineWindowMs}ms) !!!")
+                EventLogger.log(context, "CRITICAL: Faraday bag seizure confirmed. Executing AFU -> BFU key eviction.")
                 executeInstantBfuEviction()
             }
         } else {
