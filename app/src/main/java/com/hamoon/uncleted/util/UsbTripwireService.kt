@@ -28,9 +28,6 @@ class UsbTripwireService : Service() {
         private const val TAG = "UsbTripwireService"
         private const val NOTIFICATION_ID = 2002
         private const val POLLING_INTERVAL_MS = 1000L
-
-        // Requires 2 consecutive positive evaluations (2 seconds apart)
-        // to filter momentary voltage transients when connecting to high-voltage USB-PD chargers.
         private const val REQUIRED_CONSECUTIVE_HITS = 2
     }
 
@@ -75,7 +72,13 @@ class UsbTripwireService : Service() {
             EventLogger.log(this@UsbTripwireService, "USB Sentinel: Kernel UDC bus monitoring armed.")
 
             while (isActive) {
-                if (keyguardManager.isDeviceLocked) {
+                val isLocked = try {
+                    keyguardManager.isDeviceLocked
+                } catch (_: Exception) {
+                    false
+                }
+
+                if (isLocked) {
                     val isDataConnected = UsbDetector.isDataCableConnected(this@UsbTripwireService)
 
                     if (isDataConnected) {
@@ -86,12 +89,10 @@ class UsbTripwireService : Service() {
                             Log.e(TAG, "!!! HOST CONNECTION CONFIRMED WHILE LOCKED: EXECUTING KILLSWITCH !!!")
                             EventLogger.log(this@UsbTripwireService, "CRITICAL: Physical USB data host breach detected!")
 
-                            // 1. Instantly sever data bus signaling and isolate radios via DefenseStrategy
                             val strategy = DefenseCoordinator.resolveStrategy(this@UsbTripwireService)
                             strategy.setUsbDataPortEnabled(false)
                             strategy.isolateRadiosAndNetwork()
 
-                            // 2. Execute configured destruction tier
                             try {
                                 if (strategy.isHardwareSecured) {
                                     strategy.executeWipe("USB_HARDWARE_TRIPWIRE_BREACH")

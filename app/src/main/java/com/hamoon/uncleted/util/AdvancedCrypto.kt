@@ -6,6 +6,8 @@ import android.util.Log
 import com.hamoon.uncleted.crypto.CryptoPreferences
 import com.hamoon.uncleted.crypto.PostQuantumEngine
 import com.hamoon.uncleted.crypto.StrongBoxSecurityManager
+import com.hamoon.uncleted.data.SecurityPreferences
+import com.hamoon.uncleted.proximity.ProximityShardingEngine
 import java.security.MessageDigest
 import java.security.SecureRandom
 
@@ -25,23 +27,61 @@ object AdvancedCrypto {
         val nonceBase64: String
     )
 
+    /**
+     * Encrypts sensitive plaintexts.
+     * If BLE Proximity Sharding is enabled, data is combined with the volatile Shamir Shard B.
+     * If separated from the wearable token, encryption/decryption is cryptographically barred.
+     */
     fun encryptSensitiveData(context: Context, plaintext: String): EncryptedData? {
         val plainBytes = plaintext.toByteArray(Charsets.UTF_8)
-        val payload = StrongBoxSecurityManager.encryptWithStrongBox(context, plainBytes)
-        NativeSecurityBridge.zeroByteArray(plainBytes)
+        NativeSecurityBridge.pinMemory(plainBytes)
 
-        if (payload == null) {
-            Log.e(TAG, "Failed to encrypt data via StrongBox KeyMint.")
+        val isShardingEnabled = SecurityPreferences.isProximityShardingEnabled(context)
+        val payloadBytes = if (isShardingEnabled) {
+            val combinedKey = ProximityShardingEngine.getActiveCombinedKey(context)
+            if (combinedKey == null) {
+                Log.e(TAG, "Encryption rejected: Proximity token is separated (Shard B absent from RAM).")
+                NativeSecurityBridge.unpinMemory(plainBytes)
+                NativeSecurityBridge.zeroByteArray(plainBytes)
+                return null
+            }
+            val nonce = ByteArray(12)
+            SecureRandom().nextBytes(nonce)
+            val encryptedWithShard = NativeSecurityBridge.compressAndEncrypt(plainBytes, combinedKey, nonce)
+            NativeSecurityBridge.zeroByteArray(combinedKey)
+            encryptedWithShard
+        } else {
+            plainBytes
+        }
+
+        if (payloadBytes == null) {
+            NativeSecurityBridge.unpinMemory(plainBytes)
+            NativeSecurityBridge.zeroByteArray(plainBytes)
             return null
         }
 
-        val (ctBase64, ivBase64) = payload.encodeToBase64()
+        val strongBoxPayload = StrongBoxSecurityManager.encryptWithStrongBox(context, payloadBytes)
+        NativeSecurityBridge.unpinMemory(plainBytes)
+        NativeSecurityBridge.zeroByteArray(plainBytes)
+        if (isShardingEnabled) {
+            NativeSecurityBridge.zeroByteArray(payloadBytes)
+        }
+
+        if (strongBoxPayload == null) {
+            Log.e(TAG, "Failed encrypting data via StrongBox KeyMint.")
+            return null
+        }
+
+        val (ctBase64, ivBase64) = strongBoxPayload.encodeToBase64()
         return EncryptedData(
             cipherText = ctBase64,
             iv = ivBase64
         )
     }
 
+    /**
+     * Decrypts sensitive ciphertexts with StrongBox and proximity key reconstruction.
+     */
     fun decryptSensitiveData(context: Context, encryptedData: EncryptedData): String? {
         val cipherBytes = try {
             Base64.decode(encryptedData.cipherText, Base64.NO_WRAP)
@@ -58,9 +98,41 @@ object AdvancedCrypto {
         val payload = StrongBoxSecurityManager.StrongBoxPayload(cipherBytes, ivBytes)
         val decryptedBytes = StrongBoxSecurityManager.decryptWithStrongBox(context, payload) ?: return null
 
-        val resultString = String(decryptedBytes, Charsets.UTF_8)
-        NativeSecurityBridge.unpinMemory(decryptedBytes)
-        NativeSecurityBridge.zeroByteArray(decryptedBytes)
+        val isShardingEnabled = SecurityPreferences.isProximityShardingEnabled(context)
+        val finalPlainBytes = if (isShardingEnabled) {
+            val combinedKey = ProximityShardingEngine.getActiveCombinedKey(context)
+            if (combinedKey == null) {
+                Log.e(TAG, "Decryption rejected: Proximity token separated (Shard B absent from RAM).")
+                NativeSecurityBridge.unpinMemory(decryptedBytes)
+                NativeSecurityBridge.zeroByteArray(decryptedBytes)
+                return null
+            }
+            // Extract nonce and ciphertext from shard payload
+            val nonce = ByteArray(12)
+            if (decryptedBytes.size < 12) {
+                NativeSecurityBridge.zeroByteArray(combinedKey)
+                return null
+            }
+            System.arraycopy(decryptedBytes, 0, nonce, 0, 12)
+            val cipherOnly = ByteArray(decryptedBytes.size - 12)
+            System.arraycopy(decryptedBytes, 12, cipherOnly, 0, cipherOnly.size)
+
+            val plaintext = NativeSecurityBridge.decryptAndDecompress(cipherOnly, combinedKey, nonce)
+            NativeSecurityBridge.zeroByteArray(combinedKey)
+            plaintext
+        } else {
+            decryptedBytes
+        }
+
+        if (finalPlainBytes == null) {
+            NativeSecurityBridge.unpinMemory(decryptedBytes)
+            NativeSecurityBridge.zeroByteArray(decryptedBytes)
+            return null
+        }
+
+        val resultString = String(finalPlainBytes, Charsets.UTF_8)
+        NativeSecurityBridge.unpinMemory(finalPlainBytes)
+        NativeSecurityBridge.zeroByteArray(finalPlainBytes)
         return resultString
     }
 
@@ -82,10 +154,7 @@ object AdvancedCrypto {
         val nonce = ByteArray(12)
         SecureRandom().nextBytes(nonce)
 
-        // Pass through native Compress-Encrypt-Shape (CES) engine
         val ciphertextWithTag = NativeSecurityBridge.compressAndEncrypt(plaintextData, encapsulation.sharedKey256, nonce)
-
-        // Zero ephemeral symmetric key immediately
         NativeSecurityBridge.zeroByteArray(encapsulation.sharedKey256)
 
         if (ciphertextWithTag == null) {
@@ -106,7 +175,7 @@ object AdvancedCrypto {
     fun openPostQuantumHybrid(context: Context, envelope: PostQuantumEnvelope): ByteArray? {
         val localPrivateKey = CryptoPreferences.getLocalPqcPrivateKey(context)
         if (localPrivateKey == null) {
-            Log.e(TAG, "PQC envelope open aborted: Local private key missing from Device-Protected store.")
+            Log.e(TAG, "PQC envelope open aborted: Local private key missing from storage.")
             return null
         }
 

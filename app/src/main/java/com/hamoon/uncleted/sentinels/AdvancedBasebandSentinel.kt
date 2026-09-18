@@ -28,7 +28,7 @@ class AdvancedBasebandSentinel(private val context: Context) {
 
     companion object {
         private const val TAG = "AdvancedBasebandSentinel"
-        private const val ALERT_COOLDOWN_MS = 15_000L
+        private const val ALERT_COOLDOWN_MS = 30_000L
         @Volatile
         private var lastAlertTimestamp = 0L
 
@@ -82,7 +82,6 @@ class AdvancedBasebandSentinel(private val context: Context) {
                 registeredCallback = callback
                 isMonitoring = true
                 Log.i(TAG, "Advanced Baseband Sentinel armed.")
-                EventLogger.log(context, "BASEBAND: Advanced IMSI-Catcher & cell anomaly sentinel armed.")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed registering advanced telephony callbacks", e)
             }
@@ -120,13 +119,12 @@ class AdvancedBasebandSentinel(private val context: Context) {
                         TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER,
                         sanitizedMask
                     )
-                    Log.i(TAG, "Baseband modem allowed network types bitmask updated (2G stripped: $sanitizedMask).")
-                    EventLogger.log(context, "BASEBAND: Modem-level 2G frequency scanning permanently masked out.")
+                    Log.i(TAG, "Baseband modem allowed network types bitmask updated (2G stripped).")
                 }
             } catch (e: SecurityException) {
-                Log.w(TAG, "setAllowedNetworkTypesForReason requires privileged carrier/system authority: ${e.message}")
+                Log.w(TAG, "setAllowedNetworkTypesForReason requires privileged carrier authority: ${e.message}")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed updating allowed network types bitmask", e)
+                Log.e(TAG, "Failed updating allowed network types: ${e.message}")
             }
         }
     }
@@ -144,10 +142,7 @@ class AdvancedBasebandSentinel(private val context: Context) {
                     restoredMask
                 )
                 Log.i(TAG, "Baseband modem network types restored.")
-                EventLogger.log(context, "BASEBAND: Baseband modem 2G bitmask restored.")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed restoring network types bitmask", e)
-            }
+            } catch (_: Exception) {}
         }
     }
 
@@ -161,10 +156,10 @@ class AdvancedBasebandSentinel(private val context: Context) {
         for (info in regInfoList) {
             if (info.domain == NetworkRegistrationInfo.DOMAIN_CS || info.domain == NetworkRegistrationInfo.DOMAIN_PS) {
                 val tech = info.accessNetworkTechnology
-                if (is2GTechnology(tech)) {
+                if (is2GTechnology(tech) && info.isRegistered) {
                     triggerBasebandThreatAlert(
                         "FORCED_2G_LINK_DOWNGRADE",
-                        "Forced legacy 2G cellular link negotiated (Technology Code: $tech)."
+                        "Device registered to unencrypted 2G cellular network (Tech Code: $tech)."
                     )
                     return
                 }
@@ -177,12 +172,15 @@ class AdvancedBasebandSentinel(private val context: Context) {
 
         val maxAllowedTimingAdvance = SecurityPreferences.getTimingAdvanceThreshold(context)
 
-        for (info in cellInfoList) {
+        // Only evaluate the serving cell the phone is actively connected to
+        val registeredCells = cellInfoList.filter { it.isRegistered }
+
+        for (info in registeredCells) {
             if (info is CellInfoGsm) {
                 if (SecurityPreferences.isHardware2GDisabled(context)) {
                     triggerBasebandThreatAlert(
                         "ROGUE_2G_BASE_STATION_DETECTED",
-                        "Device connected to rogue GSM cell despite hardware 2G masking."
+                        "Device connected to active GSM cell despite hardware 2G masking."
                     )
                     return
                 }
@@ -197,7 +195,7 @@ class AdvancedBasebandSentinel(private val context: Context) {
                     val estimatedMeters = timingAdvance * 78
                     triggerBasebandThreatAlert(
                         "STINGRAY_TIMING_ADVANCE_SPOOF",
-                        "Impossible RF topology: High power (${rsrp}dBm) with Timing Advance ${timingAdvance} (~${estimatedMeters}m)."
+                        "High power (${rsrp}dBm) with Timing Advance $timingAdvance (~${estimatedMeters}m)."
                     )
                     return
                 }
@@ -220,9 +218,8 @@ class AdvancedBasebandSentinel(private val context: Context) {
         if (now - lastAlertTimestamp < ALERT_COOLDOWN_MS) return
         lastAlertTimestamp = now
 
-        Log.e(TAG, "!!! BASEBAND SECURITY BREACH: $reason !!!")
-        Log.e(TAG, "Details: $description")
-        EventLogger.log(context, "CRITICAL: Baseband threat [$reason]: $description")
+        Log.e(TAG, "!!! BASEBAND SECURITY BREACH: $reason !!! - $description")
+        EventLogger.log(context, "BASEBAND: $reason - $description")
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -235,7 +232,7 @@ class AdvancedBasebandSentinel(private val context: Context) {
                     PanicActionService.Severity.HIGH
                 )
             } catch (e: Exception) {
-                Log.e(TAG, "Failed executing baseband cutoff countermeasures", e)
+                Log.e(TAG, "Failed executing baseband countermeasures", e)
             }
         }
     }

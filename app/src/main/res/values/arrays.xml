@@ -54,11 +54,49 @@
         <item>12 Hours</item>
         <item>24 Hours</item>
         <item>48 Hours</item>
+        <item>7 Days (168 Hours)</item>
+        <item>1 Month (720 Hours)</item>
+        <item>6 Months (4320 Hours)</item>
     </string-array>
     <string-array name="tripwire_duration_values">
         <item>6</item>
         <item>12</item>
         <item>24</item>
         <item>48</item>
+        <item>168</item>
+        <item>720</item>
+        <item>4320</item>
+    </string-array>
+
+    <!-- Values for Decoy App Launcher Action -->
+    <string-array name="decoy_app_action_entries">
+        <item>Immediate Silicon Wipe (Lethal)</item>
+        <item>Silent Duress Canary &amp; Evidence Capture</item>
+        <item>Immediate Lock &amp; Revert to BFU</item>
+        <item>Migrate to Isolated Decoy Space (Switch User)</item>
+        <item>Open Honeypot Fake Launcher</item>
+        <item>Switch User &amp; Open Fake Launcher</item>
+    </string-array>
+    <string-array name="decoy_app_action_values">
+        <item>WIPE</item>
+        <item>DURESS</item>
+        <item>LOCK</item>
+        <item>DECOY_SPACE</item>
+        <item>FAKE_LAUNCHER</item>
+        <item>DECOY_SPACE_AND_LAUNCHER</item>
+    </string-array>
+
+    <!-- Values for Max Failed Passwords Before Wipe -->
+    <string-array name="failed_wipe_attempts_entries">
+        <item>Disabled (No Wipe on Limit)</item>
+        <item>3 Consecutive Failures</item>
+        <item>5 Consecutive Failures (Default)</item>
+        <item>10 Consecutive Failures</item>
+    </string-array>
+    <string-array name="failed_wipe_attempts_values">
+        <item>0</item>
+        <item>3</item>
+        <item>5</item>
+        <item>10</item>
     </string-array>
 </resources>

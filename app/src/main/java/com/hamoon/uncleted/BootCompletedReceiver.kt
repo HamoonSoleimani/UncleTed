@@ -10,13 +10,20 @@ import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.MonitoringService
 import com.hamoon.uncleted.services.UsbTripwireService
 import com.hamoon.uncleted.services.ZoneWipeService
+import com.hamoon.uncleted.util.DecoyUserManager
+import com.hamoon.uncleted.util.RootChecker
 import com.hamoon.uncleted.util.TripwireManager
 import com.hamoon.uncleted.util.WatchdogManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class BootCompletedReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "BootCompletedReceiver"
+        private val isDecoyPrewarmed = AtomicBoolean(false)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -35,12 +42,24 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
         // =========================================================================
         // 1. Direct Boot / BFU (Before First Unlock) Phase
-        // Operates exclusively on Device-Protected (DE) storage
         // =========================================================================
         SecurityPreferences.syncHookCredentials(context)
 
+        // Pre-warm, repair policies, and unlock the decoy user profile safely on boot
+        val decoyId = SecurityPreferences.getDecoyUserId(context)
+        if (decoyId > 0 && !isDecoyPrewarmed.getAndSet(true)) {
+            CoroutineScope(Dispatchers.IO).launch {
+                if (RootChecker.isDeviceRooted()) {
+                    Log.i(TAG, "Pre-warming and repairing decoy user profile for User $decoyId...")
+                    DecoyUserManager.repairAndWarmDecoyUser(decoyId)
+                }
+            }
+        }
+
+        // Synchronize Decoy App launcher aliases on device boot
+        com.hamoon.uncleted.honeypot.DecoyAppManager.updateAllAliases(context)
+
         // Autonomous Tripwire MUST be scheduled during early BFU boot.
-        // If the device was powered down past the deadline, this immediately triggers a wipe.
         TripwireManager.scheduleFromLastCheckIn(context)
 
         if (SecurityPreferences.isUsbTripwireEnabled(context)) {
@@ -65,7 +84,6 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
         // =========================================================================
         // 2. Credential-Encrypted (CE) Phase
-        // WorkManager and user services initialize only once credentials decrypt CE storage
         // =========================================================================
         if (isUnlocked) {
             if (SecurityPreferences.isProtectionEnabled(context)) {

@@ -2,10 +2,10 @@
 <resources>
     <!-- Values for the Theme preference -->
     <string-array name="theme_entries">
-        <item>Light</item>
-        <item>Dark</item>
-        <item>Black (AMOLED)</item>
-        <item>System Default</item>
+        <item>روشن</item>
+        <item>تاریک</item>
+        <item>سیاه مطلق (AMOLED)</item>
+        <item>پیش‌فرض سیستم</item>
     </string-array>
 
     <string-array name="theme_values">
@@ -15,7 +15,7 @@
         <item>system</item>
     </string-array>
 
-    <!-- ### NEW: Values for the Language preference ### -->
+    <!-- Values for the Language preference -->
     <string-array name="language_entries" translatable="false">
         <item>System Default</item>
         <item>English</item>
@@ -30,10 +30,10 @@
 
     <!-- Values for the Watchdog Interval preference -->
     <string-array name="watchdog_interval_entries">
-        <item>15 Minutes</item>
-        <item>30 Minutes</item>
-        <item>1 Hour</item>
-        <item>2 Hours</item>
+        <item>15 دقیقه</item>
+        <item>30 دقیقه</item>
+        <item>1 ساعت</item>
+        <item>2 ساعت</item>
     </string-array>
     <string-array name="watchdog_interval_values">
         <item>15</item>
@@ -44,15 +44,53 @@
 
     <!-- Values for the Tripwire Duration preference -->
     <string-array name="tripwire_duration_entries">
-        <item>6 Hours</item>
-        <item>12 Hours</item>
-        <item>24 Hours</item>
-        <item>48 Hours</item>
+        <item>6 ساعت</item>
+        <item>12 ساعت</item>
+        <item>24 ساعت</item>
+        <item>48 ساعت</item>
+        <item>۷ روز (۱۶۸ ساعت)</item>
+        <item>۱ ماه (۷۲۰ ساعت)</item>
+        <item>۶ ماه (۴۳۲۰ ساعت)</item>
     </string-array>
     <string-array name="tripwire_duration_values">
         <item>6</item>
         <item>12</item>
         <item>24</item>
         <item>48</item>
+        <item>168</item>
+        <item>720</item>
+        <item>4320</item>
+    </string-array>
+
+    <!-- Values for Decoy App Launcher Action -->
+    <string-array name="decoy_app_action_entries">
+        <item>پاک‌سازی فوری سیلیکونی (مرگبار)</item>
+        <item>ارسال هشدار مخفی و ضبط شواهد</item>
+        <item>قفل فوری و بازگشت به BFU</item>
+        <item>انتقال به فضای کاربری مجزای طعمه (تغییر کاربر)</item>
+        <item>باز کردن لانچر جعلی طعمه</item>
+        <item>تغییر کاربر و باز کردن لانچر جعلی</item>
+    </string-array>
+    <string-array name="decoy_app_action_values">
+        <item>WIPE</item>
+        <item>DURESS</item>
+        <item>LOCK</item>
+        <item>DECOY_SPACE</item>
+        <item>FAKE_LAUNCHER</item>
+        <item>DECOY_SPACE_AND_LAUNCHER</item>
+    </string-array>
+
+    <!-- Values for Max Failed Passwords Before Wipe -->
+    <string-array name="failed_wipe_attempts_entries">
+        <item>غیرفعال (عدم پاک‌سازی)</item>
+        <item>۳ تلاش ناموفق پیاپی</item>
+        <item>۵ تلاش ناموفق پیاپی (پیش‌فرض)</item>
+        <item>۱۰ تلاش ناموفق پیاپی</item>
+    </string-array>
+    <string-array name="failed_wipe_attempts_values">
+        <item>0</item>
+        <item>3</item>
+        <item>5</item>
+        <item>10</item>
     </string-array>
 </resources>

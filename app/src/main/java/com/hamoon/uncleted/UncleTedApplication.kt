@@ -2,7 +2,10 @@ package com.hamoon.uncleted
 
 import android.app.Activity
 import android.app.Application
+import android.content.Context
+import android.os.Build
 import android.os.Bundle
+import android.os.UserManager
 import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.preference.PreferenceManager
@@ -26,26 +29,45 @@ class UncleTedApplication : Application() {
             Log.e(TAG, "Critical failure arming native runtime memory defenses", e)
         }
 
-        // 2. Initialize App Localization & Locale Config
-        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
-        val languageValue = sharedPreferences.getString("language", "system") ?: "system"
-        LocaleManager.setLocale(languageValue)
+        // 2. Safe Direct Boot Guard: Do NOT access CE storage in BFU mode
+        val userManager = getSystemService(Context.USER_SERVICE) as? UserManager
+        val isUnlocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            userManager?.isUserUnlocked ?: true
+        } else {
+            true
+        }
 
-        // 3. Register Hardened UI Activity Lifecycle Callbacks
+        if (isUnlocked) {
+            try {
+                val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
+                val languageValue = sharedPreferences.getString("language", "system") ?: "system"
+                LocaleManager.setLocale(languageValue)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not load language preferences: ${e.message}")
+            }
+        } else {
+            Log.i(TAG, "Device is in BFU state. Deferring CE SharedPreferences access until unlock.")
+        }
+
+        // 3. Register Activity Lifecycle Callbacks safely
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityPreCreated(activity: Activity, savedInstanceState: Bundle?) {
-                val prefs = PreferenceManager.getDefaultSharedPreferences(this@UncleTedApplication)
-                val themeValue = prefs.getString("theme", "system")
-                applyNightModeForActivity(themeValue)
-                if (themeValue == "amoled") {
-                    when (activity) {
-                        is MainActivity, is LockScreenActivity -> {
-                            activity.setTheme(R.style.Theme_UncleTed_Amoled)
+                if (isUnlocked) {
+                    try {
+                        val prefs = PreferenceManager.getDefaultSharedPreferences(this@UncleTedApplication)
+                        val themeValue = prefs.getString("theme", "system")
+                        applyNightModeForActivity(themeValue)
+                        if (themeValue == "amoled") {
+                            when (activity) {
+                                is MainActivity, is LockScreenActivity -> {
+                                    activity.setTheme(R.style.Theme_UncleTed_Amoled)
+                                }
+                                is CameraPermissionBrokerActivity -> {
+                                    activity.setTheme(R.style.Theme_UncleTed_Amoled_Transparent)
+                                }
+                            }
                         }
-                        is CameraPermissionBrokerActivity -> {
-                            activity.setTheme(R.style.Theme_UncleTed_Amoled_Transparent)
-                        }
-                    }
+                    } catch (_: Exception) {}
                 }
             }
 

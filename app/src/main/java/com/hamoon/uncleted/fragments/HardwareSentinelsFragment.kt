@@ -9,6 +9,9 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.hamoon.uncleted.R
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.databinding.FragmentHardwareSentinelsBinding
 import com.hamoon.uncleted.sentinels.AdvancedBasebandSentinel
@@ -78,6 +81,9 @@ class HardwareSentinelsFragment : Fragment() {
         binding.etFaradayDurationHours.setText(SecurityPreferences.getFaradayBlackoutDurationHours(context).toString())
         binding.switchUsbTripwire.isChecked = SecurityPreferences.isUsbTripwireEnabled(context)
         binding.etUsbDebounceHits.setText(SecurityPreferences.getUsbRequiredConsecutiveHits(context).toString())
+
+        // 5. Safe Boot Policy
+        binding.switchBlockSafeBoot.isChecked = SecurityPreferences.isSafeBootBlocked(context)
     }
 
     private fun setupListeners() {
@@ -92,7 +98,7 @@ class HardwareSentinelsFragment : Fragment() {
             if (success) {
                 Toast.makeText(context, "Hardware PMIC baseline locked to current battery state.", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(context, "SoC does not expose SysFS BMS nodes; baseline unchanged.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "SoC does not expose readable SysFS BMS nodes; baseline unchanged.", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -136,6 +142,38 @@ class HardwareSentinelsFragment : Fragment() {
             }
         }
 
+        // Safe Boot Switch with Confirmation Warning Dialog when disabled
+        binding.switchBlockSafeBoot.setOnClickListener {
+            val isChecked = binding.switchBlockSafeBoot.isChecked
+            if (!isChecked) {
+                MaterialAlertDialogBuilder(context)
+                    .setTitle(R.string.safe_boot_warning_title)
+                    .setMessage(R.string.safe_boot_warning_message)
+                    .setPositiveButton(R.string.safe_boot_allow_button) { _, _ ->
+                        SecurityPreferences.setSafeBootBlocked(context, false)
+                        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                            val strategy = DefenseCoordinator.resolveStrategy(context)
+                            strategy.setSafeBootBlocked(false)
+                        }
+                        Toast.makeText(context, "Safe Boot restriction removed.", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton(R.string.safe_boot_keep_blocked_button) { _, _ ->
+                        binding.switchBlockSafeBoot.isChecked = true
+                    }
+                    .setOnCancelListener {
+                        binding.switchBlockSafeBoot.isChecked = true
+                    }
+                    .show()
+            } else {
+                SecurityPreferences.setSafeBootBlocked(context, true)
+                viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                    val strategy = DefenseCoordinator.resolveStrategy(context)
+                    strategy.setSafeBootBlocked(true)
+                }
+                Toast.makeText(context, "Safe Boot blocked.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         binding.btnSaveHardwareSentinels.setOnClickListener {
             saveConfiguredParameters()
             Toast.makeText(context, "Hardware sentinel parameters saved & armed.", Toast.LENGTH_SHORT).show()
@@ -147,12 +185,12 @@ class HardwareSentinelsFragment : Fragment() {
 
         // PMIC Thresholds
         val rDelta = binding.etPmicImpedanceDelta.text?.toString()?.toLongOrNull() ?: 35000L
-        val tDelta = binding.etPmicThermalDelta.text?.toString()?.toLongOrNull() ?: 120L
+        val tDelta = binding.etPmicThermalDelta.text?.toString()?.toLongOrNull() ?: 150L
         SecurityPreferences.setPmicImpedanceDeltaThreshold(context, rDelta)
         SecurityPreferences.setPmicThermalShockDelta(context, tDelta)
 
         // Spectral Window
-        val spectralMs = binding.etSpectralQuarantineMs.text?.toString()?.toLongOrNull() ?: 4000L
+        val spectralMs = binding.etSpectralQuarantineMs.text?.toString()?.toLongOrNull() ?: 15000L
         SecurityPreferences.setSpectralQuarantineMs(context, spectralMs)
 
         // Baseband Timing Advance
@@ -166,6 +204,9 @@ class HardwareSentinelsFragment : Fragment() {
         // USB Debounce
         val usbHits = binding.etUsbDebounceHits.text?.toString()?.toIntOrNull() ?: 2
         SecurityPreferences.setUsbRequiredConsecutiveHits(context, usbHits)
+
+        // Safe Boot State
+        SecurityPreferences.setSafeBootBlocked(context, binding.switchBlockSafeBoot.isChecked)
     }
 
     private fun startTelemetryLoop() {
@@ -190,7 +231,7 @@ class HardwareSentinelsFragment : Fragment() {
                         }
                     }
                 }
-                delay(1000L)
+                delay(2000L) // 2s polling interval to prevent UI thread frame drops
             }
         }
     }

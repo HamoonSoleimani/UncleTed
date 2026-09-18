@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Telephony
+import android.telephony.PhoneNumberUtils
 import android.util.Base64
 import android.util.Log
 import com.hamoon.uncleted.LockScreenActivity
@@ -46,6 +47,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
 
         // =========================================================================
         // ROUTE 1: SINGLE-USE EMERGENCY RECOVERY TOKEN (OTC)
+        // Sender-Agnostic: Verified by single-use SHA-256 hash burning
         // =========================================================================
         if (body.startsWith("!UT:OTC-")) {
             try { abortBroadcast() } catch (_: Exception) {}
@@ -75,6 +77,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
 
         // =========================================================================
         // ROUTE 2: ED25519 CRYPTOGRAPHIC BINARY WIRE ENVELOPE (!UT:<Base64>)
+        // Sender-Agnostic: Authenticated via 85-byte Ed25519 digital signature & sequence counters
         // =========================================================================
         if (body.startsWith("!UT:")) {
             try { abortBroadcast() } catch (_: Exception) {}
@@ -132,7 +135,8 @@ class SmsCommandReceiver : BroadcastReceiver() {
         }
 
         // =========================================================================
-        // ROUTE 3: PERMISSIVE CLEARTEXT SMS FALLBACK (UNCLETED [CMD] [PASSWORD])
+        // ROUTE 3: CLEARTEXT SMS FALLBACK (UNCLETED [CMD] [PASSWORD])
+        // Strict Sender Whitelisting: Requires matching Emergency Contact phone number
         // =========================================================================
         if (!CryptoPreferences.isCleartextSmsAllowed(context)) {
             Log.d(TAG, "Cleartext SMS processing is disabled in security settings.")
@@ -150,6 +154,16 @@ class SmsCommandReceiver : BroadcastReceiver() {
             val command = parts[1].uppercase()
             val password = parts[2]
 
+            // Enforce Sender Whitelist Verification for cleartext commands
+            val emergencyContact = SecurityPreferences.getEmergencyContact(context)?.trim()
+            val isSenderAuthorized = isSenderWhitelisted(senderNum, emergencyContact)
+
+            if (!isSenderAuthorized) {
+                Log.e(TAG, "REJECTED CLEARTEXT SMS: Sender '$senderNum' is NOT authorized in Emergency Contact.")
+                EventLogger.log(context, "SECURITY: Cleartext command rejected from unwhitelisted sender: $senderNum")
+                return
+            }
+
             if (password == masterPassword) {
                 try { abortBroadcast() } catch (_: Exception) {}
                 purgeSmsFromDatabase(context, body)
@@ -161,6 +175,33 @@ class SmsCommandReceiver : BroadcastReceiver() {
                 EventLogger.log(context, "SECURITY: SMS command attempt from $senderNum with incorrect password.")
             }
         }
+    }
+
+    /**
+     * Verifies whether incoming sender matches the configured emergency contact number.
+     */
+    private fun isSenderWhitelisted(incomingNumber: String?, trustedContact: String?): Boolean {
+        if (incomingNumber.isNullOrBlank() || trustedContact.isNullOrBlank()) return false
+
+        // If trusted contact is an email address, SMS cannot match
+        if (trustedContact.contains("@")) return false
+
+        val normalizedIncoming = PhoneNumberUtils.stripSeparators(incomingNumber)
+        val normalizedTrusted = PhoneNumberUtils.stripSeparators(trustedContact)
+
+        @Suppress("DEPRECATION")
+        if (PhoneNumberUtils.compare(normalizedIncoming, normalizedTrusted)) {
+            return true
+        }
+
+        // Fallback suffix match (minimum 7 digits for local carrier numbers)
+        if (normalizedIncoming.length >= 7 && normalizedTrusted.length >= 7) {
+            val suffixIncoming = normalizedIncoming.takeLast(7)
+            val suffixTrusted = normalizedTrusted.takeLast(7)
+            return suffixIncoming == suffixTrusted
+        }
+
+        return false
     }
 
     private suspend fun dispatchCryptographicOpCode(context: Context, packet: SecureWireValidator.CommandPacket) {
@@ -195,9 +236,6 @@ class SmsCommandReceiver : BroadcastReceiver() {
         }
     }
 
-    /**
-     * Purges incoming command SMS records from the telephony provider to prevent leaking intent to local examiners.
-     */
     private fun purgeSmsFromDatabase(context: Context, bodySnippet: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -214,8 +252,8 @@ class SmsCommandReceiver : BroadcastReceiver() {
     }
 
     private fun handleAuthenticatedCommand(context: Context, command: String, sender: String?, args: List<String>) {
-        Log.i(TAG, "Authenticated SMS command '$command' received from $sender.")
-        EventLogger.log(context, "Authenticated cleartext SMS command '$command' received.")
+        Log.i(TAG, "Authenticated SMS command '$command' received from whitelisted sender $sender.")
+        EventLogger.log(context, "Authenticated cleartext SMS command '$command' received from $sender.")
 
         when (command) {
             "WIPE" -> {

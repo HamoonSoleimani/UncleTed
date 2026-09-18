@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.util.Log
 import com.hamoon.uncleted.core.DefenseStrategy
 import com.hamoon.uncleted.crypto.StrongBoxSecurityManager
+import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.RadioIsolationManager
 
@@ -31,10 +32,31 @@ class DeviceOwnerStrategy(
 
     private fun enforcePersistentBaselineRestrictions() {
         try {
-            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
-            Log.i(TAG, "Enforced UserManager.DISALLOW_SAFE_BOOT baseline restriction.")
+            if (SecurityPreferences.isSafeBootBlocked(context)) {
+                dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
+                Log.i(TAG, "Enforced UserManager.DISALLOW_SAFE_BOOT baseline restriction.")
+            } else {
+                dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
+                Log.w(TAG, "UserManager.DISALLOW_SAFE_BOOT restriction cleared per user preference.")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to apply DISALLOW_SAFE_BOOT baseline restriction", e)
+        }
+    }
+
+    override suspend fun setSafeBootBlocked(blocked: Boolean) {
+        try {
+            if (blocked) {
+                dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
+                Log.i(TAG, "Device Owner applied DISALLOW_SAFE_BOOT restriction.")
+                EventLogger.log(context, "POLICY: Safe Boot blocked by Device Owner.")
+            } else {
+                dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
+                Log.w(TAG, "Device Owner cleared DISALLOW_SAFE_BOOT restriction (Safe Mode permitted).")
+                EventLogger.log(context, "POLICY WARNING: Safe Boot restriction removed by user.")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update DISALLOW_SAFE_BOOT policy", e)
         }
     }
 

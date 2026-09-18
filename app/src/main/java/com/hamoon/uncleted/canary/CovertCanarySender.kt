@@ -5,6 +5,7 @@ import android.location.Location
 import android.os.BatteryManager
 import android.os.Build
 import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import com.hamoon.uncleted.crypto.PostQuantumEngine
 import com.hamoon.uncleted.data.SecurityPreferences
@@ -29,6 +30,7 @@ object CovertCanarySender {
 
     private const val TAG = "CovertCanarySender"
     private val MEDIA_TYPE_OHTTP = "message/bhttp".toMediaType()
+    private val MEDIA_TYPE_JSON = "application/json; charset=utf-8".toMediaType()
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -43,7 +45,7 @@ object CovertCanarySender {
         location: Location? = null
     ): Boolean = withContext(Dispatchers.IO) {
         if (!SecurityPreferences.isOhttpCanaryEnabled(context)) {
-            Log.d(TAG, "Covert OHTTP canary disabled in preferences.")
+            Log.d(TAG, "Covert canary signaling is disabled in preferences.")
             return@withContext false
         }
 
@@ -51,17 +53,17 @@ object CovertCanarySender {
         val gatewayPubKeyBase64 = SecurityPreferences.getOhttpGatewayPublicKey(context)
 
         if (gatewayPubKeyBase64.isNullOrBlank()) {
-            Log.w(TAG, "Covert canary gateway public key not configured; skipping OHTTP dispatch.")
+            Log.w(TAG, "Covert canary gateway public key not configured; skipping dispatch.")
             return@withContext false
         }
 
         val recipientPublicKey = PostQuantumEngine.HybridPublicKey.decodeFromBase64(gatewayPubKeyBase64)
         if (recipientPublicKey == null) {
-            Log.e(TAG, "Corrupted OHTTP gateway hybrid public key in preferences.")
+            Log.e(TAG, "Corrupted gateway hybrid public key in preferences.")
             return@withContext false
         }
 
-        Log.i(TAG, "Formulating RFC 9458 Oblivious HTTP covert duress canary payload...")
+        Log.i(TAG, "Formulating Post-Quantum encrypted covert distress canary...")
 
         val profile = SecurityPreferences.getOhttpMasqueradeProfile(context)
         val telemetryJson = synthesizeTelemetryPayload(context, triggerReason, location, profile)
@@ -95,7 +97,7 @@ object CovertCanarySender {
                 return@withContext false
             }
 
-            // Pack binary OHTTP frame:
+            // Pack binary OHTTP capsule:
             // [2-byte Wire Encapsulation Length] + [Wire Encapsulation] + [12-byte Nonce] + [Ciphertext + Tag]
             val encapLen = encapsulation.wireCiphertext.size
             val frameBytes = ByteArray(2 + encapLen + 12 + ciphertextWithTag.size)
@@ -109,47 +111,61 @@ object CovertCanarySender {
 
             frameBytes
         } catch (e: Exception) {
-            Log.e(TAG, "Error assembling OHTTP frame", e)
+            Log.e(TAG, "Error assembling canary payload", e)
             return@withContext false
         } finally {
             NativeSecurityBridge.unpinMemory(plainBytes)
             NativeSecurityBridge.zeroByteArray(plainBytes)
         }
 
-        val requestBody = encapsulatedPacket.toRequestBody(MEDIA_TYPE_OHTTP)
+        // Determine dispatch mode based on configured relay URL endpoint
+        val isTrueOhttpRelay = !relayUrl.contains("googleapis.com") && !relayUrl.contains("google.com")
 
-        val requestBuilder = Request.Builder()
-            .url(relayUrl)
-            .post(requestBody)
-            .header("Accept", "message/bhttp")
-            .header("Accept-Encoding", "gzip, deflate, br")
-
-        if (profile == "firebase_analytics") {
-            requestBuilder
-                .header("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 14; Build/UP1A.231005.007)")
-                .header("X-Android-Package", "com.google.android.gms")
-                .header("X-Firebase-Client", "fire-analytics/21.5.0")
-        } else {
-            requestBuilder
+        val request = if (isTrueOhttpRelay) {
+            // Mode A: True RFC 9458 Oblivious HTTP binary capsule
+            val requestBody = encapsulatedPacket.toRequestBody(MEDIA_TYPE_OHTTP)
+            Request.Builder()
+                .url(relayUrl)
+                .post(requestBody)
+                .header("Accept", "message/bhttp")
+                .header("Accept-Encoding", "gzip, deflate, br")
                 .header("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 14; Pixel 8 Build/UD1A.230805.019)")
-                .header("X-Unity-Version", "2022.3.10f1")
                 .header("X-Android-Package", "com.google.android.gms")
+                .build()
+        } else {
+            // Mode B: Masqueraded Google Telemetry JSON payload
+            val b64Capsule = Base64.encodeToString(encapsulatedPacket, Base64.NO_WRAP)
+            val carrierJson = JSONObject().apply {
+                put("client_time_ms", System.currentTimeMillis())
+                put("app_id", "com.google.android.gms")
+                put("device_model", Build.MODEL)
+                put("build_fingerprint", Build.FINGERPRINT)
+                put("diagnostic_trace_blob", b64Capsule)
+            }
+            val requestBody = carrierJson.toString().toRequestBody(MEDIA_TYPE_JSON)
+            Request.Builder()
+                .url(relayUrl)
+                .post(requestBody)
+                .header("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 14; Pixel 8 Build/UD1A.230805.019)")
+                .header("X-Firebase-Client", "fire-analytics/21.5.0")
+                .header("X-Android-Package", "com.google.android.gms")
+                .build()
         }
 
         return@withContext try {
-            httpClient.newCall(requestBuilder.build()).execute().use { response ->
+            httpClient.newCall(request).execute().use { response ->
                 val code = response.code
                 if (response.isSuccessful || code == 200 || code == 204) {
-                    Log.i(TAG, "Covert OHTTP canary successfully dispatched through CDN relay ($relayUrl). Status: $code")
-                    EventLogger.log(context, "CANARY: Covert OHTTP distress packet transmitted via CDN relay ($code).")
+                    Log.i(TAG, "Covert canary transmitted successfully through relay ($relayUrl). HTTP: $code")
+                    EventLogger.log(context, "CANARY: Covert distress packet transmitted ($code).")
                     true
                 } else {
-                    Log.w(TAG, "OHTTP relay returned non-success response code: $code")
+                    Log.w(TAG, "Relay returned non-success response code: $code")
                     false
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Covert OHTTP dispatch failed (relay offline or blocked): ${e.message}")
+            Log.w(TAG, "Covert canary transmission failed (Relay offline or network unreachable): ${e.message}")
             false
         }
     }
@@ -168,9 +184,9 @@ object CovertCanarySender {
 
         val success = dispatchCovertDuress(context, "OPERATOR_MANUAL_TEST_PROBE", null)
         return@withContext if (success) {
-            Pair(true, "Test canary packet accepted by CDN relay: $relayUrl")
+            Pair(true, "Test canary accepted by relay ($relayUrl).")
         } else {
-            Pair(false, "Relay unreachable or rejected packet. Check network connection and URL.")
+            Pair(false, "Relay rejected packet or server unreachable. Check URL and connection.")
         }
     }
 

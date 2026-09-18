@@ -84,8 +84,13 @@ class ProximityTripwireFragment : Fragment() {
         val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, entries)
         binding.autoTripwireDuration.setAdapter(adapter)
 
-        val currentIndex = values.indexOf(currentHours.toString()).takeIf { it != -1 } ?: 2
-        binding.autoTripwireDuration.setText(entries[currentIndex], false)
+        val idx = values.indexOf(currentHours.toString())
+        if (idx != -1) {
+            binding.autoTripwireDuration.setText(entries[idx], false)
+        } else {
+            val days = currentHours / 24
+            binding.autoTripwireDuration.setText("Custom: $currentHours Hours ($days Days)", false)
+        }
     }
 
     private fun setupListeners() {
@@ -114,6 +119,11 @@ class ProximityTripwireFragment : Fragment() {
             val selectedHours = values[position].toInt()
             SecurityPreferences.setTripwireDuration(context, selectedHours)
             TripwireManager.scheduleOrCancelTripwire(context)
+        }
+
+        // Custom Arbitrary Tripwire Duration Dialog
+        binding.btnCustomTripwireDuration.setOnClickListener {
+            showCustomTripwireDurationDialog()
         }
 
         binding.btnDeadmanCheckin.setOnClickListener {
@@ -155,6 +165,46 @@ class ProximityTripwireFragment : Fragment() {
         }
     }
 
+    private fun showCustomTripwireDurationDialog() {
+        val context = requireContext()
+        val layout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 24)
+        }
+
+        val etDuration = EditText(context).apply {
+            hint = "Duration value (e.g. 14)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+
+        val etUnit = TextView(context).apply {
+            text = "Specify duration in Days (e.g., 7, 30, 90, 180, 365)"
+            setPadding(0, 12, 0, 0)
+        }
+
+        layout.addView(etDuration)
+        layout.addView(etUnit)
+
+        MaterialAlertDialogBuilder(context)
+            .setTitle(R.string.tripwire_custom_dialog_title)
+            .setMessage("Set arbitrary offline inactivity timer before autonomous BFU wipe triggers:")
+            .setView(layout)
+            .setPositiveButton("Set Duration") { _, _ ->
+                val daysInput = etDuration.text.toString().trim().toIntOrNull()
+                if (daysInput != null && daysInput > 0) {
+                    val customHours = daysInput * 24
+                    SecurityPreferences.setTripwireDuration(context, customHours)
+                    setupDurationDropdown(customHours)
+                    TripwireManager.scheduleOrCancelTripwire(context)
+                    Toast.makeText(context, "Dead-man tripwire set to $daysInput days ($customHours hours).", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "Invalid duration entered.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun saveProximityParameters() {
         val context = requireContext()
         val mac = binding.etProximityTargetMac.text?.toString()?.trim()
@@ -192,7 +242,7 @@ class ProximityTripwireFragment : Fragment() {
             setPadding(48, 24, 48, 24)
             setTextIsSelectable(true)
             typeface = android.graphics.Typeface.MONOSPACE
-            textSize = 12f // Fixed 12f literal
+            textSize = 12f
         }
 
         MaterialAlertDialogBuilder(context)

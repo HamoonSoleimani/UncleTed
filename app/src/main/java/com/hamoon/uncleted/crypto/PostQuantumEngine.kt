@@ -24,8 +24,8 @@ object PostQuantumEngine {
 
     private const val TAG = "PostQuantumEngine"
     private const val X25519_KEY_SIZE = 32
-    private val HKDF_SALT = "UncleTed_FIPS203_MLKEM768_X25519_Salt".toByteArray(Charsets.UTF_8)
-    private val HKDF_INFO = "UncleTed_Master_Symmetric_Vault_Secret".toByteArray(Charsets.UTF_8)
+    private val HKDF_SALT = "UncleTed_FIPS203_MLKEM768_X25519_Salt_v2".toByteArray(Charsets.UTF_8)
+    private val HKDF_INFO = "UncleTed_Master_Symmetric_Vault_Secret_v2".toByteArray(Charsets.UTF_8)
 
     data class HybridPublicKey(
         val x25519Public: ByteArray,
@@ -66,7 +66,7 @@ object PostQuantumEngine {
 
                     HybridPublicKey(xBytes, kBytes)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed decoding hybrid public key", e)
+                    Log.e(TAG, "Failed decoding hybrid public key: ${e.message}")
                     null
                 }
             }
@@ -147,13 +147,15 @@ object PostQuantumEngine {
         val x25519Pair = x25519Gen.generateKeyPair()
         val xPub = (x25519Pair.public as X25519PublicKeyParameters).encoded
         val xPriv = (x25519Pair.private as X25519PrivateKeyParameters).encoded
+        NativeSecurityBridge.pinMemory(xPriv)
 
-        // 2. Post-Quantum Layer: NIST FIPS 203 ML-KEM-768 (Kyber768)
+        // 2. Post-Quantum Layer: Kyber768
         val kyberGen = KyberKeyPairGenerator()
         kyberGen.init(KyberKeyGenerationParameters(random, KyberParameters.kyber768))
         val kyberPair = kyberGen.generateKeyPair()
         val kPub = (kyberPair.public as KyberPublicKeyParameters).encoded
         val kPriv = (kyberPair.private as KyberPrivateKeyParameters).encoded
+        NativeSecurityBridge.pinMemory(kPriv)
 
         return HybridKeyPair(
             public = HybridPublicKey(xPub, kPub),
@@ -178,7 +180,7 @@ object PostQuantumEngine {
             val classicalSecret = ByteArray(agreement.agreementSize)
             agreement.calculateAgreement(recipientXPubParams, classicalSecret, 0)
 
-            // 2. Post-Quantum ML-KEM-768 Encapsulation
+            // 2. Post-Quantum Kyber768 Encapsulation
             val recipientKyberParams = KyberPublicKeyParameters(KyberParameters.kyber768, recipientKey.kyberPublic)
             val kyberKemGen = KyberKEMGenerator(random)
             val kyberSecretWithEncapsulation = kyberKemGen.generateEncapsulated(recipientKyberParams)
@@ -195,12 +197,10 @@ object PostQuantumEngine {
             hkdf.init(HKDFParameters(combinedSecrets, HKDF_SALT, HKDF_INFO))
             hkdf.generateBytes(derivedMasterKey, 0, derivedMasterKey.size)
 
-            // Zero sensitive intermediate secrets
             NativeSecurityBridge.zeroByteArray(classicalSecret)
             NativeSecurityBridge.zeroByteArray(pqSecret)
             NativeSecurityBridge.zeroByteArray(combinedSecrets)
 
-            // Wire packet: [32-byte ephemeral X25519 public key] + [ML-KEM-768 ciphertext]
             val wireBytes = ByteArray(ephemeralXPub.size + pqCiphertext.size)
             System.arraycopy(ephemeralXPub, 0, wireBytes, 0, ephemeralXPub.size)
             System.arraycopy(pqCiphertext, 0, wireBytes, ephemeralXPub.size, pqCiphertext.size)
@@ -222,7 +222,6 @@ object PostQuantumEngine {
         }
 
         return try {
-            // 1. Recover Ephemeral X25519 Public Key
             val ephemeralXPubBytes = ByteArray(X25519_KEY_SIZE)
             System.arraycopy(wireCiphertext, 0, ephemeralXPubBytes, 0, X25519_KEY_SIZE)
 
@@ -233,7 +232,6 @@ object PostQuantumEngine {
             val classicalSecret = ByteArray(agreement.agreementSize)
             agreement.calculateAgreement(ephemeralXPubParams, classicalSecret, 0)
 
-            // 2. Extract ML-KEM-768 Shared Secret
             val pqCipherLen = wireCiphertext.size - X25519_KEY_SIZE
             val pqCiphertext = ByteArray(pqCipherLen)
             System.arraycopy(wireCiphertext, X25519_KEY_SIZE, pqCiphertext, 0, pqCipherLen)
@@ -242,7 +240,6 @@ object PostQuantumEngine {
             val extractor = KyberKEMExtractor(myKyberPrivParams)
             val pqSecret = extractor.extractSecret(pqCiphertext)
 
-            // 3. Combine Secrets via HKDF-SHA512
             val combinedSecrets = ByteArray(classicalSecret.size + pqSecret.size)
             System.arraycopy(classicalSecret, 0, combinedSecrets, 0, classicalSecret.size)
             System.arraycopy(pqSecret, 0, combinedSecrets, classicalSecret.size, pqSecret.size)
@@ -252,7 +249,6 @@ object PostQuantumEngine {
             hkdf.init(HKDFParameters(combinedSecrets, HKDF_SALT, HKDF_INFO))
             hkdf.generateBytes(derivedMasterKey, 0, derivedMasterKey.size)
 
-            // Zero sensitive intermediate secrets
             NativeSecurityBridge.zeroByteArray(classicalSecret)
             NativeSecurityBridge.zeroByteArray(pqSecret)
             NativeSecurityBridge.zeroByteArray(combinedSecrets)

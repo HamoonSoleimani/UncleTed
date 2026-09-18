@@ -55,6 +55,7 @@
     <string name="pins_saved_toast">All credentials successfully synchronized to platform bridge!</string>
     <string name="wipe_pin_hint">Hardware Wipe Lock PIN (Lethal)</string>
     <string name="honeypot_pin_hint">Honeypot Decoy PIN (Session Migration)</string>
+    <string name="max_failed_attempts_wipe_hint">Max Failed Passwords Before Hardware Wipe</string>
     <string name="pin_guide_title">Operational Credential Matrix Guide</string>
     <string name="pin_guide_normal_title">1. Normal Unlock PIN</string>
     <string name="pin_guide_normal_desc">Authenticates primary user session and resets failed attempt counters.</string>
@@ -92,6 +93,15 @@
     <string name="usb_tripwire_toggle">Enable Physical USB Data Severing</string>
     <string name="usb_filter_hint">Transients Debounce Filter (Consecutive Hits)</string>
 
+    <!-- Safe Boot Interception Strings -->
+    <string name="safe_boot_title">Safe Boot Interception (Anti-Bypass)</string>
+    <string name="safe_boot_desc">Prevents rebooting into Android Safe Mode where third-party apps are disabled. When blocked, adversaries cannot bypass Uncle Ted by holding hardware buttons on boot.</string>
+    <string name="safe_boot_toggle_label">Block Safe Boot (Device Owner)</string>
+    <string name="safe_boot_warning_title">Allow Safe Mode?</string>
+    <string name="safe_boot_warning_message">WARNING: Allowing Safe Mode enables anyone with physical access to reboot the device into Safe Mode, neutralizing Uncle Ted\'s background sentinels, USB defense, and lockscreen hooks without requiring a PIN. Are you sure you want to allow Safe Mode?</string>
+    <string name="safe_boot_allow_button">Allow Safe Mode</string>
+    <string name="safe_boot_keep_blocked_button">Keep Blocked</string>
+
     <!-- Cryptographic Engine & Deniability Vault -->
     <string name="crypto_engine_title">Cryptography &amp; Vaults</string>
     <string name="pqc_title">NIST FIPS 203 Post-Quantum Hybrid Engine</string>
@@ -128,6 +138,8 @@
     <string name="deadman_tripwire_desc">Direct Boot hardware RTC sentinel. Automatically executes cryptographic wipe if the device is isolated, offline, or powered down past the deadline.</string>
     <string name="deadman_toggle_label">Enable Dead-Man Data Destruction Sentinel</string>
     <string name="deadman_duration_hint">Offline Duration to Trigger Wipe</string>
+    <string name="btn_custom_tripwire_duration">Set Custom Offline Duration (Days)</string>
+    <string name="tripwire_custom_dialog_title">Custom Dead-Man Duration</string>
     <string name="deadman_checkin_button">Manual Security Check-In</string>
     <string name="geofence_suicide_title">Multi-Zone Geographic Suicide</string>
     <string name="geofence_suicide_desc">High-precision GPS Ray-Casting algorithm. Triggers instant cryptographic erasure if device breaches user-defined high-risk zones or pre-configured perimeters.</string>
@@ -205,6 +217,7 @@
     <string name="feature_intruder_selfie">Intruder Selfie (3+ Consecutive Failed Passcodes)</string>
     <string name="save_selfie_locally">Persist Intruder Selfie to Public Pictures/UncleTed</string>
     <string name="feature_sim_change">Hardware SIM Card Identity Sentinel</string>
+    <string name="feature_wipe_on_sim_removal">Wipe Device Instantly on SIM Removal (Lethal)</string>
     <string name="shake_to_panic_feature">Micro-Motion &amp; Accelerometer Shake Sentinel</string>
     <string name="root_surveillance_title">Kernel &amp; Input Surveillance (Root)</string>
     <string name="root_feature_stealth_screenshot">Stealth Framebuffer Surface Screenshot (/system/bin/screencap)</string>
@@ -370,6 +383,15 @@
     <string name="event_log_title">Security Event Audit Log</string>
     <string name="event_log_info">All security events, sentinel trips, and remote signals are recorded locally in Device-Protected storage.</string>
 
+    <!-- Decoy Launcher Messenger Trap Strings -->
+    <string name="decoy_app_signal">Signal</string>
+    <string name="decoy_app_telegram">Telegram</string>
+    <string name="decoy_app_threema">Threema</string>
+    <string name="decoy_app_session">Session</string>
+    <string name="decoy_launcher_traps_title">Decoy App Launcher Tripwires</string>
+    <string name="decoy_launcher_traps_desc">Places authentic fake messenger apps in your home screen/launcher. Opening any selected decoy app immediately triggers the configured defense protocol.</string>
+    <string name="decoy_app_action_hint">Trap Execution Response</string>
+    <string name="decoy_app_whatsapp">WhatsApp</string>
     <!-- Dashboard & Threat Assessment -->
     <string name="dashboard_threat_critical">CRITICAL HARDWARE TAMPER DETECTED</string>
     <string name="dashboard_threat_critical_desc">Immediate defensive action required. Silicon breach or RF isolation in progress.</string>
@@ -426,7 +448,7 @@
     <!-- About Screen -->
     <string name="about_title">About Uncle Ted</string>
     <string name="about_developer_credit">Designed and Engineered by Hamoon Soleimani</string>
-    <string name="about_app_version">Version 6.0.1 (Architecture Redesign)</string>
+    <string name="about_app_version">Version 8.0.1</string>
     <string name="about_legal_disclaimer_title">Legal &amp; Operational Security Disclaimer</string>
     <string name="about_legal_disclaimer_body">Uncle Ted is engineered strictly for educational research, authorized defensive security auditing, high-risk operational privacy, and human rights protection against physical coercion and forensic seizure. Erasing cryptographic key material renders underlying storage mathematically and physically unrecoverable. Never install this software without explicit, informed authorization from the device owner.</string>
     <string name="about_github">GitHub Repository</string>

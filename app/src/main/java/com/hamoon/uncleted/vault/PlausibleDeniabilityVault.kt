@@ -3,11 +3,14 @@ package com.hamoon.uncleted.vault
 import android.content.Context
 import android.os.Environment
 import android.util.Log
-import com.hamoon.uncleted.crypto.StrongBoxSecurityManager
+import com.hamoon.uncleted.crypto.CryptoPreferences
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.NativeSecurityBridge
+import org.bouncycastle.crypto.digests.SHA256Digest
+import org.bouncycastle.crypto.generators.HKDFBytesGenerator
 import org.bouncycastle.crypto.modes.ChaCha20Poly1305
+import org.bouncycastle.crypto.params.HKDFParameters
 import org.bouncycastle.crypto.params.KeyParameter
 import org.bouncycastle.crypto.params.ParametersWithIV
 import java.io.ByteArrayOutputStream
@@ -25,152 +28,198 @@ object PlausibleDeniabilityVault {
     private const val TAG = "DeniabilityVault"
     private const val DEFAULT_CONTAINER_NAME = "RAW_20240812_0042.dng"
 
-    private val TIFF_MAGIC_LE = byteArrayOf(0x49, 0x49, 0x2A, 0x00)
-    private const val PRIVATE_PAYLOAD_TAG_ID: Short = 0xC634.toShort()
+    private val TIFF_MAGIC_LE = byteArrayOf(0x49, 0x49, 0x2A, 0x00) // "II*\0"
+    private const val PRIVATE_PAYLOAD_TAG_ID: Short = 0xC634.toShort() // DNG PrivateData Tag
+    private val VAULT_HKDF_INFO = "UncleTed_DNG_Polyglot_Vault_v2".toByteArray(Charsets.UTF_8)
+    private const val SALT_SIZE = 16
+    private const val NONCE_SIZE = 12
+    private const val KEY_SIZE = 32
+
+    private val lock = Any()
 
     @Synchronized
     fun storeSecretBlob(context: Context, label: String, rawSecret: ByteArray): Boolean {
-        NativeSecurityBridge.pinMemory(rawSecret)
+        synchronized(lock) {
+            NativeSecurityBridge.pinMemory(rawSecret)
 
-        return try {
-            val masterKeyBytes = deriveVaultKey(context)
-            if (masterKeyBytes == null) {
-                Log.e(TAG, "Failed deriving master vault key from StrongBox HSM.")
-                return false
+            return try {
+                val masterSeed = CryptoPreferences.getOrGenerateVaultMasterSeed(context)
+                if (masterSeed == null) {
+                    Log.e(TAG, "Failed retrieving master vault seed from hardware Keystore.")
+                    return false
+                }
+
+                val salt = ByteArray(SALT_SIZE)
+                val nonce = ByteArray(NONCE_SIZE)
+                SecureRandom().nextBytes(salt)
+                SecureRandom().nextBytes(nonce)
+
+                val derivedKey = deriveKeyFromSeed(masterSeed, salt)
+                NativeSecurityBridge.zeroByteArray(masterSeed)
+
+                val labelBytes = label.toByteArray(Charsets.UTF_8)
+                val packedBuffer = ByteBuffer.allocate(4 + labelBytes.size + 4 + rawSecret.size)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+                    .putInt(labelBytes.size)
+                    .put(labelBytes)
+                    .putInt(rawSecret.size)
+                    .put(rawSecret)
+                    .array()
+
+                val ciphertextWithTag = if (NativeSecurityBridge.isNativeLoaded()) {
+                    NativeSecurityBridge.compressAndEncrypt(packedBuffer, derivedKey, nonce)
+                } else {
+                    compressAndEncryptFallback(packedBuffer, derivedKey, nonce)
+                }
+
+                NativeSecurityBridge.zeroByteArray(derivedKey)
+                NativeSecurityBridge.zeroByteArray(packedBuffer)
+
+                if (ciphertextWithTag == null) {
+                    Log.e(TAG, "Compression and encryption pipeline failed during vault store.")
+                    return false
+                }
+
+                val containerFile = getTargetContainerFile(context)
+                val polyglotDngStream = synthesizeAuthenticDng(salt, nonce, ciphertextWithTag)
+
+                FileOutputStream(containerFile).use { fos ->
+                    fos.write(polyglotDngStream)
+                    fos.flush()
+                }
+
+                Log.i(TAG, "Vault secret '$label' successfully stored in container: ${containerFile.absolutePath}")
+                EventLogger.log(context, "VAULT: Stored secret '$label' inside plausible container (${containerFile.name}).")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Error storing secret in vault", e)
+                false
+            } finally {
+                NativeSecurityBridge.unpinMemory(rawSecret)
             }
-
-            val nonce = ByteArray(12)
-            SecureRandom().nextBytes(nonce)
-
-            val labelBytes = label.toByteArray(Charsets.UTF_8)
-            val packedBuffer = ByteBuffer.allocate(4 + labelBytes.size + 4 + rawSecret.size)
-                .order(ByteOrder.LITTLE_ENDIAN)
-                .putInt(labelBytes.size)
-                .put(labelBytes)
-                .putInt(rawSecret.size)
-                .put(rawSecret)
-                .array()
-
-            val ciphertextWithTag = if (NativeSecurityBridge.isNativeLoaded()) {
-                NativeSecurityBridge.compressAndEncrypt(packedBuffer, masterKeyBytes, nonce)
-            } else {
-                compressAndEncryptFallback(packedBuffer, masterKeyBytes, nonce)
-            }
-
-            NativeSecurityBridge.zeroByteArray(masterKeyBytes)
-            NativeSecurityBridge.zeroByteArray(packedBuffer)
-
-            if (ciphertextWithTag == null) {
-                Log.e(TAG, "Compression and encryption pipeline failed during vault write.")
-                return false
-            }
-
-            val containerFile = getTargetContainerFile(context)
-            val polyglotDngStream = synthesizeAuthenticDng(nonce, ciphertextWithTag)
-
-            FileOutputStream(containerFile).use { fos ->
-                fos.write(polyglotDngStream)
-                fos.flush()
-            }
-
-            Log.i(TAG, "Vault secret '$label' successfully stored in shaped carrier: ${containerFile.absolutePath}")
-            EventLogger.log(context, "VAULT: Stored payload inside deniable container (${containerFile.name}).")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Error storing blob in deniable vault", e)
-            false
-        } finally {
-            NativeSecurityBridge.unpinMemory(rawSecret)
         }
     }
 
     @Synchronized
     fun extractSecretBlob(context: Context, label: String): ByteArray? {
-        val containerFile = getTargetContainerFile(context)
-        if (!containerFile.exists()) {
-            Log.w(TAG, "Vault container file not found: ${containerFile.absolutePath}")
-            return null
-        }
-
-        val fileBytes = try {
-            FileInputStream(containerFile).use { it.readBytes() }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed reading vault container file", e)
-            return null
-        }
-
-        val parsed = extractPayloadFromDng(fileBytes) ?: return null
-        val masterKeyBytes = deriveVaultKey(context) ?: return null
-
-        val decryptedPacked = if (NativeSecurityBridge.isNativeLoaded()) {
-            NativeSecurityBridge.decryptAndDecompress(parsed.ciphertextWithTag, masterKeyBytes, parsed.nonce)
-        } else {
-            decryptAndDecompressFallback(parsed.ciphertextWithTag, masterKeyBytes, parsed.nonce)
-        }
-
-        NativeSecurityBridge.zeroByteArray(masterKeyBytes)
-
-        if (decryptedPacked == null) {
-            Log.e(TAG, "Decryption authentication failed or tag mismatch during extraction.")
-            return null
-        }
-
-        NativeSecurityBridge.pinMemory(decryptedPacked)
-
-        return try {
-            val buffer = ByteBuffer.wrap(decryptedPacked).order(ByteOrder.LITTLE_ENDIAN)
-            val labelLen = buffer.int
-            if (labelLen <= 0 || labelLen > buffer.remaining()) return null
-
-            val labelBytes = ByteArray(labelLen)
-            buffer.get(labelBytes)
-            val parsedLabel = String(labelBytes, Charsets.UTF_8)
-
-            if (parsedLabel != label) {
-                Log.w(TAG, "Vault blob label mismatch: expected '$label', found '$parsedLabel'")
+        synchronized(lock) {
+            val containerFile = getTargetContainerFile(context)
+            if (!containerFile.exists()) {
+                Log.w(TAG, "Vault container file not found: ${containerFile.absolutePath}")
                 return null
             }
 
-            val secretLen = buffer.int
-            if (secretLen <= 0 || secretLen > buffer.remaining()) return null
+            val fileBytes = try {
+                FileInputStream(containerFile).use { it.readBytes() }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed reading vault container file", e)
+                return null
+            }
 
-            val secretBytes = ByteArray(secretLen)
-            buffer.get(secretBytes)
-            secretBytes
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing unpacked vault payload", e)
-            null
-        } finally {
-            NativeSecurityBridge.unpinMemory(decryptedPacked)
-            NativeSecurityBridge.zeroByteArray(decryptedPacked)
+            val parsed = extractPayloadFromDng(fileBytes)
+            if (parsed == null) {
+                Log.e(TAG, "Failed to parse valid DNG structure or metadata tag from carrier.")
+                return null
+            }
+
+            val masterSeed = CryptoPreferences.getOrGenerateVaultMasterSeed(context)
+            if (masterSeed == null) {
+                Log.e(TAG, "Failed retrieving master vault seed from hardware Keystore.")
+                return null
+            }
+
+            val derivedKey = deriveKeyFromSeed(masterSeed, parsed.salt)
+            NativeSecurityBridge.zeroByteArray(masterSeed)
+
+            val decryptedPacked = if (NativeSecurityBridge.isNativeLoaded()) {
+                NativeSecurityBridge.decryptAndDecompress(parsed.ciphertextWithTag, derivedKey, parsed.nonce)
+            } else {
+                decryptAndDecompressFallback(parsed.ciphertextWithTag, derivedKey, parsed.nonce)
+            }
+
+            NativeSecurityBridge.zeroByteArray(derivedKey)
+
+            if (decryptedPacked == null) {
+                Log.e(TAG, "Decryption authentication failed or tag mismatch during extraction.")
+                return null
+            }
+
+            NativeSecurityBridge.pinMemory(decryptedPacked)
+
+            return try {
+                val buffer = ByteBuffer.wrap(decryptedPacked).order(ByteOrder.LITTLE_ENDIAN)
+                val labelLen = buffer.int
+                if (labelLen <= 0 || labelLen > buffer.remaining()) {
+                    Log.w(TAG, "Malformed label length in decrypted payload.")
+                    return null
+                }
+
+                val labelBytes = ByteArray(labelLen)
+                buffer.get(labelBytes)
+                val parsedLabel = String(labelBytes, Charsets.UTF_8)
+
+                if (parsedLabel != label) {
+                    Log.w(TAG, "Vault blob label mismatch: expected '$label', found '$parsedLabel'")
+                    return null
+                }
+
+                val secretLen = buffer.int
+                if (secretLen <= 0 || secretLen > buffer.remaining()) {
+                    Log.w(TAG, "Malformed secret length in decrypted payload.")
+                    return null
+                }
+
+                val secretBytes = ByteArray(secretLen)
+                buffer.get(secretBytes)
+                NativeSecurityBridge.pinMemory(secretBytes)
+                secretBytes
+            } catch (e: Exception) {
+                Log.e(TAG, "Error unpacking extracted vault payload", e)
+                null
+            } finally {
+                NativeSecurityBridge.unpinMemory(decryptedPacked)
+                NativeSecurityBridge.zeroByteArray(decryptedPacked)
+            }
         }
     }
 
     @Synchronized
     fun purgeVaultContainer(context: Context) {
-        val containerFile = getTargetContainerFile(context)
-        if (containerFile.exists()) {
-            try {
-                val len = containerFile.length().toInt()
-                val randomJunk = ByteArray(if (len > 0) len else 8192)
-                SecureRandom().nextBytes(randomJunk)
+        synchronized(lock) {
+            val containerFile = getTargetContainerFile(context)
+            if (containerFile.exists()) {
+                try {
+                    val len = containerFile.length().toInt()
+                    val randomJunk = ByteArray(if (len > 0) len else 8192)
+                    SecureRandom().nextBytes(randomJunk)
 
-                FileOutputStream(containerFile).use { fos ->
-                    fos.write(randomJunk)
-                    fos.flush()
+                    FileOutputStream(containerFile).use { fos ->
+                        fos.write(randomJunk)
+                        fos.flush()
+                    }
+                    containerFile.delete()
+                    Log.i(TAG, "Plausible deniability vault container sanitized and unlinked.")
+                    EventLogger.log(context, "VAULT: Overwritten and unlinked deniable carrier container.")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed purging vault container file", e)
                 }
-                containerFile.delete()
-                Log.i(TAG, "Plausible deniability vault container permanently unlinked and overwritten.")
-                EventLogger.log(context, "VAULT: Overwritten and purged deniable carrier container.")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed purging vault container file", e)
             }
         }
     }
 
-    private fun synthesizeAuthenticDng(nonce: ByteArray, ciphertextWithTag: ByteArray): ByteArray {
-        val payloadEnvelope = ByteBuffer.allocate(4 + nonce.size + 4 + ciphertextWithTag.size)
+    private fun deriveKeyFromSeed(masterSeed: ByteArray, salt: ByteArray): ByteArray {
+        val derivedKey = ByteArray(KEY_SIZE)
+        val hkdf = HKDFBytesGenerator(SHA256Digest())
+        hkdf.init(HKDFParameters(masterSeed, salt, VAULT_HKDF_INFO))
+        hkdf.generateBytes(derivedKey, 0, KEY_SIZE)
+        return derivedKey
+    }
+
+    private fun synthesizeAuthenticDng(salt: ByteArray, nonce: ByteArray, ciphertextWithTag: ByteArray): ByteArray {
+        val payloadEnvelope = ByteBuffer.allocate(4 + salt.size + 4 + nonce.size + 4 + ciphertextWithTag.size)
             .order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(salt.size)
+            .put(salt)
             .putInt(nonce.size)
             .put(nonce)
             .putInt(ciphertextWithTag.size)
@@ -191,22 +240,22 @@ object PlausibleDeniabilityVault {
         val totalSize = payloadOffset + payloadLen + sensorChaffSize
         val output = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN)
 
-        // 1. TIFF Header
+        // TIFF Header
         output.put(TIFF_MAGIC_LE)
         output.putInt(ifdOffset)
 
-        // 2. IFD0 Entries
+        // IFD0 Entries
         output.putShort(numEntries)
-        writeIfdEntry(output, 0x00FE.toShort(), 4, 1, 0)
-        writeIfdEntry(output, 0x0100.toShort(), 3, 1, 4032)
-        writeIfdEntry(output, 0x0101.toShort(), 3, 1, 3024)
-        writeIfdEntry(output, 0x0102.toShort(), 3, 1, 16)
-        writeIfdEntry(output, 0x0103.toShort(), 3, 1, 1)
-        writeIfdEntry(output, 0xC612.toShort(), 1, 4, 0x01040000)
-        writeIfdEntry(output, PRIVATE_PAYLOAD_TAG_ID, 7, payloadLen, payloadOffset)
-        output.putInt(0)
+        writeIfdEntry(output, 0x00FE.toShort(), 4, 1, 0) // NewSubfileType
+        writeIfdEntry(output, 0x0100.toShort(), 3, 1, 4032) // ImageWidth
+        writeIfdEntry(output, 0x0101.toShort(), 3, 1, 3024) // ImageLength
+        writeIfdEntry(output, 0x0102.toShort(), 3, 1, 16) // BitsPerSample
+        writeIfdEntry(output, 0x0103.toShort(), 3, 1, 1) // Compression (Uncompressed)
+        writeIfdEntry(output, 0xC612.toShort(), 1, 4, 0x01040000) // DNGVersion
+        writeIfdEntry(output, PRIVATE_PAYLOAD_TAG_ID, 7, payloadLen, payloadOffset) // DNGPrivateData
+        output.putInt(0) // Next IFD Offset (None)
 
-        // 3. Payload & Chaff
+        // Payload & Sensor Chaff
         output.put(payloadEnvelope)
         output.put(sensorChaff)
 
@@ -220,7 +269,11 @@ object PlausibleDeniabilityVault {
         buffer.putInt(valueOrOffset)
     }
 
-    private data class ParsedCarrier(val nonce: ByteArray, val ciphertextWithTag: ByteArray)
+    private data class ParsedCarrier(
+        val salt: ByteArray,
+        val nonce: ByteArray,
+        val ciphertextWithTag: ByteArray
+    )
 
     private fun extractPayloadFromDng(fileBytes: ByteArray): ParsedCarrier? {
         if (fileBytes.size < 64) return null
@@ -239,13 +292,14 @@ object PlausibleDeniabilityVault {
 
         buffer.position(ifdOffset)
         val numEntries = buffer.short
+        if (numEntries <= 0 || numEntries > 100) return null
 
         var payloadOffset = -1
         var payloadLength = -1
 
         for (i in 0 until numEntries) {
             val tag = buffer.short
-            buffer.short
+            buffer.short // type
             val count = buffer.int
             val valueOrOffset = buffer.int
 
@@ -256,34 +310,29 @@ object PlausibleDeniabilityVault {
             }
         }
 
-        if (payloadOffset <= 0 || payloadLength <= 16 || payloadOffset + payloadLength > fileBytes.size) {
-            Log.e(TAG, "DNG PrivateData payload tag not found or corrupt.")
+        if (payloadOffset <= 0 || payloadLength <= (4 + SALT_SIZE + 4 + NONCE_SIZE + 4) || payloadOffset + payloadLength > fileBytes.size) {
+            Log.e(TAG, "DNG PrivateData payload tag not found or out of bounds.")
             return null
         }
 
         buffer.position(payloadOffset)
-        val nonceLen = buffer.int
-        if (nonceLen != 12) return null
 
+        val saltLen = buffer.int
+        if (saltLen != SALT_SIZE) return null
+        val salt = ByteArray(saltLen)
+        buffer.get(salt)
+
+        val nonceLen = buffer.int
+        if (nonceLen != NONCE_SIZE) return null
         val nonce = ByteArray(nonceLen)
         buffer.get(nonce)
 
         val cipherLen = buffer.int
         if (cipherLen <= 16 || cipherLen > buffer.remaining()) return null
-
         val ciphertextWithTag = ByteArray(cipherLen)
         buffer.get(ciphertextWithTag)
 
-        return ParsedCarrier(nonce, ciphertextWithTag)
-    }
-
-    private fun deriveVaultKey(context: Context): ByteArray? {
-        val seed = "UncleTed_PlausibleDeniability_VaultKey_Seed".toByteArray(Charsets.UTF_8)
-        val payload = StrongBoxSecurityManager.encryptWithStrongBox(context, seed) ?: return null
-        val keyBytes = ByteArray(32)
-        val copyLen = minOf(payload.cipherText.size, 32)
-        System.arraycopy(payload.cipherText, 0, keyBytes, 0, copyLen)
-        return keyBytes
+        return ParsedCarrier(salt, nonce, ciphertextWithTag)
     }
 
     private fun getTargetContainerFile(context: Context): File {

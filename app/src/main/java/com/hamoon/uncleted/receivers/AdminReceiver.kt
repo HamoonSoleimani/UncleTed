@@ -48,14 +48,21 @@ class AdminReceiver : DeviceAdminReceiver() {
             if (dpm.isDeviceOwnerApp(context.packageName)) {
                 try {
                     dpm.setStorageEncryption(admin, true)
-                    dpm.setMaximumFailedPasswordsForWipe(admin, 5)
+
+                    val maxFailedWipe = SecurityPreferences.getMaxFailedAttemptsForWipe(context)
+                    dpm.setMaximumFailedPasswordsForWipe(admin, maxFailedWipe)
+                    Log.i(TAG, "Device Owner Gatekeeper wipe limit configured: $maxFailedWipe")
+
                     dpm.setPasswordQuality(admin, DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX)
                     dpm.setPasswordMinimumLength(admin, 6)
 
-                    // Permanently disallow safe mode to prevent bypassing security sentinels
-                    dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT)
-
-                    Log.i(TAG, "Device Owner hardware zero-trust baseline enforced (including DISALLOW_SAFE_BOOT).")
+                    if (SecurityPreferences.isSafeBootBlocked(context)) {
+                        dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT)
+                        Log.i(TAG, "Device Owner baseline enforced (including DISALLOW_SAFE_BOOT).")
+                    } else {
+                        dpm.clearUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT)
+                        Log.i(TAG, "Device Owner baseline enforced (DISALLOW_SAFE_BOOT cleared per preference).")
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed configuring initial Device Owner policies", e)
                 }
@@ -91,7 +98,18 @@ class AdminReceiver : DeviceAdminReceiver() {
 
         CoroutineScope(Dispatchers.IO).launch {
             val strategy = DefenseCoordinator.resolveStrategy(context)
+            val maxAllowedBeforeWipe = SecurityPreferences.getMaxFailedAttemptsForWipe(context)
 
+            // 1. Check if user-configured brute-force wipe limit is exceeded
+            if (maxAllowedBeforeWipe in 1..currentFailed) {
+                Log.e(TAG, "Hardware failure count ($currentFailed) reached user wipe limit ($maxAllowedBeforeWipe). Initiating wipe!")
+                EventLogger.log(context, "CRITICAL: Max failed password threshold exceeded ($currentFailed/$maxAllowedBeforeWipe). Erasing.")
+                strategy.executeWipe("MAX_FAILED_PASSWORDS_EXCEEDED")
+                PanicActionService.trigger(context, "REMOTE_WIPE", PanicActionService.Severity.CRITICAL)
+                return@launch
+            }
+
+            // 2. Proactive defense on 3 consecutive failures: sever USB port & lock biometrics
             if (currentFailed >= 3) {
                 Log.e(TAG, "Threshold >= 3 reached. Physically disabling USB port and locking biometrics.")
                 strategy.setUsbDataPortEnabled(false)

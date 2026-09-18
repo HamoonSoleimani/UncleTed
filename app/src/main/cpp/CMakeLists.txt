@@ -2,18 +2,12 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("uncleted_native")
 
+# Enforce C++17 Standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_library(
-    uncleted_native
-    SHARED
-    native-security.cpp
-)
-
-target_compile_options(
-    uncleted_native
-    PRIVATE
+# Configure Clang Security Flags: ARMv8.5-A MTE, Stack Protectors, and Optimization
+add_compile_options(
     -march=armv8.5-a+memtag
     -fsanitize=memtag
     -fstack-protector-strong
@@ -24,13 +18,23 @@ target_compile_options(
     -fPIC
 )
 
+# Declare native defense library
+add_library(
+    uncleted_native
+    SHARED
+    native-security.cpp
+)
+
+# Locate Android NDK platform libraries
 find_library(log-lib log)
 find_library(android-lib android)
 
+# Link essential libraries (zlib for compression, log for diagnostics)
 target_link_libraries(
     uncleted_native
-    PRIVATE
     ${log-lib}
     ${android-lib}
-    z
+    -lz
+    -latomic
+    -lm
 )

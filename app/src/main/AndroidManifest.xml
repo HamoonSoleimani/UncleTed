@@ -105,7 +105,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Uncle Ted v7.0.1 - NIST PQC Hybrid, OHTTP Canary, Hardware StrongBox, MTE, and Vold Eviction." />
+            android:value="Uncle Ted v8.0.1 - NIST PQC Hybrid, OHTTP Canary, Hardware StrongBox, MTE, and Vold Eviction." />
         <meta-data
             android:name="xposedminversion"
             android:value="93" />
@@ -165,9 +165,12 @@
         <!-- Honeypot Bait Activities -->
         <activity
             android:name=".honeypot.HoneypotLauncherActivity"
-            android:exported="false"
+            android:exported="true"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
+            android:showOnLockScreen="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:theme="@style/Theme.UncleTed" />
 
         <activity
@@ -188,6 +191,101 @@
             android:excludeFromRecents="true"
             android:theme="@style/Theme.UncleTed" />
 
+        <!-- Decoy Launcher Apps (Wasted Integration) -->
+        <activity
+            android:name=".honeypot.DecoyAppActivity"
+            android:taskAffinity=".honeypot.decoy"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.UncleTed.Transparent"
+            android:enabled="true"
+            android:exported="false" />
+
+        <activity-alias
+            android:name=".honeypot.SignalActivity"
+            android:targetActivity=".honeypot.DecoyAppActivity"
+            android:label="@string/decoy_app_signal"
+            android:icon="@mipmap/ic_decoy_signal"
+            android:roundIcon="@mipmap/ic_decoy_signal_round"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.UncleTed.Transparent"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".honeypot.TelegramActivity"
+            android:targetActivity=".honeypot.DecoyAppActivity"
+            android:label="@string/decoy_app_telegram"
+            android:icon="@mipmap/ic_decoy_telegram"
+            android:roundIcon="@mipmap/ic_decoy_telegram_round"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.UncleTed.Transparent"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".honeypot.ThreemaActivity"
+            android:targetActivity=".honeypot.DecoyAppActivity"
+            android:label="@string/decoy_app_threema"
+            android:icon="@mipmap/ic_decoy_threema"
+            android:roundIcon="@mipmap/ic_decoy_threema_round"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.UncleTed.Transparent"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".honeypot.WhatsAppActivity"
+            android:targetActivity=".honeypot.DecoyAppActivity"
+            android:label="@string/decoy_app_whatsapp"
+            android:icon="@mipmap/ic_decoy_whatsapp"
+            android:roundIcon="@mipmap/ic_decoy_whatsapp_round"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.UncleTed.Transparent"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".honeypot.SessionActivity"
+            android:targetActivity=".honeypot.DecoyAppActivity"
+            android:label="@string/decoy_app_session"
+            android:icon="@mipmap/ic_decoy_session"
+            android:roundIcon="@mipmap/ic_decoy_session_round"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.UncleTed.Transparent"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- Background Services -->
         <service
             android:name=".services.PanicActionService"
@@ -204,6 +302,17 @@
             android:exported="false"
             android:directBootAware="true"
             android:foregroundServiceType="dataSync|connectedDevice" />
+
+        <!-- Fake Airplane Mode Tile Confirmation Barrier -->
+        <activity
+            android:name=".services.FakeAirplaneConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.UncleTed.Transparent" />
 
         <service
             android:name=".services.PowerButtonService"
@@ -226,6 +335,7 @@
             android:directBootAware="true"
             android:foregroundServiceType="location" />
 
+        <!-- USB Tripwire Service (Defined in package com.hamoon.uncleted.services inside util/UsbTripwireService.kt) -->
         <service
             android:name=".services.UsbTripwireService"
             android:enabled="true"
@@ -235,6 +345,17 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="security_monitoring" />
+        </service>
+
+        <!-- Notification Listener Service for Data-Only eSIM C2 -->
+        <service
+            android:name=".services.NotificationCommandListener"
+            android:label="Uncle Ted Covert Dispatch Listener"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
 
         <!-- Quick Settings Tiles -->
@@ -275,6 +396,18 @@
             android:name=".services.WipeTileService"
             android:label="Uncle Ted: WIPE"
             android:icon="@drawable/ic_alert_triangle_24"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Decoy Quick Settings Airplane Mode Tile Trap -->
+        <service
+            android:name=".services.FakeAirplaneTileService"
+            android:label="Airplane mode"
+            android:icon="@drawable/ic_airplane_mode_24"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>

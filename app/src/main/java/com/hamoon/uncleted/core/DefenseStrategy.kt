@@ -11,4 +11,5 @@ interface DefenseStrategy {
     suspend fun disableBiometrics(disable: Boolean)
     suspend fun isolateRadiosAndNetwork()
     suspend fun cutBasebandRadioHardware()
+    suspend fun setSafeBootBlocked(blocked: Boolean)
 }

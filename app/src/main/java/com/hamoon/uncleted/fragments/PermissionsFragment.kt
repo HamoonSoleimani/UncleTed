@@ -70,7 +70,7 @@ class PermissionsFragment : Fragment() {
             if (PermissionUtils.canDrawOverlays(requireContext())) {
                 Toast.makeText(requireContext(), "Overlay permission granted!", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(requireContext(), "Overlay permission is required for the Fake Shutdown feature.", Toast.LENGTH_LONG).show()
+                Toast.makeText(requireContext(), "Overlay permission is required for full-screen lockscreens.", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -80,7 +80,7 @@ class PermissionsFragment : Fragment() {
             if (PermissionUtils.isAccessibilityServiceEnabled(requireContext(), PowerButtonService::class.java)) {
                 Toast.makeText(requireContext(), "Accessibility service enabled!", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(requireContext(), "Please enable the Uncle Ted accessibility service for the Fake Shutdown feature.", Toast.LENGTH_LONG).show()
+                Toast.makeText(requireContext(), "Please enable the Uncle Ted accessibility service for hardware volume monitoring.", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -91,6 +91,16 @@ class PermissionsFragment : Fragment() {
                 Toast.makeText(requireContext(), "Usage access granted!", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(requireContext(), "Usage access can help with advanced monitoring features.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+    private val requestNotificationListenerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            updateButtonStates()
+            if (PermissionUtils.isNotificationListenerGranted(requireContext())) {
+                Toast.makeText(requireContext(), "Notification listener enabled!", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), "Notification listener is needed to receive remote commands on data-only eSIMs.", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -128,12 +138,15 @@ class PermissionsFragment : Fragment() {
         binding.btnEnableUsageAccess.setOnClickListener {
             requestUsageAccessPermission()
         }
+
+        binding.btnEnableNotificationListener.setOnClickListener {
+            requestNotificationListenerPermission()
+        }
     }
 
     private fun updateButtonStates() {
         val context = requireContext()
 
-        // Runtime Permissions Check
         val runtimeOk = PermissionUtils.hasCameraPermission(context) &&
                 PermissionUtils.hasRecordAudioPermission(context) &&
                 PermissionUtils.hasLocationPermissions(context) &&
@@ -147,7 +160,6 @@ class PermissionsFragment : Fragment() {
         }
         binding.btnRequestPermissions.isEnabled = !runtimeOk
 
-        // Device Admin Check
         val adminOk = PermissionUtils.isDeviceAdminActive(context)
         binding.btnEnableAdmin.text = if (adminOk) {
             "✓ Device Admin: Active"
@@ -156,7 +168,6 @@ class PermissionsFragment : Fragment() {
         }
         binding.btnEnableAdmin.isEnabled = !adminOk
 
-        // Accessibility Service Check
         val accessibilityOk = PermissionUtils.isAccessibilityServiceEnabled(context, PowerButtonService::class.java)
         binding.btnEnableAccessibility.text = if (accessibilityOk) {
             "✓ Accessibility: Active"
@@ -165,7 +176,6 @@ class PermissionsFragment : Fragment() {
         }
         binding.btnEnableAccessibility.isEnabled = !accessibilityOk
 
-        // Overlay Permission Check
         val overlayOk = PermissionUtils.canDrawOverlays(context)
         binding.btnEnableOverlay.text = if (overlayOk) {
             "✓ Draw Over Apps: Granted"
@@ -174,19 +184,25 @@ class PermissionsFragment : Fragment() {
         }
         binding.btnEnableOverlay.isEnabled = !overlayOk
 
-        // Usage Access Check
         val usageOk = PermissionUtils.isUsageAccessGranted(context)
         binding.btnEnableUsageAccess.text = if (usageOk) {
             "✓ Usage Access: Granted (Optional)"
         } else {
             "Usage Access: Missing (Optional)"
         }
+
+        val notifListenerOk = PermissionUtils.isNotificationListenerGranted(context)
+        binding.btnEnableNotificationListener.text = if (notifListenerOk) {
+            "✓ Notification Listener (eSIM C2): Active"
+        } else {
+            "Notification Listener (eSIM C2): Inactive"
+        }
+        binding.btnEnableNotificationListener.isEnabled = !notifListenerOk
     }
 
     private fun requestAllPermissions() {
         val permissionsToRequest = mutableListOf<String>()
 
-        // Core permissions
         val corePermissions = arrayOf(
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
@@ -204,17 +220,14 @@ class PermissionsFragment : Fragment() {
 
         permissionsToRequest.addAll(corePermissions)
 
-        // Android 10+ background location
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             permissionsToRequest.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         }
 
-        // Android 13+ notification permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        // Android 14+ foreground service permissions
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val fgsPermissions = arrayOf(
                 Manifest.permission.FOREGROUND_SERVICE_CAMERA,
@@ -227,20 +240,15 @@ class PermissionsFragment : Fragment() {
             permissionsToRequest.addAll(fgsPermissions)
         }
 
-        // Legacy storage permission for older Android versions
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
             permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
 
-        // Filter out already granted permissions
         val permissionsNotGranted = permissionsToRequest.filter { permission ->
             ContextCompat.checkSelfPermission(requireContext(), permission) != PackageManager.PERMISSION_GRANTED
         }
 
-        Log.d(TAG, "Requesting ${permissionsNotGranted.size} permissions: $permissionsNotGranted")
-
         if (permissionsNotGranted.isNotEmpty()) {
-            // Show rationale for critical permissions if needed
             if (shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) ||
                 shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
 
@@ -272,12 +280,11 @@ class PermissionsFragment : Fragment() {
                 putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, deviceAdmin)
                 putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
                     "Uncle Ted requires Device Admin permission to:\n\n" +
-                            "• Remotely lock your device when receiving SMS commands\n" +
+                            "• Remotely lock your device when receiving commands\n" +
                             "• Securely wipe your device data in emergency situations\n" +
                             "• Prevent unauthorized uninstallation of the security app\n\n" +
-                            "This permission is essential for the core security features.")
+                            "This permission is essential for core security features.")
             }
-            Log.d(TAG, "Launching device admin request")
             requestDeviceAdminLauncher.launch(intent)
         } else {
             Toast.makeText(requireContext(), "Device Admin is already active.", Toast.LENGTH_SHORT).show()
@@ -291,7 +298,6 @@ class PermissionsFragment : Fragment() {
                 .setMessage(getString(R.string.accessibility_service_description))
                 .setPositiveButton("Open Settings") { _, _ ->
                     val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    Log.d(TAG, "Opening accessibility settings")
                     requestAccessibilitySettingsLauncher.launch(intent)
                 }
                 .setNegativeButton("Cancel", null)
@@ -305,15 +311,10 @@ class PermissionsFragment : Fragment() {
         if (!Settings.canDrawOverlays(requireContext())) {
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle("Draw Over Other Apps Permission")
-                .setMessage("This permission allows Uncle Ted to:\n\n" +
-                        "• Show a fake shutdown screen when someone tries to power off your device\n" +
-                        "• Display security lock screens over other apps\n" +
-                        "• Show emergency alerts that can't be easily dismissed\n\n" +
-                        "This helps prevent thieves from turning off your device.")
+                .setMessage("This permission allows Uncle Ted to display security lock screens and duress traps over other apps.")
                 .setPositiveButton("Grant Permission") { _, _ ->
                     val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:${requireActivity().packageName}"))
-                    Log.d(TAG, "Launching overlay permission request")
                     requestOverlayPermissionLauncher.launch(intent)
                 }
                 .setNegativeButton("Cancel", null)
@@ -327,14 +328,9 @@ class PermissionsFragment : Fragment() {
         if (!PermissionUtils.isUsageAccessGranted(requireContext())) {
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle("Usage Access Permission")
-                .setMessage("This optional permission allows Uncle Ted to:\n\n" +
-                        "• Monitor app usage patterns for anomaly detection\n" +
-                        "• Detect if security apps are being disabled\n" +
-                        "• Provide more detailed security analytics\n\n" +
-                        "This permission is optional but enhances security monitoring.")
+                .setMessage("This optional permission allows Uncle Ted to monitor app usage patterns for anomaly detection.")
                 .setPositiveButton("Grant Permission") { _, _ ->
                     val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                    Log.d(TAG, "Launching usage access settings")
                     requestUsageAccessSettingsLauncher.launch(intent)
                 }
                 .setNegativeButton("Skip") { _, _ ->
@@ -343,6 +339,22 @@ class PermissionsFragment : Fragment() {
                 .show()
         } else {
             Toast.makeText(requireContext(), "Usage Access already granted.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun requestNotificationListenerPermission() {
+        if (!PermissionUtils.isNotificationListenerGranted(requireContext())) {
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle("Notification Listener Access (eSIM C2)")
+                .setMessage("Enables Uncle Ted to intercept push notifications containing emergency OTC wipe tokens or encrypted commands, specifically designed for devices running data-only eSIMs without SMS plans.")
+                .setPositiveButton("Open Settings") { _, _ ->
+                    val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                    requestNotificationListenerLauncher.launch(intent)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } else {
+            Toast.makeText(requireContext(), "Notification listener is already granted.", Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -1,114 +1,240 @@
 package com.hamoon.uncleted.util
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import com.hamoon.uncleted.R
+import androidx.core.content.ContextCompat
 import com.hamoon.uncleted.MainActivity
+import com.hamoon.uncleted.R
+import com.hamoon.uncleted.receivers.WidgetActionReceiver
 
 object NotificationHelper {
 
     private const val TAG = "NotificationHelper"
-    private const val SELFIE_SAVED_CHANNEL_ID = "UncleTedSelfieSavedChannel"
-    private const val PANIC_SERVICE_CHANNEL_ID = "PanicServiceChannel"
-    private const val BASIC_SERVICE_CHANNEL_ID = "BasicServiceChannel"
-    private const val SELFIE_SAVED_NOTIFICATION_ID = 101
 
-    fun createPanicNotification(context: Context): Notification {
-        val channelName = "Uncle Ted Emergency Service"
+    // Channel Identifiers
+    const val CHANNEL_MONITORING = "UncleTedMonitoringChannel"
+    const val CHANNEL_PANIC = "UncleTedPanicServiceChannel"
+    const val CHANNEL_BROKER = "UncleTedEmergencyBrokerChannel"
+    const val CHANNEL_SELFIE = "UncleTedSelfieSavedChannel"
+
+    // Notification Identifiers
+    const val NOTIFICATION_ID_MONITORING = 2001
+    const val NOTIFICATION_ID_PANIC = 1001
+    const val NOTIFICATION_ID_SELFIE = 3001
+    const val NOTIFICATION_ID_BROKER = 9002
+
+    fun createNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                PANIC_SERVICE_CHANNEL_ID,
-                channelName,
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Runs essential security monitoring and emergency actions in the background."
-                setShowBadge(false)
-                enableVibration(false)
-                setSound(null, null)
-            }
-            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            context, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        return NotificationCompat.Builder(context, PANIC_SERVICE_CHANNEL_ID)
-            .setContentTitle("Uncle Ted")
-            .setContentText("Performing security action...")
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(Notification.CATEGORY_SERVICE)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setSilent(true)
-            .build()
-    }
-
-    fun createBasicNotification(context: Context): Notification {
-        val channelName = "Uncle Ted Basic Service"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                BASIC_SERVICE_CHANNEL_ID,
-                channelName,
+            // 1. Persistent Monitoring Channel (Low/Silent)
+            val monitoringChannel = NotificationChannel(
+                CHANNEL_MONITORING,
+                "Uncle Ted Defense Monitor",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Basic security service notification."
+                description = "Displays live defense suite status, active sentinels, and quick security controls."
                 setShowBadge(false)
                 enableVibration(false)
                 setSound(null, null)
             }
-            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+
+            // 2. High-Priority Emergency Panic Channel
+            val panicChannel = NotificationChannel(
+                CHANNEL_PANIC,
+                "Uncle Ted Emergency Protocol",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Active when emergency countermeasures, evidence gathering, or wipes are executing."
+                setShowBadge(true)
+                enableVibration(true)
+                setBypassDnd(true)
+            }
+
+            // 3. Full-Screen Broker Channel (CameraX BAL bypass)
+            val brokerChannel = NotificationChannel(
+                CHANNEL_BROKER,
+                "Uncle Ted Security Broker",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Dispatches emergency activities under background restrictions."
+                setShowBadge(false)
+                enableVibration(false)
+                setSound(null, null)
+            }
+
+            // 4. Evidence & Intruder Capture Channel
+            val selfieChannel = NotificationChannel(
+                CHANNEL_SELFIE,
+                "Uncle Ted Evidence Alerts",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Notifications for captured intruder selfies and local surveillance snapshots."
+                setShowBadge(true)
+            }
+
+            manager.createNotificationChannel(monitoringChannel)
+            manager.createNotificationChannel(panicChannel)
+            manager.createNotificationChannel(brokerChannel)
+            manager.createNotificationChannel(selfieChannel)
         }
+    }
+
+    /**
+     * Builds the sleek, Material 3 persistent status center notification for MonitoringService.
+     */
+    fun createMonitoringNotification(
+        context: Context,
+        profileName: String = "Route B: Root/LSPosed",
+        sentinelsSummary: String = "Spectral • Baseband • PMIC • BLE"
+    ): Notification {
+        createNotificationChannels(context)
+
+        val mainIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val mainPendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            mainIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        // Quick Control Actions (Safe, non-destructive)
+        val lockIntent = Intent(context, WidgetActionReceiver::class.java).apply {
+            action = "ACTION_LOCK"
+        }
+        val lockPendingIntent = PendingIntent.getBroadcast(
+            context,
+            101,
+            lockIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val sirenIntent = Intent(context, WidgetActionReceiver::class.java).apply {
+            action = "ACTION_SIREN"
+        }
+        val sirenPendingIntent = PendingIntent.getBroadcast(
+            context,
+            102,
+            sirenIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val locationIntent = Intent(context, WidgetActionReceiver::class.java).apply {
+            action = "ACTION_LOCATION"
+        }
+        val locationPendingIntent = PendingIntent.getBroadcast(
+            context,
+            103,
+            locationIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val bigText = buildString {
+            append("🛡️ Profile: ").append(profileName).append("\n")
+            append("⚡ Sentinels: ").append(sentinelsSummary).append("\n")
+            append("🔒 Storage: StrongBox KeyMint & BFU Platform Bridge Armed")
+        }
+
+        val style = NotificationCompat.BigTextStyle()
+            .setBigContentTitle("Uncle Ted: System Defense Active")
+            .setSummaryText("ARMED")
+            .bigText(bigText)
+
+        return NotificationCompat.Builder(context, CHANNEL_MONITORING)
+            .setSmallIcon(R.drawable.ic_shield_check_24)
+            .setContentTitle("Uncle Ted: System Defense Active")
+            .setContentText("Status: SECURE | $profileName")
+            .setStyle(style)
+            .setContentIntent(mainPendingIntent)
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setColor(ContextCompat.getColor(context, R.color.md_theme_dark_primary))
+            .addAction(R.drawable.ic_lock_24, "Lock", lockPendingIntent)
+            .addAction(R.drawable.ic_alert_24, "Siren", sirenPendingIntent)
+            .addAction(R.drawable.ic_info_24, "Locate", locationPendingIntent)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
+    }
+
+    /**
+     * Notification for active emergency and panic execution.
+     */
+    fun createPanicNotification(context: Context): Notification {
+        createNotificationChannels(context)
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent = PendingIntent.getActivity(
-            context, 0, intent,
+            context,
+            0,
+            intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(context, BASIC_SERVICE_CHANNEL_ID)
-            .setContentTitle("Uncle Ted")
-            .setContentText("Security service running...")
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(Notification.CATEGORY_SERVICE)
+        return NotificationCompat.Builder(context, CHANNEL_PANIC)
+            .setContentTitle("Uncle Ted Emergency Service")
+            .setContentText("Executing defensive security protocol...")
+            .setSmallIcon(R.drawable.ic_alert_triangle_24)
+            .setColor(ContextCompat.getColor(context, R.color.status_red))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setSilent(true)
             .build()
     }
 
-    fun showSelfieSavedNotification(context: Context, imageUri: Uri) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "Cannot show selfie saved notification due to missing POST_NOTIFICATIONS permission.")
-                return
-            }
+    /**
+     * Fallback notification for secondary background services (ZoneWipeService, UsbTripwireService).
+     */
+    fun createBasicNotification(context: Context): Notification {
+        createNotificationChannels(context)
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-        val notificationManager = NotificationManagerCompat.from(context)
-        createSelfieSavedNotificationChannel(context, notificationManager)
+        return NotificationCompat.Builder(context, CHANNEL_MONITORING)
+            .setContentTitle("Uncle Ted Hardware Sentinel")
+            .setContentText("Monitoring bus telemetry and hardware interfaces...")
+            .setSmallIcon(R.drawable.ic_shield_check_24)
+            .setColor(ContextCompat.getColor(context, R.color.md_theme_dark_primary))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
+    }
 
-        val viewIntent = Intent(Intent.ACTION_VIEW, imageUri).apply {
+    /**
+     * Displays a notification when an intruder photo is captured.
+     */
+    fun showSelfieSavedNotification(context: Context, imageUri: Uri) {
+        createNotificationChannels(context)
+
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(imageUri, "image/jpeg")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
@@ -119,39 +245,25 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notificationBody = "Tap to view the saved image."
-        val expandedStyle = NotificationCompat.BigTextStyle()
-            .bigText("Saved to: Pictures/UncleTed/\n${imageUri.lastPathSegment}")
+        val style = NotificationCompat.BigTextStyle()
+            .setBigContentTitle("Intruder Selfie Captured")
+            .bigText("An unauthorized access attempt was intercepted. Image saved to Pictures/UncleTed.")
 
-        val builder = NotificationCompat.Builder(context, SELFIE_SAVED_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, CHANNEL_SELFIE)
             .setSmallIcon(R.drawable.ic_selfie_24)
-            .setContentTitle(context.getString(R.string.selfie_saved_notification_title))
-            .setContentText(notificationBody)
-            .setStyle(expandedStyle)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentTitle("Intruder Selfie Captured")
+            .setContentText("Tap to view the captured photo.")
+            .setStyle(style)
+            .setColor(ContextCompat.getColor(context, R.color.status_red))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         try {
-            notificationManager.notify(SELFIE_SAVED_NOTIFICATION_ID, builder.build())
-            Log.d(TAG, "Displayed selfie saved notification.")
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Failed to show selfie saved notification", e)
-        }
-    }
-
-    private fun createSelfieSavedNotificationChannel(context: Context, manager: NotificationManagerCompat) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelName = context.getString(R.string.selfie_saved_notification_channel_name)
-            val channel = NotificationChannel(
-                SELFIE_SAVED_CHANNEL_ID,
-                channelName,
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "Shows an alert when an intruder selfie is saved to the device."
-                setShowBadge(true)
-            }
-            manager.createNotificationChannel(channel)
+            manager.notify(NOTIFICATION_ID_SELFIE, builder.build())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed displaying intruder selfie notification: ${e.message}")
         }
     }
 }

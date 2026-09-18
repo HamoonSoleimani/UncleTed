@@ -20,6 +20,13 @@ class RootPrivilegedStrategy(
     override val profileName: String = "ROOT_LSPOSED_UNLOCKED"
     override val isHardwareSecured: Boolean = false
 
+    override suspend fun setSafeBootBlocked(blocked: Boolean) {
+        Log.i(TAG, "Root strategy updating Safe Boot restriction: blocked=$blocked")
+        val value = if (blocked) "1" else "0"
+        RootExecutor.run("pm set-user-restriction disallow_safe_boot $value", logErrors = false)
+        EventLogger.log(context, "POLICY: Root safe-boot restriction state: $blocked")
+    }
+
     override suspend fun executeWipe(reason: String) {
         Log.e(TAG, "Executing root-level cryptographic key eviction and reboot (Reason: $reason)")
         EventLogger.log(context, "CRITICAL: Root-level destruction invoked: $reason")
@@ -68,9 +75,7 @@ class RootPrivilegedStrategy(
     }
 
     override suspend fun evictMemoryKeysAndLock() {
-        Log.w(TAG, "Locking device and dropping user session via root keyevent and Vold lock")
-        RootExecutor.run("vdc cryptfs lockuser 0")
-        RootExecutor.run("sm lock-user-key 0")
+        Log.w(TAG, "Locking device and dropping unpinned memory caches via root keyevent")
         RootExecutor.run("sync")
         RootExecutor.run("echo 3 > /proc/sys/vm/drop_caches")
         RootExecutor.run("input keyevent 26")

@@ -14,6 +14,11 @@
             android:title="@string/menu_dashboard" />
 
         <item
+            android:id="@+id/nav_anti_forensics"
+            android:icon="@drawable/ic_power_off_24"
+            android:title="Anti-Forensics &amp; Pre-OS" />
+
+        <item
             android:id="@+id/nav_hardware_sentinels"
             android:icon="@drawable/ic_sim_card_24"
             android:title="@string/menu_hardware_sentinels" />

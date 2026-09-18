@@ -99,6 +99,14 @@
                     android:text="@string/feature_sim_change"/>
 
                 <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_wipe_on_sim_removal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/feature_wipe_on_sim_removal"
+                    android:textColor="?attr/colorError"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/switch_shake_to_panic"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

@@ -4,9 +4,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -14,10 +11,17 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.databinding.ActivityLockScreenBinding
 import com.hamoon.uncleted.honeypot.HoneypotLauncherActivity
 import com.hamoon.uncleted.services.PanicActionService
+import com.hamoon.uncleted.util.DecoyUserManager
+import com.hamoon.uncleted.util.RootChecker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class LockScreenActivity : AppCompatActivity() {
 
@@ -27,7 +31,6 @@ class LockScreenActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Enforce true lockscreen immersion without the unpinning prompt of non-owner startLockTask
         configureLockscreenWindowFlags()
 
         try {
@@ -39,10 +42,9 @@ class LockScreenActivity : AppCompatActivity() {
             return
         }
 
-        // Intercept back navigation
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // Block back action to prevent dismissing lockscreen
+                // Block back action
             }
         })
 
@@ -78,7 +80,6 @@ class LockScreenActivity : AppCompatActivity() {
                     finish()
                 }
                 duressPin -> {
-                    // Silent trap mode: trigger covert dispatch and report incorrect PIN
                     PanicActionService.trigger(this, "DURESS_PIN", PanicActionService.Severity.HIGH)
                     binding.etPinEntry.text?.clear()
                     Toast.makeText(this, "Incorrect PIN", Toast.LENGTH_SHORT).show()
@@ -89,10 +90,19 @@ class LockScreenActivity : AppCompatActivity() {
                 }
                 honeypotPin -> {
                     PanicActionService.trigger(this, "HONEYPOT_ACTIVATED", PanicActionService.Severity.HIGH)
-                    val honeyIntent = Intent(this, HoneypotLauncherActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    val decoyId = SecurityPreferences.getDecoyUserId(this)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        if (decoyId > 0 && RootChecker.isDeviceRooted()) {
+                            DecoyUserManager.switchToDecoyWithCeEviction(this@LockScreenActivity, decoyId)
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                val honeyIntent = Intent(this@LockScreenActivity, HoneypotLauncherActivity::class.java).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                }
+                                startActivity(honeyIntent)
+                            }
+                        }
                     }
-                    startActivity(honeyIntent)
                     finish()
                 }
                 else -> {
@@ -142,6 +152,19 @@ class LockScreenActivity : AppCompatActivity() {
     private fun handleFailedAttempt() {
         SecurityPreferences.incrementFailedAttempts(this)
         val attempts = SecurityPreferences.getFailedAttempts(this)
+        val maxAllowed = SecurityPreferences.getMaxFailedAttemptsForWipe(this)
+
+        if (maxAllowed in 1..attempts) {
+            Log.e(TAG, "In-App Lockscreen: Exceeded maximum allowed attempts ($attempts/$maxAllowed). Triggering wipe.")
+            CoroutineScope(Dispatchers.IO).launch {
+                val strategy = DefenseCoordinator.resolveStrategy(this@LockScreenActivity)
+                strategy.executeWipe("MAX_FAILED_PASSWORDS_EXCEEDED")
+            }
+            PanicActionService.trigger(this, "WIPE_PIN", PanicActionService.Severity.CRITICAL)
+            finish()
+            return
+        }
+
         if (SecurityPreferences.isIntruderSelfieEnabled(this) && attempts >= 3) {
             PanicActionService.trigger(this, "INTRUDER_SELFIE", PanicActionService.Severity.MEDIUM)
         }

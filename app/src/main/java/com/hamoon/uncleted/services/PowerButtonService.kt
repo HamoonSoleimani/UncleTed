@@ -33,10 +33,7 @@ class PowerButtonService : AccessibilityService() {
 
         val info = serviceInfo ?: AccessibilityServiceInfo()
         info.packageNames = null
-        info.flags = info.flags or
-                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
-
+        info.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
         info.eventTypes = AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
         serviceInfo = info
 

@@ -87,6 +87,15 @@
     <string name="permissions_button_usage">دسترسی به استفاده (اختیاری)</string>
     <string name="permissions_category_core">سرویس‌های اصلی</string>
 
+    <!-- Safe Boot Interception Strings (Persian) -->
+    <string name="safe_boot_title">مسدودسازی حالت Safe Mode (ضد دور زدن)</string>
+    <string name="safe_boot_desc">از بوت شدن دستگاه در حالت Safe Mode اندروید که برنامه‌های امنیتی را غیرفعال می‌کند جلوگیری می‌نماید.</string>
+    <string name="safe_boot_toggle_label">مسدودسازی Safe Mode (مدیر دستگاه)</string>
+    <string name="safe_boot_warning_title">مجاز کردن Safe Mode؟</string>
+    <string name="safe_boot_warning_message">هشدار امنیتی: مجاز کردن Safe Mode به هر فردی با دسترسی فیزیکی اجازه می‌دهد با نگه‌داشتن کلیدهای ولوم، دستگاه را در حالت Safe Mode بوت کرده و بدون نیاز به پین، لایه‌های نظارتی و ضدسرقت عمو تد را غیرفعال کند. آیا مطمئن هستید؟</string>
+    <string name="safe_boot_allow_button">مجاز کردن Safe Mode</string>
+    <string name="safe_boot_keep_blocked_button">مسدود نگه دار</string>
+
     <!-- PINs Screen -->
     <string name="pins_category_title">احراز هویت</string>
     <string name="pins_normal_hint">پین عادی برای باز کردن قفل</string>
@@ -94,6 +103,7 @@
     <string name="pins_save_button">ذخیره پین‌ها</string>
     <string name="pins_saved_toast">تنظیمات پین ذخیره شد!</string>
     <string name="wipe_pin_hint">پین پاک کردن اطلاعات (احتیاط شدید)</string>
+    <string name="max_failed_attempts_wipe_hint">حداکثر دفعات مجاز رمز اشتباه قبل از نابودی داده</string>
     <string name="pin_guide_title">راهنمای عملکرد پین‌ها</string>
     <string name="pin_guide_normal_title">پین عادی باز کردن قفل</string>
     <string name="pin_guide_normal_desc">از این پین برای باز کردن امن و روزمره صفحه امنیتی استفاده کنید.</string>
@@ -152,8 +162,9 @@
     <string name="feature_intruder_selfie">سلفی از مزاحم (۳+ تلاش ناموفق)</string>
     <string name="save_selfie_locally">ذخیره سلفی در پوشه عمومی Pictures دستگاه</string>
     <string name="feature_sim_change">هشدار تعویض سیم‌کارت</string>
+    <string name="feature_wipe_on_sim_removal">نابودسازی فوری اطلاعات در صورت خروج سیم‌کارت (مرگبار)</string>
     <string name="shake_to_panic_feature">لرزش برای اعلام خطر</string>
-    <string name="feature_geofence">Enable Safe Zone Geofence</string>
+    <string name="feature_geofence">فعال‌سازی ژئوفنس منطقه امن</string>
     <string name="feature_set_geofence_button">تنظیم مکان فعلی به عنوان منطقه امن</string>
     <string name="feature_geofence_permission_required">دسترسی به موقعیت مکانی لازم است.</string>
     <string name="feature_geofence_set_toast">منطقه امن روی مکان فعلی تنظیم شد.</string>
@@ -162,7 +173,8 @@
     <string name="watchdog_interval_hint">فاصله زمانی به‌روزرسانی</string>
     <string name="tripwire_mode">تله انفجاری تخریب داده</string>
     <string name="tripwire_duration_hint">مدت زمان آفلاین بودن برای پاک کردن اطلاعات</string>
-    <string name="features_config_category">پیکربندی برنامه و سیستم</string>
+    <string name="btn_custom_tripwire_duration">تنظیم زمان آفلاین دلخواه (روز)</string>
+    <string name="tripwire_custom_dialog_title">تنظیم زمان دلخواه تله انفجاری</string>
     <string name="feature_stealth_mode">حالت مخفی (پنهان کردن آیکون برنامه)</string>
     <string name="secret_dialer_code_hint">کد مخفی (فقط اعداد)</string>
     <string name="secret_dialer_code_helper">شماره‌گیری کد #*#*CODE#*#*</string>
@@ -295,7 +307,7 @@
     <!-- About Screen -->
     <string name="about_title">درباره عمو تد</string>
     <string name="about_developer_credit">طراحی و توسعه توسط هامون سلیمانی</string>
-    <string name="about_app_version">نسخه ۷.۰.۱</string>
+    <string name="about_app_version">نسخه ۸.۰.۱</string>
     <string name="about_legal_disclaimer_title">سلب مسئولیت قانونی و اخلاقی</string>
     <string name="about_legal_disclaimer_body">این برنامه فقط برای اهداف آموزشی و امنیتی دفاعی طراحی شده است. هرگز بدون رضایت صریح مالک از این نرم‌افزار استفاده نکنید.</string>
     <string name="about_github">گیت‌هاب</string>

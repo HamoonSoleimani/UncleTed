@@ -1,10 +1,13 @@
 package com.hamoon.uncleted.util
 
 import android.content.Context
-import android.os.UserManager
 import android.util.Log
+import com.hamoon.uncleted.crypto.EphemeralKeyDecayEngine
 import com.hamoon.uncleted.data.SecurityPreferences
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 object DecoyUserManager {
@@ -24,13 +27,27 @@ object DecoyUserManager {
         }
 
         ensureMultiUserPropertyEnabled()
-        val existingDecoyId = findExistingDecoyUserId(context)
+        val cachedId = SecurityPreferences.getDecoyUserId(context)
+        val existingDecoyId = if (cachedId > 0) cachedId else findExistingDecoyUserId(context)
 
         return@withContext DecoyStatus(
             isSupported = true,
             exists = existingDecoyId > 0,
             userId = existingDecoyId
         )
+    }
+
+    suspend fun getValidDecoyUserId(context: Context): Int = withContext(Dispatchers.IO) {
+        val cachedId = SecurityPreferences.getDecoyUserId(context)
+        if (cachedId > 0) {
+            return@withContext cachedId
+        }
+        val existingId = findExistingDecoyUserId(context)
+        if (existingId > 0) {
+            SecurityPreferences.setDecoyUserId(context, existingId)
+            return@withContext existingId
+        }
+        return@withContext provisionDecoyUser(context)
     }
 
     suspend fun provisionDecoyUser(context: Context): Int = withContext(Dispatchers.IO) {
@@ -40,78 +57,161 @@ object DecoyUserManager {
 
         var decoyId = findExistingDecoyUserId(context)
         if (decoyId > 0) {
-            Log.i(TAG, "Decoy user profile already exists with UID $decoyId.")
+            Log.i(TAG, "Decoy user profile verified with UID $decoyId. Running initial configuration...")
+            repairAndWarmDecoyUser(decoyId)
             SecurityPreferences.setDecoyUserId(context, decoyId)
+            CredentialBridge.syncCredentials(context)
             return@withContext decoyId
         }
 
         Log.i(TAG, "Creating authentic secondary Android user profile: '$DECOY_USER_NAME'...")
         val createResult = RootExecutor.run("pm create-user \"$DECOY_USER_NAME\"")
+        val finalResult = if (!createResult.isSuccess) {
+            RootExecutor.run("pm create-user --user-type android.os.usertype.full.SECONDARY \"$DECOY_USER_NAME\"")
+        } else createResult
 
-        if (createResult.isSuccess) {
-            val rawOutput = createResult.output.joinToString(" ")
+        if (finalResult.isSuccess) {
+            val rawOutput = finalResult.output.joinToString(" ")
             val parsedId = Regex("""\b(\d+)\b""").findAll(rawOutput).lastOrNull()?.value?.toIntOrNull()
 
             if (parsedId != null && parsedId > 0) {
                 decoyId = parsedId
-                Log.i(TAG, "Successfully provisioned Decoy User space (UserHandle $decoyId).")
+                Log.i(TAG, "Successfully provisioned Decoy User space (UserHandle $decoyId). Configuring policies...")
 
-                // Clear Keyguard password on decoy profile so switching lands straight on home screen
-                RootExecutor.run("locksettings clear --user $decoyId")
-
-                // Clone essential baseline system apps to make the decoy profile authentic
-                cloneEssentialAppsToDecoy(decoyId)
+                repairAndWarmDecoyUser(decoyId)
 
                 SecurityPreferences.setDecoyUserId(context, decoyId)
+                CredentialBridge.syncCredentials(context)
                 return@withContext decoyId
             }
         }
 
-        Log.e(TAG, "Failed creating secondary user profile: ${createResult.errorOutput}")
+        Log.e(TAG, "Failed creating secondary user profile: ${finalResult.errorOutput}")
         return@withContext -1
     }
 
     /**
-     * RAM Anti-Forensics: Purges User 0 Credential-Encrypted (CE) keys from the Linux kernel keyring.
-     * Reverts the primary owner's filesystem to cold Before First Unlock (BFU) state.
+     * Fully initializes, provisions, and pre-warms the Decoy User profile in advance.
+     * Executed strictly during initial setup or background boot, never in the critical unlock path.
      */
-    suspend fun evictPrimaryUserCeKeys(context: Context): Boolean = withContext(Dispatchers.IO) {
-        Log.w(TAG, "!!! INITIATING VOLATILE RAM KEYRING EVICTION FOR USER 0 !!!")
-        EventLogger.log(context, "ANTI-FORENSICS: Purging User 0 CE encryption keys from volatile RAM.")
+    suspend fun repairAndWarmDecoyUser(userId: Int) {
+        if (userId <= 0) return
+        Log.i(TAG, "Configuring launcher and pre-warming Decoy User $userId in advance...")
 
-        val commands = listOf(
-            "vdc cryptfs lockuser 0",
-            "sm lock-user-key 0",
-            "cmd locksettings lock-user 0 2>/dev/null || true",
-            "sync",
-            "echo 3 > /proc/sys/vm/drop_caches",
-            "echo 1 > /proc/sys/vm/compact_memory"
+        // Step 1: Pre-start and unlock the user in the background
+        val warmupCmds = listOf(
+            "am start-user $userId 2>/dev/null || true",
+            "am unlock-user $userId 2>/dev/null || true"
         )
+        RootExecutor.runMultiple(warmupCmds, logErrors = false)
 
-        val result = RootExecutor.runMultiple(commands, logErrors = false)
-        val success = result.any { it.isSuccess }
+        // Step 2: Package isolation
+        isolateDecoyFromPrimaryApp(userId)
 
-        if (success) {
-            Log.i(TAG, "Primary user CE encryption keys evicted from kernel keyring. User 0 is in BFU state.")
-            EventLogger.log(context, "SUCCESS: Primary user CE keys purged. User 0 locked into BFU state.")
-        } else {
-            Log.e(TAG, "Failed to evict User 0 keys via Vold daemon.")
-        }
+        // Step 3: Complete user setup policies and restore navigation bar & lock screen
+        configureDecoyUserPolicies(userId)
 
-        return@withContext success
+        // Step 4: Ensure default launcher is installed and active
+        ensureLauncherEnabledForUser(userId)
     }
 
+    private suspend fun isolateDecoyFromPrimaryApp(userId: Int) {
+        if (userId <= 0) return
+        val commands = listOf(
+            "pm uninstall -k --user $userId com.hamoon.uncleted 2>/dev/null || true",
+            "pm disable-user --user $userId com.hamoon.uncleted 2>/dev/null || true",
+            "mkdir -p /data/user_de/$userId/com.hamoon.uncleted /data/user/$userId/com.hamoon.uncleted 2>/dev/null || true",
+            "chown -R 1000:1000 /data/user_de/$userId/com.hamoon.uncleted /data/user/$userId/com.hamoon.uncleted 2>/dev/null || true",
+            "chmod 700 /data/user_de/$userId/com.hamoon.uncleted /data/user/$userId/com.hamoon.uncleted 2>/dev/null || true"
+        )
+        RootExecutor.runMultiple(commands, logErrors = false)
+    }
+
+    private suspend fun configureDecoyUserPolicies(userId: Int) {
+        val commands = listOf(
+            "settings put global device_provisioned 1",
+            "settings put global setup_wizard_has_run 1",
+            "settings put global allow_user_switching_when_system_user_locked 1",
+            "settings put global add_users_when_locked 1",
+            "settings put --user $userId secure user_setup_complete 1",
+            "settings put --user $userId secure tv_user_setup_complete 1",
+            "settings put --user $userId secure user_setup_personalization_state 2",
+            "settings put --user $userId secure skip_first_use_hints 1",
+            "settings delete --user $userId secure lockscreen.disabled 2>/dev/null || true",
+            "settings put --user $userId secure lockscreen.disabled 0 2>/dev/null || true",
+            "pm disable --user $userId com.google.android.setupwizard 2>/dev/null || true",
+            "pm disable --user $userId com.android.setupwizard 2>/dev/null || true",
+            "pm disable --user $userId org.lineageos.setupwizard 2>/dev/null || true",
+            "pm disable --user $userId com.google.android.setupwizard/.SetupWizardActivity 2>/dev/null || true",
+            "pm disable --user $userId com.android.setupwizard/.SetupWizardActivity 2>/dev/null || true",
+            "pm disable --user $userId org.lineageos.setupwizard/.SetupWizardActivity 2>/dev/null || true"
+        )
+        RootExecutor.runMultiple(commands, logErrors = false)
+    }
+
+    private suspend fun ensureLauncherEnabledForUser(userId: Int) {
+        if (userId <= 0) return
+
+        // Resolve primary home launcher once
+        val resolveResult = RootExecutor.run(
+            "cmd package resolve-activity --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null || pm resolve-activity --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME",
+            logErrors = false
+        )
+        val output = resolveResult.output.joinToString("\n")
+        val resolvedPkg = Regex("""(?:packageName|package)=([a-zA-Z0-9._]+)""").find(output)?.groupValues?.get(1)
+            ?: Regex("""\b([a-zA-Z0-9._]+)/(?:[a-zA-Z0-9._]+)""").find(output)?.groupValues?.get(1)
+
+        val targetLauncher = if (!resolvedPkg.isNullOrBlank() && !resolvedPkg.contains("setupwizard", ignoreCase = true)) {
+            resolvedPkg.trim()
+        } else {
+            "com.google.android.apps.nexuslauncher"
+        }
+
+        // Install only the resolved launcher in a single batched shell invocation
+        val batchCmd = "cmd package install-existing --user $userId $targetLauncher 2>/dev/null || pm install-existing --user $userId $targetLauncher 2>/dev/null || true ; pm enable --user $userId $targetLauncher 2>/dev/null || true"
+        RootExecutor.run(batchCmd, logErrors = false)
+    }
+
+    suspend fun evictPrimaryUserCeKeys(context: Context): Boolean = withContext(Dispatchers.IO) {
+        Log.w(TAG, "Sanitizing primary user volatile caches and syncing filesystem buffers...")
+        val commands = listOf(
+            "sync",
+            "echo 3 > /proc/sys/vm/drop_caches"
+        )
+        val result = RootExecutor.runMultiple(commands, logErrors = false)
+        try {
+            EphemeralKeyDecayEngine.purgeEphemeralKey(null)
+        } catch (_: Exception) {}
+        return@withContext result.any { it.isSuccess }
+    }
+
+    /**
+     * Fast-path user switch: Single atomic shell call, deferring cache drops to a background job.
+     */
     suspend fun switchToDecoyWithCeEviction(context: Context, decoyUserId: Int): Boolean = withContext(Dispatchers.IO) {
         if (decoyUserId <= 0) return@withContext false
 
-        Log.w(TAG, "Switching session to Decoy User ($decoyUserId) and evicting User 0 keys...")
-        val switchResult = RootExecutor.run("am switch-user $decoyUserId")
-        evictPrimaryUserCeKeys(context)
-        return@withContext switchResult.isSuccess
+        Log.w(TAG, "Executing fast session switch to Decoy User $decoyUserId...")
+
+        // Combined atomic execution: start and switch in one process
+        val switchCmd = "am start-user $decoyUserId 2>/dev/null ; cmd activity switch-user $decoyUserId 2>/dev/null || am switch-user $decoyUserId"
+        val result = RootExecutor.run(switchCmd, logErrors = false)
+
+        // Defer I/O intensive cache dropping to prevent freezing the switch animation
+        CoroutineScope(Dispatchers.IO).launch {
+            delay(5000L)
+            evictPrimaryUserCeKeys(context)
+        }
+
+        return@withContext result.isSuccess
+    }
+
+    suspend fun switchToDecoyWithLauncher(context: Context, decoyUserId: Int): Boolean = withContext(Dispatchers.IO) {
+        return@withContext switchToDecoyWithCeEviction(context, decoyUserId)
     }
 
     suspend fun switchToOwner(): Boolean = withContext(Dispatchers.IO) {
-        val result = RootExecutor.run("am switch-user 0")
+        val result = RootExecutor.run("cmd activity switch-user 0 2>/dev/null || am switch-user 0")
         return@withContext result.isSuccess
     }
 
@@ -119,60 +219,57 @@ object DecoyUserManager {
         val decoyId = findExistingDecoyUserId(context)
         if (decoyId <= 0) return@withContext true
 
+        RootExecutor.run("am stop-user -w -f $decoyId", logErrors = false)
         val result = RootExecutor.run("pm remove-user $decoyId")
         if (result.isSuccess) {
             SecurityPreferences.setDecoyUserId(context, -1)
+            CredentialBridge.syncCredentials(context)
             return@withContext true
         }
         return@withContext false
     }
 
-    private suspend fun cloneEssentialAppsToDecoy(decoyUserId: Int) {
-        val packagesToClone = listOf(
-            "com.android.chrome",
-            "com.google.android.apps.messaging",
-            "com.google.android.dialer",
-            "com.google.android.calculator",
-            "com.google.android.calculator2",
-            "com.google.android.deskclock"
-        )
-
-        for (pkg in packagesToClone) {
-            RootExecutor.run("pm install-existing --user $decoyUserId $pkg 2>/dev/null || true")
-        }
-    }
-
     private suspend fun findExistingDecoyUserId(context: Context): Int {
-        try {
-            val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
-            if (userManager != null) {
-                val users = userManager.userProfiles
-                for (handle in users) {
-                    val uid = handle.hashCode()
-                    if (uid > 0) return uid
+        val listResult = RootExecutor.run("pm list users", logErrors = false)
+        if (listResult.isSuccess) {
+            val userMap = mutableMapOf<Int, String>()
+            for (line in listResult.output) {
+                val match = Regex("""UserInfo\{(\d+):([^:]+):""").find(line)
+                if (match != null) {
+                    val id = match.groupValues[1].toIntOrNull() ?: continue
+                    val name = match.groupValues[2]
+                    if (id != 0) {
+                        userMap[id] = name
+                    }
                 }
             }
-        } catch (_: Exception) {}
 
-        val listResult = RootExecutor.run("pm list users")
-        if (listResult.isSuccess) {
-            for (line in listResult.output) {
-                if (line.contains(DECOY_USER_NAME, ignoreCase = true)) {
-                    val match = Regex("""UserInfo\{(\d+):""").find(line)
-                    val id = match?.groupValues?.get(1)?.toIntOrNull()
-                    if (id != null && id > 0) return id
+            for ((id, name) in userMap) {
+                if (name.equals(DECOY_USER_NAME, ignoreCase = true)) {
+                    SecurityPreferences.setDecoyUserId(context, id)
+                    return id
                 }
+            }
+
+            if (userMap.isNotEmpty()) {
+                val foundId = userMap.keys.first()
+                SecurityPreferences.setDecoyUserId(context, foundId)
+                return foundId
             }
         }
 
-        return SecurityPreferences.getDecoyUserId(context)
+        SecurityPreferences.setDecoyUserId(context, -1)
+        return -1
     }
 
     private suspend fun ensureMultiUserPropertyEnabled() {
-        val currentMax = RootExecutor.run("getprop fw.max_users").output.firstOrNull()?.trim()?.toIntOrNull() ?: 1
-        if (currentMax < 2) {
-            RootExecutor.run("setprop fw.max_users 4")
-            RootExecutor.run("setprop fw.show_multiuserui 1")
-        }
+        val commands = listOf(
+            "resetprop fw.max_users 5 2>/dev/null || setprop fw.max_users 5",
+            "resetprop fw.show_multiuserui 1 2>/dev/null || setprop fw.show_multiuserui 1",
+            "resetprop persist.sys.max_users 5 2>/dev/null || setprop persist.sys.max_users 5",
+            "settings put global allow_user_switching_when_system_user_locked 1",
+            "settings put global add_users_when_locked 1"
+        )
+        RootExecutor.runMultiple(commands, logErrors = false)
     }
 }

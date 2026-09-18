@@ -12,8 +12,8 @@ android {
         applicationId = "com.hamoon.uncleted"
         minSdk = 28
         targetSdk = 34
-        versionCode = 7
-        versionName = "7.0.1"
+        versionCode = 8
+        versionName = "8.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -43,18 +43,32 @@ android {
     }
 
     signingConfigs {
-        getByName("debug") {
-            storeFile = file("${rootProject.projectDir}/debug.keystore")
-            if (!storeFile!!.exists()) {
-                storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+        create("release") {
+            // Release Keystore configuration (falls back to debug if release keystore is absent)
+            val releaseKeystore = file("${rootProject.projectDir}/release.keystore")
+            if (releaseKeystore.exists()) {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("UNCLETED_KEYSTORE_PASSWORD") ?: "uncleted_release"
+                keyAlias = System.getenv("UNCLETED_KEY_ALIAS") ?: "uncleted"
+                keyPassword = System.getenv("UNCLETED_KEY_PASSWORD") ?: "uncleted_release"
+            } else {
+                val debugKeystore = file("${System.getProperty("user.home")}/.android/debug.keystore")
+                storeFile = if (debugKeystore.exists()) debugKeystore else file("${rootProject.projectDir}/debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
             }
+        }
+        getByName("debug") {
+            val debugKeystore = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storeFile = if (debugKeystore.exists()) debugKeystore else file("${rootProject.projectDir}/debug.keystore")
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

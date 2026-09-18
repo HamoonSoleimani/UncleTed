@@ -1,12 +1,10 @@
 package com.hamoon.uncleted.services
 
-import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -14,20 +12,18 @@ import android.hardware.SensorManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import com.hamoon.uncleted.MainActivity
-import com.hamoon.uncleted.R
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.proximity.BleProximitySentinel
 import com.hamoon.uncleted.receivers.ScreenStateReceiver
-import com.hamoon.uncleted.receivers.WidgetActionReceiver
 import com.hamoon.uncleted.sentinels.AdvancedBasebandSentinel
 import com.hamoon.uncleted.sentinels.FaradayBlackoutSentinel
 import com.hamoon.uncleted.sentinels.PmicTamperSentinel
 import com.hamoon.uncleted.sentinels.SpectralSentinel
 import com.hamoon.uncleted.util.MotionDetector
+import com.hamoon.uncleted.util.NotificationHelper
 import com.hamoon.uncleted.util.ShakeDetector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,11 +45,12 @@ class MonitoringService : LifecycleService(), SensorEventListener {
     private var screenStateReceiver: ScreenStateReceiver? = null
 
     private var sentinelPollerJob: Job? = null
+    private var activeProfileName: String = "Detecting..."
 
     companion object {
-        private const val NOTIFICATION_ID = 2
-        private const val CHANNEL_ID = "UncleTedMonitoringChannel"
+        private const val TAG = "MonitoringService"
         private const val POLLING_CYCLE_MS = 1000L
+        private const val NOTIFICATION_UPDATE_INTERVAL_MS = 60_000L
     }
 
     override fun onCreate() {
@@ -73,7 +70,7 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 listener = object : ShakeDetector.OnShakeListener {
                     override fun onShake(count: Int) {
                         if (SecurityPreferences.isShakeToPanicEnabled(this@MonitoringService)) {
-                            Log.d("MonitoringService", "Shake detected! Triggering panic.")
+                            Log.d(TAG, "Physical shake threshold exceeded! Triggering panic sequence.")
                             PanicActionService.trigger(
                                 this@MonitoringService,
                                 "SHAKE_TRIGGERED",
@@ -85,6 +82,9 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 sensitivityLevel = sensitivity
             )
 
+            val strategy = DefenseCoordinator.resolveStrategy(applicationContext)
+            activeProfileName = if (strategy.isHardwareSecured) "Route A (Device Owner)" else "Route B (Root/LSPosed)"
+
             withContext(Dispatchers.Main) {
                 if (accelerometer != null) {
                     sensorManager.registerListener(
@@ -94,32 +94,22 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                     )
                 }
 
-                // 1. Low-Power Micro-Motion Tracking
                 MotionDetector.initialize(applicationContext)
 
-                // 2. Advanced Baseband Modem Sentinel (2G Mask & Stingray Anomaly Trap)
                 advancedBasebandSentinel = AdvancedBasebandSentinel(applicationContext).apply {
                     start()
                 }
 
-                // 3. Faraday 180-Min Alarm Sentinel
                 FaradayBlackoutSentinel.initialize(applicationContext)
-
-                // 4. Sub-Second Spectral Collapse Sentinel (4-Second Faraday Bag Trap)
                 spectralSentinel = SpectralSentinel(applicationContext)
-
-                // 5. PMIC Battery Micro-Telemetry & Anti-Disassembly Tripwire
                 pmicSentinel = PmicTamperSentinel(applicationContext)
 
-                // 6. BLE/UWB Proximity Key Sharding Sentinel (Shamir 2-of-2 Hardware Separation)
                 if (SecurityPreferences.isProximityShardingEnabled(applicationContext)) {
                     bleProximitySentinel = BleProximitySentinel(applicationContext).apply {
                         start()
                     }
-                    Log.i("MonitoringService", "BLE Proximity Sentinel initialized.")
                 }
 
-                // 7. Dynamic Screen State Receiver (ACTION_SCREEN_OFF for ZRAM/drop_caches)
                 val screenFilter = IntentFilter().apply {
                     addAction(Intent.ACTION_SCREEN_OFF)
                     addAction(Intent.ACTION_USER_PRESENT)
@@ -127,102 +117,91 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 screenStateReceiver = ScreenStateReceiver()
                 registerReceiver(screenStateReceiver, screenFilter)
 
-                // Start hardware sentinel periodic evaluation loop
+                refreshNotificationTelemetry()
                 startSentinelPoller()
             }
 
-            Log.i("MonitoringService", "MonitoringService: Sensors, Spectral, PMIC, Baseband, and Proximity Sentinels active.")
+            Log.i(TAG, "MonitoringService: Sensors, Spectral, PMIC, Baseband, and Proximity Sentinels active.")
         } catch (e: Exception) {
-            Log.e("MonitoringService", "Failed to initialize monitoring components", e)
+            Log.e(TAG, "Failed initializing monitoring components: ${e.message}", e)
         }
     }
 
     private fun startSentinelPoller() {
         sentinelPollerJob?.cancel()
         sentinelPollerJob = lifecycleScope.launch(Dispatchers.IO) {
+            var lastNotificationUpdate = System.currentTimeMillis()
+
             while (isActive) {
                 try {
                     spectralSentinel?.evaluateSpectralCollapse()
                     pmicSentinel?.inspectHardwareTelemetry()
+
+                    val now = System.currentTimeMillis()
+                    if (now - lastNotificationUpdate >= NOTIFICATION_UPDATE_INTERVAL_MS) {
+                        lastNotificationUpdate = now
+                        withContext(Dispatchers.Main) {
+                            refreshNotificationTelemetry()
+                        }
+                    }
                 } catch (t: Throwable) {
-                    Log.w("MonitoringService", "Sentinel evaluation pass exception: ${t.message}")
+                    Log.w(TAG, "Sentinel evaluation pass exception (non-fatal): ${t.message}")
                 }
                 delay(POLLING_CYCLE_MS)
             }
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        super.onStartCommand(intent, flags, startId)
-        Log.d("MonitoringService", "MonitoringService started.")
-
-        val notification = createNotification()
-        startForeground(NOTIFICATION_ID, notification)
-
-        return START_STICKY
+    private fun refreshNotificationTelemetry() {
+        try {
+            val summary = buildSentinelsSummary()
+            val notification = NotificationHelper.createMonitoringNotification(
+                this,
+                profileName = activeProfileName,
+                sentinelsSummary = summary
+            )
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(NotificationHelper.NOTIFICATION_ID_MONITORING, notification)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed refreshing telemetry notification: ${e.message}")
+        }
     }
 
-    private fun createNotification(): Notification {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            )
-            channel.description = getString(R.string.notification_text)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
+    private fun buildSentinelsSummary(): String {
+        val list = mutableListOf<String>()
+        if (SecurityPreferences.isSpectralSentinelEnabled(this)) list.add("Spectral")
+        if (SecurityPreferences.isBasebandSentinelEnabled(this)) list.add("Baseband")
+        if (SecurityPreferences.isPmicTamperEnabled(this)) list.add("PMIC")
+        if (SecurityPreferences.isProximityShardingEnabled(this)) list.add("BLE")
+        return if (list.isNotEmpty()) list.joinToString(" • ") else "Baseline Active"
+    }
 
-        val pendingIntent: PendingIntent =
-            Intent(this, MainActivity::class.java).let { notificationIntent ->
-                PendingIntent.getActivity(
-                    this, 0, notificationIntent,
-                    PendingIntent.FLAG_IMMUTABLE
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        Log.d(TAG, "MonitoringService started.")
+
+        val notification = NotificationHelper.createMonitoringNotification(
+            this,
+            profileName = activeProfileName,
+            sentinelsSummary = buildSentinelsSummary()
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                startForeground(
+                    NotificationHelper.NOTIFICATION_ID_MONITORING,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
                 )
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed starting foreground with dual types. Falling back: ${e.message}")
+                startForeground(NotificationHelper.NOTIFICATION_ID_MONITORING, notification)
             }
-
-        val lockIntent = Intent(this, WidgetActionReceiver::class.java).apply {
-            action = "ACTION_LOCK"
+        } else {
+            startForeground(NotificationHelper.NOTIFICATION_ID_MONITORING, notification)
         }
-        val lockPendingIntent = PendingIntent.getBroadcast(
-            this, 101, lockIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
 
-        val sirenIntent = Intent(this, WidgetActionReceiver::class.java).apply {
-            action = "ACTION_SIREN"
-        }
-        val sirenPendingIntent = PendingIntent.getBroadcast(
-            this, 102, sirenIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val locationIntent = Intent(this, WidgetActionReceiver::class.java).apply {
-            action = "ACTION_LOCATION"
-        }
-        val locationPendingIntent = PendingIntent.getBroadcast(
-            this, 103, locationIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val wipeIntent = Intent(this, WidgetActionReceiver::class.java).apply {
-            action = "ACTION_WIPE"
-        }
-        val wipePendingIntent = PendingIntent.getBroadcast(
-            this, 104, wipeIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_title))
-            .setContentText("Expand for defense controls.")
-            .setSmallIcon(R.drawable.ic_shield_check_24)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .addAction(R.drawable.ic_lock_24, "LOCK", lockPendingIntent)
-            .addAction(R.drawable.ic_alert_24, "SIREN", sirenPendingIntent)
-            .addAction(R.drawable.ic_info_24, "LOCATE", locationPendingIntent)
-            .addAction(R.drawable.ic_alert_triangle_24, "WIPE", wipePendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setStyle(androidx.media.app.NotificationCompat.MediaStyle().setShowActionsInCompactView(0, 1, 2))
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent): IBinder? {
@@ -256,7 +235,7 @@ class MonitoringService : LifecycleService(), SensorEventListener {
         advancedBasebandSentinel = null
         spectralSentinel = null
         pmicSentinel = null
-        Log.d("MonitoringService", "MonitoringService stopped.")
+        Log.d(TAG, "MonitoringService stopped.")
         super.onDestroy()
     }
 }

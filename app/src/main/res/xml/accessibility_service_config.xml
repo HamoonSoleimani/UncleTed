@@ -2,9 +2,9 @@
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeViewTextChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagRequestFilterKeyEvents|flagRetrieveInteractiveWindows"
+    android:accessibilityFlags="flagRequestFilterKeyEvents"
     android:canRequestFilterKeyEvents="true"
-    android:canRetrieveWindowContent="true"
+    android:canRetrieveWindowContent="false"
     android:description="@string/accessibility_service_description"
     android:notificationTimeout="100"
     android:canPerformGestures="false" />

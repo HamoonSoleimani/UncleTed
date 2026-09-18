@@ -3,9 +3,13 @@ package com.hamoon.uncleted.crypto
 import android.content.Context
 import android.os.Build
 import android.util.Base64
+import android.util.Log
+import com.hamoon.uncleted.util.NativeSecurityBridge
+import java.security.SecureRandom
 
 object CryptoPreferences {
 
+    private const val TAG = "CryptoPreferences"
     private const val PREFS_NAME = "hardened_crypto_store"
 
     // Asymmetric Remote Signaling & Replay Defense
@@ -23,12 +27,18 @@ object CryptoPreferences {
     // Hardware Monotonic Counter & Anti-Rollback (RPMB Anchor)
     private const val KEY_HARDWARE_MONOTONIC_COUNTER = "hardware_rpmb_monotonic_counter"
 
-    // NIST FIPS 203 Hybrid Post-Quantum Keys (ML-KEM-768 + X25519)
+    // NIST FIPS 203 Hybrid Post-Quantum Keys (Encrypted at rest)
     private const val KEY_PQC_HYBRID_ENABLED = "pqc_hybrid_enabled"
     private const val KEY_PQC_LOCAL_PUBLIC = "pqc_local_hybrid_public_key"
-    private const val KEY_PQC_LOCAL_PRIVATE_X = "pqc_local_private_x25519"
-    private const val KEY_PQC_LOCAL_PRIVATE_K = "pqc_local_private_kyber768"
+    private const val KEY_PQC_LOCAL_PRIVATE_X_ENC = "pqc_enc_private_x25519"
+    private const val KEY_PQC_LOCAL_PRIVATE_X_IV = "pqc_iv_private_x25519"
+    private const val KEY_PQC_LOCAL_PRIVATE_K_ENC = "pqc_enc_private_kyber768"
+    private const val KEY_PQC_LOCAL_PRIVATE_K_IV = "pqc_iv_private_kyber768"
     private const val KEY_PQC_TRUSTED_REMOTE_PUB = "pqc_trusted_remote_hybrid_public_key"
+
+    // Plausible Deniability Master Vault Seed (Encrypted with StrongBox KeyStore)
+    private const val KEY_VAULT_MASTER_SEED_ENC = "vault_master_seed_enc"
+    private const val KEY_VAULT_MASTER_SEED_IV = "vault_master_seed_iv"
 
     private fun getStorageContext(context: Context): Context {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -63,7 +73,7 @@ object CryptoPreferences {
 
     fun isCleartextSmsAllowed(context: Context): Boolean {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_CLEARTEXT_SMS_ALLOWED, true)
+        return prefs.getBoolean(KEY_CLEARTEXT_SMS_ALLOWED, false) // Default false for security
     }
 
     fun setCleartextSmsAllowed(context: Context, allowed: Boolean) {
@@ -131,7 +141,7 @@ object CryptoPreferences {
 
     fun getHardwareMonotonicCounter(context: Context): Long {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getLong(KEY_HARDWARE_MONOTONIC_COUNTER, 0L)
+        return prefs.getLong(KEY_HARDWARE_MONOTONIC_COUNTER, 1000L)
     }
 
     fun setHardwareMonotonicCounter(context: Context, counter: Long) {
@@ -140,7 +150,54 @@ object CryptoPreferences {
     }
 
     // =========================================================================
-    // 3. NIST FIPS 203 Post-Quantum Hybrid Cryptography (ML-KEM-768 + X25519)
+    // 3. Plausible Deniability Master Vault Seed (Hardware Protected)
+    // =========================================================================
+    @Synchronized
+    fun getOrGenerateVaultMasterSeed(context: Context): ByteArray? {
+        val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val encB64 = prefs.getString(KEY_VAULT_MASTER_SEED_ENC, null)
+        val ivB64 = prefs.getString(KEY_VAULT_MASTER_SEED_IV, null)
+
+        if (encB64 != null && ivB64 != null) {
+            return try {
+                val encBytes = Base64.decode(encB64, Base64.NO_WRAP)
+                val ivBytes = Base64.decode(ivB64, Base64.NO_WRAP)
+                val payload = StrongBoxSecurityManager.StrongBoxPayload(encBytes, ivBytes)
+                StrongBoxSecurityManager.decryptWithStrongBox(context, payload)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed decrypting vault master seed with hardware Keystore", e)
+                null
+            }
+        }
+
+        // Generate fresh 32-byte seed and seal inside StrongBox
+        val newSeed = ByteArray(32)
+        SecureRandom().nextBytes(newSeed)
+        NativeSecurityBridge.pinMemory(newSeed)
+
+        return try {
+            val payload = StrongBoxSecurityManager.encryptWithStrongBox(context, newSeed)
+            if (payload != null) {
+                val (ct, iv) = payload.encodeToBase64()
+                prefs.edit()
+                    .putString(KEY_VAULT_MASTER_SEED_ENC, ct)
+                    .putString(KEY_VAULT_MASTER_SEED_IV, iv)
+                    .commit()
+                newSeed.clone()
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed encrypting fresh vault master seed", e)
+            null
+        } finally {
+            NativeSecurityBridge.unpinMemory(newSeed)
+            NativeSecurityBridge.zeroByteArray(newSeed)
+        }
+    }
+
+    // =========================================================================
+    // 4. NIST FIPS 203 Hybrid Post-Quantum Keys (Encrypted at Rest)
     // =========================================================================
     fun isPqcHybridEnabled(context: Context): Boolean {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -164,11 +221,26 @@ object CryptoPreferences {
 
     fun saveLocalPqcKeyPair(context: Context, keyPair: PostQuantumEngine.HybridKeyPair) {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putString(KEY_PQC_LOCAL_PUBLIC, keyPair.public.encodeToBase64())
-            .putString(KEY_PQC_LOCAL_PRIVATE_X, Base64.encodeToString(keyPair.private.x25519Private, Base64.NO_WRAP))
-            .putString(KEY_PQC_LOCAL_PRIVATE_K, Base64.encodeToString(keyPair.private.kyberPrivate, Base64.NO_WRAP))
-            .commit()
+
+        // Hardware encrypt the classical Curve25519 and lattice Kyber private keys
+        val encX = StrongBoxSecurityManager.encryptWithStrongBox(context, keyPair.private.x25519Private)
+        val encK = StrongBoxSecurityManager.encryptWithStrongBox(context, keyPair.private.kyberPrivate)
+
+        if (encX != null && encK != null) {
+            val (xCt, xIv) = encX.encodeToBase64()
+            val (kCt, kIv) = encK.encodeToBase64()
+
+            prefs.edit()
+                .putString(KEY_PQC_LOCAL_PUBLIC, keyPair.public.encodeToBase64())
+                .putString(KEY_PQC_LOCAL_PRIVATE_X_ENC, xCt)
+                .putString(KEY_PQC_LOCAL_PRIVATE_X_IV, xIv)
+                .putString(KEY_PQC_LOCAL_PRIVATE_K_ENC, kCt)
+                .putString(KEY_PQC_LOCAL_PRIVATE_K_IV, kIv)
+                .commit()
+            Log.i(TAG, "PQC hybrid keypair sealed into hardware-encrypted storage.")
+        } else {
+            Log.e(TAG, "Failed sealing PQC private keys inside hardware Keystore!")
+        }
     }
 
     fun getLocalPqcPublicKey(context: Context): PostQuantumEngine.HybridPublicKey? {
@@ -179,14 +251,27 @@ object CryptoPreferences {
 
     fun getLocalPqcPrivateKey(context: Context): PostQuantumEngine.HybridPrivateKey? {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val xPrivB64 = prefs.getString(KEY_PQC_LOCAL_PRIVATE_X, null) ?: return null
-        val kPrivB64 = prefs.getString(KEY_PQC_LOCAL_PRIVATE_K, null) ?: return null
+        val xCtB64 = prefs.getString(KEY_PQC_LOCAL_PRIVATE_X_ENC, null) ?: return null
+        val xIvB64 = prefs.getString(KEY_PQC_LOCAL_PRIVATE_X_IV, null) ?: return null
+        val kCtB64 = prefs.getString(KEY_PQC_LOCAL_PRIVATE_K_ENC, null) ?: return null
+        val kIvB64 = prefs.getString(KEY_PQC_LOCAL_PRIVATE_K_IV, null) ?: return null
 
         return try {
-            val xPriv = Base64.decode(xPrivB64, Base64.NO_WRAP)
-            val kPriv = Base64.decode(kPrivB64, Base64.NO_WRAP)
+            val xPayload = StrongBoxSecurityManager.StrongBoxPayload(
+                Base64.decode(xCtB64, Base64.NO_WRAP),
+                Base64.decode(xIvB64, Base64.NO_WRAP)
+            )
+            val kPayload = StrongBoxSecurityManager.StrongBoxPayload(
+                Base64.decode(kCtB64, Base64.NO_WRAP),
+                Base64.decode(kIvB64, Base64.NO_WRAP)
+            )
+
+            val xPriv = StrongBoxSecurityManager.decryptWithStrongBox(context, xPayload) ?: return null
+            val kPriv = StrongBoxSecurityManager.decryptWithStrongBox(context, kPayload) ?: return null
+
             PostQuantumEngine.HybridPrivateKey(xPriv, kPriv)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed decrypting local PQC private keys", e)
             null
         }
     }
@@ -195,8 +280,10 @@ object CryptoPreferences {
         val prefs = getStorageContext(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .remove(KEY_PQC_LOCAL_PUBLIC)
-            .remove(KEY_PQC_LOCAL_PRIVATE_X)
-            .remove(KEY_PQC_LOCAL_PRIVATE_K)
+            .remove(KEY_PQC_LOCAL_PRIVATE_X_ENC)
+            .remove(KEY_PQC_LOCAL_PRIVATE_X_IV)
+            .remove(KEY_PQC_LOCAL_PRIVATE_K_ENC)
+            .remove(KEY_PQC_LOCAL_PRIVATE_K_IV)
             .commit()
     }
 }

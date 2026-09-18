@@ -8,8 +8,10 @@ import android.os.SystemClock
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.util.Log
+import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.PanicActionService
+import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.PermissionUtils
 import com.hamoon.uncleted.util.RootChecker
 import com.hamoon.uncleted.util.RootExecutor
@@ -26,8 +28,8 @@ class SimChangeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != "android.intent.action.SIM_STATE_CHANGED") return
 
-        if (!SecurityPreferences.isSimChangeAlertEnabled(context)) {
-            Log.d(TAG, "SIM change alert disabled in settings.")
+        if (!SecurityPreferences.isSimChangeAlertEnabled(context) && !SecurityPreferences.isWipeOnSimRemovalEnabled(context)) {
+            Log.d(TAG, "SIM sentinels disabled in settings.")
             return
         }
 
@@ -50,8 +52,26 @@ class SimChangeReceiver : BroadcastReceiver() {
                 val isBootGracePeriod = SystemClock.elapsedRealtime() < 60_000L
 
                 if (!storedIdentifier.isNullOrEmpty() && !isBootGracePeriod) {
-                    Log.w(TAG, "SIM card removed after initial setup! Triggering alert.")
-                    PanicActionService.trigger(context, "SIM_REMOVED", PanicActionService.Severity.MEDIUM)
+                    Log.w(TAG, "SIM card removed after initial setup!")
+                    EventLogger.log(context, "HARDWARE ALERT: Physical SIM card removed from socket.")
+
+                    if (SecurityPreferences.isWipeOnSimRemovalEnabled(context)) {
+                        Log.e(TAG, "!!! WIPE ON SIM REMOVAL ARMED: Initiating immediate cryptographic erasure !!!")
+                        EventLogger.log(context, "CRITICAL: SIM removal tripwire breached! Initiating wipe.")
+
+                        val pendingResult = goAsync()
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                val strategy = DefenseCoordinator.resolveStrategy(context)
+                                strategy.executeWipe("SIM_REMOVED_TRIPWIRE")
+                                PanicActionService.trigger(context, "REMOTE_WIPE", PanicActionService.Severity.CRITICAL)
+                            } finally {
+                                pendingResult.finish()
+                            }
+                        }
+                    } else if (SecurityPreferences.isSimChangeAlertEnabled(context)) {
+                        PanicActionService.trigger(context, "SIM_REMOVED", PanicActionService.Severity.MEDIUM)
+                    }
                 }
             }
         }
@@ -72,27 +92,29 @@ class SimChangeReceiver : BroadcastReceiver() {
             Log.i(TAG, "Baseline SIM identifier saved: $currentIdentifier")
         } else if (storedIdentifier != currentIdentifier) {
             Log.w(TAG, "SIM card mismatch detected! Baseline: $storedIdentifier, Current: $currentIdentifier")
-            PanicActionService.trigger(context, "SIM_CHANGED", PanicActionService.Severity.MEDIUM)
-            SecurityPreferences.setInitialSimSerial(context, currentIdentifier)
+            EventLogger.log(context, "HARDWARE ALERT: SIM card hardware identifier mismatch.")
+
+            if (SecurityPreferences.isWipeOnSimRemovalEnabled(context)) {
+                Log.e(TAG, "!!! WIPE ON SIM REPLACEMENT ARMED: Triggering immediate wipe !!!")
+                val strategy = DefenseCoordinator.resolveStrategy(context)
+                strategy.executeWipe("SIM_CHANGED_TRIPWIRE")
+                PanicActionService.trigger(context, "REMOTE_WIPE", PanicActionService.Severity.CRITICAL)
+            } else if (SecurityPreferences.isSimChangeAlertEnabled(context)) {
+                PanicActionService.trigger(context, "SIM_CHANGED", PanicActionService.Severity.MEDIUM)
+                SecurityPreferences.setInitialSimSerial(context, currentIdentifier)
+            }
         }
     }
 
-    /**
-     * Safely queries the SIM identifier across Android 9 through 14+ without throwing SecurityExceptions.
-     */
     private suspend fun retrieveSimIdentifier(context: Context, telephonyManager: TelephonyManager): String? {
-        // Method 1: Privileged direct API call (valid on pre-Android 10 or if system-granted)
         try {
             if (PermissionUtils.hasReadPhoneStatePermission(context)) {
                 @Suppress("DEPRECATION")
                 val serial = telephonyManager.simSerialNumber
                 if (!serial.isNullOrEmpty()) return serial
             }
-        } catch (_: SecurityException) {
-            // Expected on Android 10+ (API 29+) without READ_PRIVILEGED_PHONE_STATE
-        }
+        } catch (_: SecurityException) {}
 
-        // Method 2: SubscriptionManager subscription identification
         try {
             if (PermissionUtils.hasReadPhoneStatePermission(context)) {
                 val subManager = context.getSystemService(SubscriptionManager::class.java)
@@ -108,7 +130,6 @@ class SimChangeReceiver : BroadcastReceiver() {
             }
         } catch (_: SecurityException) {}
 
-        // Method 3: Elevated Root Shell fallback via telephony properties / RIL
         if (RootChecker.isDeviceRooted()) {
             val rootIccid = RootExecutor.run("getprop ril.iccid.sim1").output.firstOrNull()?.trim()
             if (!rootIccid.isNullOrEmpty() && rootIccid != "null") return rootIccid
@@ -117,7 +138,6 @@ class SimChangeReceiver : BroadcastReceiver() {
             if (!rootOperator.isNullOrEmpty() && rootOperator != "null") return rootOperator
         }
 
-        // Method 4: Safe Operator/ISO fingerprint
         val fallbackFingerprint = "${telephonyManager.simOperator}_${telephonyManager.simCountryIso}"
         return if (fallbackFingerprint.length > 2 && !fallbackFingerprint.startsWith("_")) {
             fallbackFingerprint

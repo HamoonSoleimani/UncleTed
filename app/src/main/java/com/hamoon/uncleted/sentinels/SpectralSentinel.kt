@@ -2,7 +2,8 @@ package com.hamoon.uncleted.sentinels
 
 import android.app.KeyguardManager
 import android.content.Context
-import android.net.wifi.WifiManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
@@ -27,8 +28,8 @@ import kotlinx.coroutines.launch
 class SpectralSentinel(private val context: Context) {
 
     private val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
-    private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     private val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+    private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
     private var zeroSignalStartEpoch: Long = 0L
 
@@ -43,37 +44,49 @@ class SpectralSentinel(private val context: Context) {
             return
         }
 
-        // Rule 1: Do not trigger if user intentionally toggled Airplane Mode
-        val isAirplaneMode = Settings.Global.getInt(
-            context.contentResolver,
-            Settings.Global.AIRPLANE_MODE_ON,
-            0
-        ) != 0
+        // Rule 1: Do not trigger if user intentionally enabled Airplane Mode
+        val isAirplaneMode = try {
+            Settings.Global.getInt(
+                context.contentResolver,
+                Settings.Global.AIRPLANE_MODE_ON,
+                0
+            ) != 0
+        } catch (_: Exception) {
+            false
+        }
         if (isAirplaneMode) {
             zeroSignalStartEpoch = 0L
             return
         }
 
-        // Rule 2: Only enforce when screen is locked
-        val isLocked = keyguardManager?.isDeviceLocked ?: true
+        // Rule 2: Only evaluate when the screen is locked
+        val isLocked = try {
+            keyguardManager?.isDeviceLocked ?: false
+        } catch (_: Exception) {
+            false
+        }
         if (!isLocked) {
             zeroSignalStartEpoch = 0L
             return
         }
 
-        val isCellularDead = evaluateCellularDeadState()
-        val isWifiDead = evaluateWifiDeadState()
+        // Rule 3: If device has an active Wi-Fi or cellular IP connection, it is NOT in a Faraday bag
+        if (hasActiveInternetConnection()) {
+            zeroSignalStartEpoch = 0L
+            return
+        }
 
+        val isCellularDead = evaluateCellularDeadState()
         val motionRequired = SecurityPreferences.isSpectralMotionRequired(context)
         val isMotionConditionMet = if (motionRequired) MotionDetector.hasMicroMotion() else true
 
-        if (isCellularDead && isWifiDead && isMotionConditionMet) {
+        if (isCellularDead && isMotionConditionMet) {
             val now = SystemClock.elapsedRealtime()
-            val quarantineWindowMs = SecurityPreferences.getSpectralQuarantineMs(context)
+            val quarantineWindowMs = maxOf(SecurityPreferences.getSpectralQuarantineMs(context), 15000L)
 
             if (zeroSignalStartEpoch == 0L) {
                 zeroSignalStartEpoch = now
-                Log.w(TAG, "Spectral anomaly: Multi-spectrum RF collapse detected. Quarantine timer initiated ($quarantineWindowMs ms)...")
+                Log.w(TAG, "Spectral anomaly: Total RF link loss detected. Quarantine timer started (${quarantineWindowMs}ms)...")
             } else if (now - zeroSignalStartEpoch >= quarantineWindowMs) {
                 zeroSignalStartEpoch = 0L
                 Log.e(TAG, "!!! CONFIRMED FARADAY BAG ISOLATION SEIZURE DETECTED (SUSTAINED ${quarantineWindowMs}ms) !!!")
@@ -85,45 +98,43 @@ class SpectralSentinel(private val context: Context) {
         }
     }
 
+    private fun hasActiveInternetConnection(): Boolean {
+        return try {
+            val activeNetwork = connectivityManager?.activeNetwork ?: return false
+            val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun evaluateCellularDeadState(): Boolean {
         if (!PermissionUtils.hasLocationPermissions(context) || !PermissionUtils.hasReadPhoneStatePermission(context)) {
-            return telephonyManager?.simState == TelephonyManager.SIM_STATE_ABSENT
+            return false
         }
 
         return try {
             val cellList: List<CellInfo>? = telephonyManager?.allCellInfo
             if (cellList.isNullOrEmpty()) {
-                true
+                telephonyManager?.simState == TelephonyManager.SIM_STATE_ABSENT
             } else {
-                cellList.all { info ->
+                cellList.filter { it.isRegistered }.all { info ->
                     when (info) {
                         is CellInfoLte -> info.cellSignalStrength.rsrp < RSRP_DEAD_ZONE_THRESHOLD
                         is CellInfoNr -> {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                 val nrStrength = info.cellSignalStrength as? CellSignalStrengthNr
                                 (nrStrength?.ssRsrp ?: -140) < RSRP_DEAD_ZONE_THRESHOLD
-                            } else {
-                                true
-                            }
+                            } else true
                         }
                         is CellInfoWcdma -> info.cellSignalStrength.dbm < RSRP_DEAD_ZONE_THRESHOLD
                         is CellInfoGsm -> info.cellSignalStrength.dbm < RSRP_DEAD_ZONE_THRESHOLD
-                        else -> true
+                        else -> false
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Error querying cell info: ${e.message}")
             false
-        }
-    }
-
-    private fun evaluateWifiDeadState(): Boolean {
-        return try {
-            val scanResults = wifiManager?.scanResults
-            scanResults.isNullOrEmpty()
-        } catch (_: Exception) {
-            true
         }
     }
 

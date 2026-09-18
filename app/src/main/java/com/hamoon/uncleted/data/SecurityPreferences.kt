@@ -57,7 +57,6 @@ object SecurityPreferences {
 
     internal fun getInstance(context: Context): SharedPreferences {
         if (!isUserUnlocked(context)) {
-            Log.w(TAG, "Device is in BFU state. Accessing Device-Protected storage.")
             return getDeviceProtectedPrefs(context)
         }
 
@@ -85,6 +84,94 @@ object SecurityPreferences {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+    }
+
+    // =========================================================================
+    // 0. Safe Boot Policy (Anti-Bypass)
+    // =========================================================================
+    fun setSafeBootBlocked(context: Context, blocked: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_BLOCK_SAFE_BOOT", blocked).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("BLOCK_SAFE_BOOT", blocked).apply()
+        }
+    }
+
+    fun isSafeBootBlocked(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_BLOCK_SAFE_BOOT", true)
+        } else {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_BLOCK_SAFE_BOOT", true) &&
+                    getInstance(context).getBoolean("BLOCK_SAFE_BOOT", true)
+        }
+    }
+
+    // =========================================================================
+    // 0.1 Max Failed Passwords Threshold for Wipe
+    // =========================================================================
+    fun getMaxFailedAttemptsForWipe(context: Context): Int {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getInt("BFU_MAX_FAILED_ATTEMPTS_WIPE", 5)
+        } else {
+            getInstance(context).getInt("MAX_FAILED_ATTEMPTS_WIPE", 5)
+        }
+    }
+
+    fun setMaxFailedAttemptsForWipe(context: Context, count: Int) {
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_MAX_FAILED_ATTEMPTS_WIPE", count).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putInt("MAX_FAILED_ATTEMPTS_WIPE", count).apply()
+        }
+    }
+
+    // =========================================================================
+    // 0.2 SIM Removal Wipe Action
+    // =========================================================================
+    fun isWipeOnSimRemovalEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_WIPE_ON_SIM_REMOVAL", false)
+        } else {
+            getInstance(context).getBoolean("WIPE_ON_SIM_REMOVAL", false)
+        }
+    }
+
+    fun setWipeOnSimRemovalEnabled(context: Context, enabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_WIPE_ON_SIM_REMOVAL", enabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("WIPE_ON_SIM_REMOVAL", enabled).apply()
+        }
+    }
+
+    // =========================================================================
+    // 0.3 Fake Airplane Mode Quick Settings Safety & Trap Controls
+    // =========================================================================
+    fun setFakeAirplanePinChallengeEnabled(context: Context, enabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_AIRPLANE_PIN_CHALLENGE", enabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("AIRPLANE_PIN_CHALLENGE", enabled).apply()
+        }
+    }
+
+    fun isFakeAirplanePinChallengeEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_AIRPLANE_PIN_CHALLENGE", false)
+        } else {
+            getInstance(context).getBoolean("AIRPLANE_PIN_CHALLENGE", false)
+        }
+    }
+
+    fun setFakeAirplaneAction(context: Context, action: String) {
+        getDeviceProtectedPrefs(context).edit().putString("BFU_AIRPLANE_TILE_ACTION", action).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putString("AIRPLANE_TILE_ACTION", action).apply()
+        }
+    }
+
+    fun getFakeAirplaneAction(context: Context): String {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_AIRPLANE_TILE_ACTION", "LOCK") ?: "LOCK"
+        } else {
+            getInstance(context).getString("AIRPLANE_TILE_ACTION", "LOCK") ?: "LOCK"
+        }
     }
 
     // =========================================================================
@@ -253,10 +340,96 @@ object SecurityPreferences {
         }
     }
 
-    fun clearStoredShardA(context: Context) {
-        getDeviceProtectedPrefs(context).edit().remove("BFU_SEALED_SHARD_A").apply()
+    // =========================================================================
+    // 2.1 Decoy Messenger App Launchers (WhatsApp, Signal, Telegram, Threema, Session)
+    // =========================================================================
+    fun setDecoyWhatsAppEnabled(context: Context, enabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_DECOY_WHATSAPP_ENABLED", enabled).apply()
         if (isUserUnlocked(context)) {
-            getInstance(context).edit().remove("SEALED_SHARD_A").apply()
+            getInstance(context).edit().putBoolean("DECOY_WHATSAPP_ENABLED", enabled).apply()
+        }
+    }
+
+    fun isDecoyWhatsAppEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_DECOY_WHATSAPP_ENABLED", false)
+        } else {
+            getInstance(context).getBoolean("DECOY_WHATSAPP_ENABLED", false)
+        }
+    }
+
+    fun setDecoySignalEnabled(context: Context, enabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_DECOY_SIGNAL_ENABLED", enabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("DECOY_SIGNAL_ENABLED", enabled).apply()
+        }
+    }
+
+    fun isDecoySignalEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_DECOY_SIGNAL_ENABLED", false)
+        } else {
+            getInstance(context).getBoolean("DECOY_SIGNAL_ENABLED", false)
+        }
+    }
+
+    fun setDecoyTelegramEnabled(context: Context, enabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_DECOY_TELEGRAM_ENABLED", enabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("DECOY_TELEGRAM_ENABLED", enabled).apply()
+        }
+    }
+
+    fun isDecoyTelegramEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_DECOY_TELEGRAM_ENABLED", false)
+        } else {
+            getInstance(context).getBoolean("DECOY_TELEGRAM_ENABLED", false)
+        }
+    }
+
+    fun setDecoyThreemaEnabled(context: Context, enabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_DECOY_THREEMA_ENABLED", enabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("DECOY_THREEMA_ENABLED", enabled).apply()
+        }
+    }
+
+    fun isDecoyThreemaEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_DECOY_THREEMA_ENABLED", false)
+        } else {
+            getInstance(context).getBoolean("DECOY_THREEMA_ENABLED", false)
+        }
+    }
+
+    fun setDecoySessionEnabled(context: Context, enabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_DECOY_SESSION_ENABLED", enabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("DECOY_SESSION_ENABLED", enabled).apply()
+        }
+    }
+
+    fun isDecoySessionEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_DECOY_SESSION_ENABLED", false)
+        } else {
+            getInstance(context).getBoolean("DECOY_SESSION_ENABLED", false)
+        }
+    }
+
+    fun setDecoyAppAction(context: Context, action: String) {
+        getDeviceProtectedPrefs(context).edit().putString("BFU_DECOY_APP_ACTION", action).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putString("DECOY_APP_ACTION", action).apply()
+        }
+    }
+
+    fun getDecoyAppAction(context: Context): String {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_DECOY_APP_ACTION", "DURESS") ?: "DURESS"
+        } else {
+            getInstance(context).getString("DECOY_APP_ACTION", "DURESS") ?: "DURESS"
         }
     }
 
@@ -409,11 +582,11 @@ object SecurityPreferences {
 
     fun getSpectralQuarantineMs(context: Context): Long {
         return if (!isUserUnlocked(context)) {
-            getDeviceProtectedPrefs(context).getLong("BFU_SPECTRAL_QUARANTINE_MS", 4000L)
+            getDeviceProtectedPrefs(context).getLong("BFU_SPECTRAL_QUARANTINE_MS", 15000L)
         } else {
             getDeviceProtectedPrefs(context).getLong(
                 "BFU_SPECTRAL_QUARANTINE_MS",
-                getInstance(context).getLong("SPECTRAL_QUARANTINE_MS", 4000L)
+                getInstance(context).getLong("SPECTRAL_QUARANTINE_MS", 15000L)
             )
         }
     }
@@ -480,10 +653,10 @@ object SecurityPreferences {
 
     fun isPmicTamperEnabled(context: Context): Boolean {
         return if (!isUserUnlocked(context)) {
-            getDeviceProtectedPrefs(context).getBoolean("BFU_PMIC_TAMPER_ENABLED", true)
+            getDeviceProtectedPrefs(context).getBoolean("BFU_PMIC_TAMPER_ENABLED", false)
         } else {
-            getDeviceProtectedPrefs(context).getBoolean("BFU_PMIC_TAMPER_ENABLED", true) &&
-                    getInstance(context).getBoolean("PMIC_TAMPER_ENABLED", true)
+            getDeviceProtectedPrefs(context).getBoolean("BFU_PMIC_TAMPER_ENABLED", false) &&
+                    getInstance(context).getBoolean("PMIC_TAMPER_ENABLED", false)
         }
     }
 
@@ -514,11 +687,11 @@ object SecurityPreferences {
 
     fun getPmicThermalShockDelta(context: Context): Long {
         return if (!isUserUnlocked(context)) {
-            getDeviceProtectedPrefs(context).getLong("BFU_PMIC_THERMAL_DELTA", 120L)
+            getDeviceProtectedPrefs(context).getLong("BFU_PMIC_THERMAL_DELTA", 150L)
         } else {
             getDeviceProtectedPrefs(context).getLong(
                 "BFU_PMIC_THERMAL_DELTA",
-                getInstance(context).getLong("PMIC_THERMAL_DELTA", 120L)
+                getInstance(context).getLong("PMIC_THERMAL_DELTA", 150L)
             )
         }
     }
@@ -625,10 +798,16 @@ object SecurityPreferences {
     // =========================================================================
     fun setNormalPin(context: Context, pin: String) {
         getInstance(context).edit().putString("NORMAL_PIN", pin).apply()
+        getDeviceProtectedPrefs(context).edit().putString("BFU_NORMAL_PIN", pin).apply()
     }
 
-    fun getNormalPin(context: Context): String? =
-        getInstance(context).getString("NORMAL_PIN", null)
+    fun getNormalPin(context: Context): String? {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getString("BFU_NORMAL_PIN", null)
+        } else {
+            getInstance(context).getString("NORMAL_PIN", null)
+        }
+    }
 
     fun setDuressPin(context: Context, pin: String) {
         getInstance(context).edit().putString("DURESS_PIN", pin).apply()
@@ -720,6 +899,7 @@ object SecurityPreferences {
             .apply()
 
         getDeviceProtectedPrefs(context).edit()
+            .remove("BFU_NORMAL_PIN")
             .remove("BFU_DURESS_PIN")
             .remove("BFU_WIPE_PIN")
             .remove("BFU_HONEYPOT_PIN")
@@ -741,6 +921,17 @@ object SecurityPreferences {
 
     fun resetFailedAttempts(context: Context) =
         getDeviceProtectedPrefs(context).edit().putInt("FAILED_ATTEMPTS", 0).apply()
+
+    fun getFailedBiometricAttempts(context: Context): Int =
+        getDeviceProtectedPrefs(context).getInt("FAILED_BIOMETRIC_ATTEMPTS", 0)
+
+    fun incrementFailedBiometricAttempts(context: Context) {
+        val current = getFailedBiometricAttempts(context)
+        getDeviceProtectedPrefs(context).edit().putInt("FAILED_BIOMETRIC_ATTEMPTS", current + 1).apply()
+    }
+
+    fun resetFailedBiometricAttempts(context: Context) =
+        getDeviceProtectedPrefs(context).edit().putInt("FAILED_BIOMETRIC_ATTEMPTS", 0).apply()
 
     // =========================================================================
     // 12. Remote Controls & Telephony
@@ -853,7 +1044,7 @@ object SecurityPreferences {
         getInstance(context).getBoolean("HARDWARE_WIPE_ENABLED", false)
 
     // =========================================================================
-    // 14. Geographic Suicide & Custom Wipe Zones
+    // 14. Geographic Suicide, Geofencing & Custom Wipe Zones
     // =========================================================================
     fun setGeofenceSuicideEnabled(context: Context, isEnabled: Boolean) {
         getInstance(context).edit().putBoolean("GEOFENCE_SUICIDE_ENABLED", isEnabled).apply()
@@ -918,7 +1109,7 @@ object SecurityPreferences {
     }
 
     // =========================================================================
-    // 15. Stealth Mode & In-App Security Settings
+    // 15. Biometric Lock, Stealth Mode & Dialer Code
     // =========================================================================
     fun setAppHidden(context: Context, isHidden: Boolean) =
         getInstance(context).edit().putBoolean("APP_HIDDEN", isHidden).apply()
@@ -1010,7 +1201,7 @@ object SecurityPreferences {
     }
 
     // =========================================================================
-    // 17. Root & Advanced Defense Profiles
+    // 17. Root Exclusive Features
     // =========================================================================
     fun setGpsSpoofingEnabled(context: Context, isEnabled: Boolean) =
         getInstance(context).edit().putBoolean("ROOT_GPS_SPOOFING", isEnabled).apply()
@@ -1040,7 +1231,7 @@ object SecurityPreferences {
         getInstance(context).edit().putBoolean("ROOT_FIREWALL_TRIPWIRE", isEnabled).apply()
 
     fun isFirewallTripwireEnabled(context: Context): Boolean =
-        getInstance(context).getBoolean("ROOT_FIREWIRE_TRIPWIRE", false)
+        getInstance(context).getBoolean("ROOT_FIREWALL_TRIPWIRE", false)
 
     fun setSecureWipeEnabled(context: Context, isEnabled: Boolean) =
         getInstance(context).edit().putBoolean("ROOT_SECURE_WIPE", isEnabled).apply()

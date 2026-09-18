@@ -60,4 +60,12 @@
     <color name="level_4_excellent">#7CB342</color> <!-- Lime Green -->
     <color name="level_5_maximum">#388E3C</color> <!-- Dark Green -->
     <color name="level_root_god_mode">#6A1B9A</color> <!-- Purple -->
+
+    <!-- Decoy Messenger Icon Background Colors -->
+    <color name="decoy_signal_bg">#4975E8</color>
+    <color name="decoy_telegram_bg">#23A0DC</color>
+    <color name="decoy_threema_bg">#323232</color>
+    <color name="decoy_session_bg">#323031</color>
+    <color name="decoy_whatsapp_bg">#25D366</color>
+
 </resources>

@@ -31,12 +31,12 @@ object NativeSecurityBridge {
 
     fun enforceSecurityBaselines(): Boolean {
         if (!isLoaded) {
-            Log.w(TAG, "Native library not loaded. Security baselines running in degraded mode.")
+            Log.w(TAG, "Native library not loaded. Running in degraded userspace mode.")
             return false
         }
         val hardened = applyProcessHardening()
         val mte = isMteActive()
-        Log.i(TAG, "Process Hardening Status: $hardened | Synchronous MTE Hardware Active: $mte")
+        Log.i(TAG, "Process Hardening Status: $hardened | Synchronous ARM MTE Active: $mte")
         return hardened
     }
 
@@ -51,10 +51,14 @@ object NativeSecurityBridge {
 
     fun executeSiliconDiscard(blockDevicePath: String): Boolean {
         if (!isLoaded) {
-            Log.e(TAG, "Cannot execute silicon discard: native library not available.")
             return false
         }
-        return purgeBlockDevice(blockDevicePath)
+        return try {
+            purgeBlockDevice(blockDevicePath)
+        } catch (e: Exception) {
+            Log.e(TAG, "Native purgeBlockDevice threw exception: ${e.message}")
+            false
+        }
     }
 
     fun pinMemory(data: ByteArray): Boolean {

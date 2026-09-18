@@ -25,5 +25,8 @@
 
         <!-- Grants access to physical USB controller status and management -->
         <permission name="android.permission.MANAGE_USB"/>
+
+        <!-- Allows managing device admin policies without framework permission denial -->
+        <permission name="android.permission.MANAGE_DEVICE_ADMINS"/>
     </privapp-permissions>
 </permissions>

@@ -20,8 +20,8 @@ object ProximityShardingEngine {
 
     /**
      * Generates a fresh 256-bit root operational secret, splits it into two Shamir 2-of-2
-     * information-theoretic secret shares (S = Shard_A XOR Shard_B), seals Shard A inside
-     * discrete StrongBox HSM, and returns Shard B (Base64) for transmission to the paired wearable.
+     * additive secret shares (S = Shard_A XOR Shard_B), seals Shard A inside discrete StrongBox HSM,
+     * and returns Shard B (Base64) for transmission to the paired wearable token.
      */
     fun provisionFreshMasterShards(context: Context): String? {
         synchronized(lock) {
@@ -36,8 +36,10 @@ object ProximityShardingEngine {
 
             return if (sealed) {
                 val shardBBase64 = Base64.encodeToString(shardB, Base64.NO_WRAP)
+                // Load local Shard B directly into volatile memory for immediate authorization
+                loadVolatileShardB(context, shardB)
                 NativeSecurityBridge.zeroByteArray(shardB)
-                Log.i(TAG, "Master operational secret provisioned and split. Shard A sealed in discrete HSM.")
+                Log.i(TAG, "Master secret provisioned and split. Shard A sealed in HSM, Shard B active in RAM.")
                 EventLogger.log(context, "PROXIMITY: Master secret split into 2-of-2 Shamir shares. Shard A sealed.")
                 shardBBase64
             } else {
@@ -50,7 +52,7 @@ object ProximityShardingEngine {
 
     /**
      * Splits a master secret byte array into two 2-of-2 additive secret shares.
-     * Information-theoretically secure: neither share alone reveals any bits of the secret.
+     * Information-theoretically secure: neither share alone reveals any bits of the master secret.
      */
     fun splitSecret(masterSecret: ByteArray): Pair<ByteArray, ByteArray> {
         val len = masterSecret.size
@@ -104,7 +106,7 @@ object ProximityShardingEngine {
                 Log.i(TAG, "Shard A sealed into StrongBox Keystore successfully.")
                 true
             } catch (e: Exception) {
-                Log.e(TAG, "Error sealing Shard A", e)
+                Log.e(TAG, "Error sealing Shard A: ${e.message}", e)
                 false
             }
         }
@@ -135,10 +137,23 @@ object ProximityShardingEngine {
         return StrongBoxSecurityManager.decryptWithStrongBox(context, payload)
     }
 
+    /**
+     * Reconstructs the combined 256-bit symmetric operational key.
+     * Returns null if Shard B has evaporated from RAM (e.g. operator walked away > 2m).
+     */
     fun getActiveCombinedKey(context: Context): ByteArray? {
         synchronized(lock) {
-            val shardB = volatileShardB ?: return null
-            val shardA = retrieveDecryptedShardA(context) ?: return null
+            val shardB = volatileShardB
+            if (shardB == null) {
+                Log.w(TAG, "Shard B is not loaded in volatile RAM. Access denied.")
+                return null
+            }
+
+            val shardA = retrieveDecryptedShardA(context)
+            if (shardA == null) {
+                Log.w(TAG, "Failed retrieving Shard A from StrongBox Keystore.")
+                return null
+            }
 
             val combined = reconstructSecret(shardA, shardB)
 

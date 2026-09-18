@@ -50,7 +50,6 @@ object PermissionUtils {
         return dpm.isAdminActive(adminComponent)
     }
 
-    // FIXED: Removed the unused 'accessibilityManager' variable.
     fun isAccessibilityServiceEnabled(context: Context, serviceClass: Class<*>): Boolean {
         val enabledServices = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
         val componentName = ComponentName(context, serviceClass).flattenToString()
@@ -73,5 +72,11 @@ object PermissionUtils {
         } catch (e: Exception) {
             false
         }
+    }
+
+    fun isNotificationListenerGranted(context: Context): Boolean {
+        val packageName = context.packageName
+        val flat = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
+        return flat?.contains(packageName) == true
     }
 }

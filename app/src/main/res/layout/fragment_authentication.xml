@@ -117,7 +117,93 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 2. NATIVE DECOY USER & VOLD EVICTION CONTROLS -->
+        <!-- 2. DECOY MESSENGER LAUNCHER TRAPS -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:strokeColor="?attr/colorSecondary"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/decoy_launcher_traps_title"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="?attr/colorSecondary"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/decoy_launcher_traps_desc"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
+
+                <!-- Dropdown for Trap Action -->
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:hint="@string/decoy_app_action_hint">
+                    <AutoCompleteTextView
+                        android:id="@+id/auto_decoy_app_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="none"/>
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.divider.MaterialDivider
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="8dp"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_decoy_whatsapp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Fake WhatsApp Launcher Icon"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_decoy_signal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Fake Signal Launcher Icon"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_decoy_telegram"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Fake Telegram Launcher Icon"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_decoy_threema"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Fake Threema Launcher Icon"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_decoy_session"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Fake Session Launcher Icon"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 3. FAKE AIRPLANE MODE QUICK SETTINGS TRAP CONFIGURATION -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -132,14 +218,64 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Native Decoy Profile &amp; Cold Vold Eviction"
+                    android:text="Decoy Airplane Mode Tile Settings"
                     android:textAppearance="?attr/textAppearanceTitleMedium"/>
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="Entering the Honeypot PIN purges User 0 Credential-Encrypted (CE) keys from volatile RAM via Vold daemon, locking User 0 back into BFU state before loading Decoy Space."
+                    android:text="Configure response protocol when the decoy Airplane Mode Quick Settings tile is confirmed."
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
+
+                <!-- Dropdown for Airplane Tile Action -->
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:hint="Decoy Tile Trigger Action">
+                    <AutoCompleteTextView
+                        android:id="@+id/auto_airplane_tile_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="none"/>
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_airplane_pin_challenge"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Require PIN to Bypass Trap (Owner Safety)"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 4. NATIVE DECOY USER & MULTI-USER CONTROLS -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Native Decoy Profile &amp; Space Migration"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Entering the Honeypot PIN switches the active session to an isolated secondary Android profile named 'Personal'."
                     android:textAppearance="?attr/textAppearanceBodySmall"
                     android:textColor="?attr/colorOnSurfaceVariant"/>
 
@@ -206,11 +342,11 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 3. HARDWARE RATE LIMITING & GATEKEEPER INTEGRATION -->
+        <!-- 5. WEAVER BRUTE-FORCE DEFENSE -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="24dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -221,16 +357,22 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Weaver &amp; Gatekeeper Rate Limiting"
+                    android:text="Weaver &amp; Gatekeeper Brute-Force Defense"
                     android:textAppearance="?attr/textAppearanceTitleMedium"/>
 
-                <TextView
+                <!-- Dropdown for Max Failed Attempts Before Wipe -->
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Weaponizes hardware security module exponential backoffs. Enforces automatic USB line severing and biometric deactivation upon threshold failure."
-                    android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant"/>
+                    android:layout_marginTop="12dp"
+                    android:hint="@string/max_failed_attempts_wipe_hint">
+                    <AutoCompleteTextView
+                        android:id="@+id/auto_max_failed_attempts"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="none"/>
+                </com.google.android.material.textfield.TextInputLayout>
 
                 <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/switch_biometric_lock"
@@ -248,89 +390,6 @@
                     android:text="Recent Failed Keyguard Attempts: 0"
                     android:textAppearance="?attr/textAppearanceBodySmall"
                     android:textColor="?attr/colorSecondary"/>
-
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- 4. PIN FUNCTION GUIDE -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/pin_guide_title"
-                    android:textAppearance="?attr/textAppearanceTitleMedium"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/pin_guide_normal_title"
-                    android:textStyle="bold"
-                    android:textAppearance="?attr/textAppearanceTitleSmall"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/pin_guide_normal_desc"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textAppearance="?attr/textAppearanceBodyMedium"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/pin_guide_duress_title"
-                    android:textStyle="bold"
-                    android:textAppearance="?attr/textAppearanceTitleSmall"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/pin_guide_duress_desc"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textAppearance="?attr/textAppearanceBodyMedium"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/pin_guide_wipe_title"
-                    android:textStyle="bold"
-                    android:textColor="?attr/colorError"
-                    android:textAppearance="?attr/textAppearanceTitleSmall"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/pin_guide_wipe_desc"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textAppearance="?attr/textAppearanceBodyMedium"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/pin_guide_honeypot_title"
-                    android:textStyle="bold"
-                    android:textColor="?attr/colorSecondary"
-                    android:textAppearance="?attr/textAppearanceTitleSmall"/>
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/pin_guide_honeypot_desc"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textAppearance="?attr/textAppearanceBodyMedium"/>
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

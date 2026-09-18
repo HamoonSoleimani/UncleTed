@@ -180,7 +180,7 @@
                     android:text="@string/deadman_toggle_label"/>
 
                 <com.google.android.material.textfield.TextInputLayout
-                    id="@+id/menu_tripwire_duration_layout"
+                    android:id="@+id/menu_tripwire_duration_layout"
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -192,6 +192,15 @@
                         android:layout_height="wrap_content"
                         android:inputType="none"/>
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- Custom Duration Dialog Trigger Button -->
+                <Button
+                    android:id="@+id/btn_custom_tripwire_duration"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/btn_custom_tripwire_duration"/>
 
                 <Button
                     android:id="@+id/btn_deadman_checkin"

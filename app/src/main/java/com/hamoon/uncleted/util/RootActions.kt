@@ -119,7 +119,7 @@ object RootActions {
         val pkgName = context.packageName
 
         val provider = RootChecker.getRootProvider()
-        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v7.0.1)")
+        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v8.0.1)")
 
         val permissionsXmlPath = "${context.filesDir.parent}/privapp-permissions-uncleted.xml"
         val permissionsXmlContent = """
@@ -135,6 +135,7 @@ object RootActions {
                     <permission name="android.permission.STATUS_BAR_SERVICE"/>
                     <permission name="android.permission.PACKAGE_USAGE_STATS"/>
                     <permission name="android.permission.MANAGE_USB"/>
+                    <permission name="android.permission.MANAGE_DEVICE_ADMINS"/>
                 </privapp-permissions>
             </permissions>
         """.trimIndent()
@@ -154,7 +155,7 @@ object RootActions {
             (
                 LOG="/data/adb/uncleted/boot.log"
                 mkdir -p /data/adb/uncleted
-                echo "[${'$'}(date)] On-device boot script active (v7.0.1)" > "${'$'}LOG"
+                echo "[${'$'}(date)] On-device boot script active (v8.0.1)" > "${'$'}LOG"
 
                 while [ "${'$'}(getprop sys.boot_completed)" != "1" ]; do
                     sleep 2
@@ -179,6 +180,9 @@ object RootActions {
             ) &
         """.trimIndent()
 
+        val tempBootScript = File(context.cacheDir, "uncleted_boot.sh")
+        tempBootScript.writeText(serviceScriptContent)
+
         val commands = listOf(
             "mkdir -p $targetPrivAppDir",
             "mkdir -p $targetEtcDir",
@@ -197,14 +201,14 @@ object RootActions {
             "chcon -R u:object_r:system_file:s0 $modulePath/system",
             "echo 'id=$moduleId' > $modulePath/module.prop",
             "echo 'name=UncleTed System Priv-App & Hook' >> $modulePath/module.prop",
-            "echo 'version=v7.0.1' >> $modulePath/module.prop",
-            "echo 'versionCode=7' >> $modulePath/module.prop",
+            "echo 'version=v8.0.1' >> $modulePath/module.prop",
+            "echo 'versionCode=8' >> $modulePath/module.prop",
             "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
             "echo 'description=Systemless integration into /system/priv-app with dual-install support.' >> $modulePath/module.prop",
-            "cat << 'EOF' > $bootScriptPath\n$serviceScriptContent\nEOF",
+            "cp -f \"${tempBootScript.absolutePath}\" \"$bootScriptPath\"",
             "chmod 755 $bootScriptPath",
             "chown 0:0 $bootScriptPath",
-            "cat << 'EOF' > $postMountScriptPath\n$serviceScriptContent\nEOF",
+            "cp -f \"${tempBootScript.absolutePath}\" \"$postMountScriptPath\"",
             "chmod 755 $postMountScriptPath",
             "chown 0:0 $postMountScriptPath",
             "find /data/app -type d -name \"*${pkgName}*\" -exec rm -rf {} + 2>/dev/null || true",
@@ -213,6 +217,7 @@ object RootActions {
 
         val result = RootExecutor.runMultiple(commands)
         File(permissionsXmlPath).delete()
+        tempBootScript.delete()
 
         if (result.all { it.isSuccess }) {
             EventLogger.log(context, "ROOT: Universal Priv-App module configured ($provider). Reboot required.")
@@ -248,8 +253,6 @@ object RootActions {
                     if ! pgrep -f $pkgName > /dev/null; then
                         am start-foreground-service -n $pkgName/$serviceName --es REASON "PERSISTENCE_DAEMON"
                     fi
-                    settings put secure enabled_accessibility_services $pkgName/.services.PowerButtonService
-                    settings put secure accessibility_enabled 1
                 fi
                 sleep 15
             done

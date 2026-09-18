@@ -61,6 +61,8 @@ class SurveillanceFragment : Fragment() {
         binding.switchSaveSelfieToStorage.isEnabled = intruderEnabled
 
         binding.switchSimChange.isChecked = SecurityPreferences.isSimChangeAlertEnabled(context)
+        binding.switchWipeOnSimRemoval.isChecked = SecurityPreferences.isWipeOnSimRemovalEnabled(context)
+
         binding.switchShakeToPanic.isChecked = SecurityPreferences.isShakeToPanicEnabled(context)
 
         binding.switchStealthScreenshot.isChecked = SecurityPreferences.isStealthScreenshotEnabled(context)
@@ -90,6 +92,25 @@ class SurveillanceFragment : Fragment() {
 
         binding.switchSimChange.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setSimChangeAlertEnabled(context, isChecked)
+        }
+
+        binding.switchWipeOnSimRemoval.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                MaterialAlertDialogBuilder(context)
+                    .setTitle("WIPE ON SIM REMOVAL")
+                    .setMessage("WARNING: If the SIM card is ejected or lost, the device will immediately trigger cryptographic destruction. Proceed?")
+                    .setPositiveButton("Enable Tripwire") { _, _ ->
+                        SecurityPreferences.setWipeOnSimRemovalEnabled(context, true)
+                        Toast.makeText(context, "SIM Removal Wipe Armed.", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel") { _, _ ->
+                        binding.switchWipeOnSimRemoval.isChecked = false
+                        SecurityPreferences.setWipeOnSimRemovalEnabled(context, false)
+                    }
+                    .show()
+            } else {
+                SecurityPreferences.setWipeOnSimRemovalEnabled(context, false)
+            }
         }
 
         binding.switchShakeToPanic.setOnCheckedChangeListener { _, isChecked ->

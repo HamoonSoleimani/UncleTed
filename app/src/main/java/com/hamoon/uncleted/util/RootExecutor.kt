@@ -80,13 +80,9 @@ object RootExecutor {
         }
     }
 
-    /**
-     * Executes multiple shell commands in a single su session via '&&' chaining
-     * to eliminate multi-second boot delays and dropped frames caused by spawning multiple processes.
-     */
     suspend fun runMultiple(commands: List<String>, logErrors: Boolean = true): List<CommandResult> {
         if (commands.isEmpty()) return emptyList()
-        val combined = commands.joinToString(" && ")
+        val combined = commands.joinToString(" ; ")
         val result = run(combined, logErrors)
         return listOf(result)
     }

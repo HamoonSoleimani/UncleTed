@@ -26,10 +26,11 @@ object MemoryHardeningEngine {
         // ROUTE B: ROOT-PRIVILEGED KERNEL PURGE & SWAP RE-KEYING
         // =========================================================================
         if (RootChecker.isDeviceRooted()) {
+            // Note: Omits 'echo 1 > /proc/sys/vm/compact_memory' on screen-off triggers
+            // to eliminate massive kernel disk compaction stalls and broadcast ANR crashes.
             val kernelMemoryCommands = listOf(
                 "sync",
-                "echo 3 > /proc/sys/vm/drop_caches",
-                "echo 1 > /proc/sys/vm/compact_memory"
+                "echo 3 > /proc/sys/vm/drop_caches"
             )
 
             val dropResult = RootExecutor.runMultiple(kernelMemoryCommands, logErrors = false)
@@ -37,7 +38,7 @@ object MemoryHardeningEngine {
                 Log.w(TAG, "Kernel drop_caches execution returned non-zero exit code.")
                 success = false
             } else {
-                Log.i(TAG, "Kernel pagecache, dentries, and unpinned inodes dropped; memory compacted.")
+                Log.i(TAG, "Kernel pagecache, dentries, and unpinned inodes dropped.")
             }
 
             // Ephemeral ZRAM Swap Eviction & Key Rotation
@@ -55,7 +56,7 @@ object MemoryHardeningEngine {
         }
 
         // =========================================================================
-        // USERS PACE ART HEAP SCRUBBING & NATIVE BARRIERS (BOTH PROFILES)
+        // USERSPACE ART HEAP SCRUBBING & NATIVE BARRIERS (BOTH PROFILES)
         // =========================================================================
         performUserspaceHeapSanitization()
 

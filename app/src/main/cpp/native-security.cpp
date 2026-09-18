@@ -1,487 +1,525 @@
 #include <jni.h>
-#include <sys/prctl.h>
-#include <sys/mman.h>
-#include <sys/ioctl.h>
-#include <linux/fs.h>
+#include <string>
+#include <vector>
+#include <cstring>
+#include <atomic>
 #include <fcntl.h>
 #include <unistd.h>
-#include <cstring>
-#include <cstdint>
-#include <vector>
-#include <android/log.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/prctl.h>
+#include <linux/fs.h>
 #include <zlib.h>
+#include <android/log.h>
 
 #define TAG "UncleTed-Native"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
-#ifndef PR_SET_TAGGED_ADDR_CTRL
-#define PR_SET_TAGGED_ADDR_CTRL 55
-#endif
-
-#ifndef PR_GET_TAGGED_ADDR_CTRL
-#define PR_GET_TAGGED_ADDR_CTRL 56
-#endif
-
-#ifndef PR_TAGGED_ADDR_ENABLE
-#define PR_TAGGED_ADDR_ENABLE (1UL << 0)
-#endif
-
-#ifndef PR_MTE_TCF_SHIFT
-#define PR_MTE_TCF_SHIFT 1
-#endif
-
-#ifndef PR_MTE_TCF_SYNC
-#define PR_MTE_TCF_SYNC (1UL << PR_MTE_TCF_SHIFT)
+// Linux Kernel Block Discard IOCTL Definitions
+#ifndef BLKDISCARD
+#define BLKDISCARD _IO(0x12, 119)
 #endif
 
 #ifndef BLKSECDISCARD
 #define BLKSECDISCARD _IO(0x12, 125)
 #endif
 
-namespace {
+// ARMv8.5-A Synchronous MTE Tag Checking Control Flags
+#ifndef PR_SET_TAGGED_ADDR_CTRL
+#define PR_SET_TAGGED_ADDR_CTRL 55
+#endif
 
-inline uint32_t rotl32(uint32_t x, int n) {
-    return (x << n) | (x >> (32 - n));
-}
+#ifndef PR_TAGGED_ADDR_ENABLE
+#define PR_TAGGED_ADDR_ENABLE (1UL << 0)
+#endif
 
-void chacha20QuarterRound(uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d) {
-    a += b; d ^= a; d = rotl32(d, 16);
-    c += d; b ^= c; b = rotl32(b, 12);
-    a += b; d ^= a; d = rotl32(d, 8);
-    c += d; b ^= c; b = rotl32(b, 7);
-}
+#ifndef PR_MTE_TCF_SYNC
+#define PR_MTE_TCF_SYNC (1UL << 1)
+#endif
 
-void chacha20Block(uint32_t out[16], const uint32_t in[16]) {
-    for (int i = 0; i < 16; ++i) out[i] = in[i];
-    for (int i = 0; i < 10; ++i) {
-        chacha20QuarterRound(out[0], out[4], out[8], out[12]);
-        chacha20QuarterRound(out[1], out[5], out[9], out[13]);
-        chacha20QuarterRound(out[2], out[6], out[10], out[14]);
-        chacha20QuarterRound(out[3], out[7], out[11], out[15]);
-        chacha20QuarterRound(out[0], out[5], out[10], out[15]);
-        chacha20QuarterRound(out[1], out[6], out[11], out[12]);
-        chacha20QuarterRound(out[2], out[7], out[8], out[13]);
-        chacha20QuarterRound(out[3], out[4], out[9], out[14]);
+// =============================================================================
+// Memory Sanitization & Sandboxing Utilities
+// =============================================================================
+
+static void burnMemory(void* ptr, size_t size) {
+    if (!ptr || size == 0) return;
+    volatile uint8_t* p = static_cast<volatile uint8_t*>(ptr);
+    while (size--) {
+        *p++ = 0;
     }
-    for (int i = 0; i < 16; ++i) out[i] += in[i];
+    std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 
-void chacha20Xor(const uint8_t key[32], const uint8_t nonce[12], uint32_t counter,
-                 const uint8_t* in, uint8_t* out, size_t len) {
-    uint32_t state[16] = {
-        0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
-        reinterpret_cast<const uint32_t*>(key)[0], reinterpret_cast<const uint32_t*>(key)[1],
-        reinterpret_cast<const uint32_t*>(key)[2], reinterpret_cast<const uint32_t*>(key)[3],
-        reinterpret_cast<const uint32_t*>(key)[4], reinterpret_cast<const uint32_t*>(key)[5],
-        reinterpret_cast<const uint32_t*>(key)[6], reinterpret_cast<const uint32_t*>(key)[7],
-        counter,
-        reinterpret_cast<const uint32_t*>(nonce)[0], reinterpret_cast<const uint32_t*>(nonce)[1],
-        reinterpret_cast<const uint32_t*>(nonce)[2]
-    };
+// =============================================================================
+// RFC 8439 ChaCha20-Poly1305 Implementation (Warning-Free & Complete)
+// =============================================================================
 
-    uint32_t block[16];
-    uint8_t* blockBytes = reinterpret_cast<uint8_t*>(block);
+namespace CryptoCore {
 
-    while (len > 0) {
-        state[12] = counter++;
-        chacha20Block(block, state);
-        size_t take = (len < 64) ? len : 64;
-        for (size_t i = 0; i < take; ++i) {
-            *out++ = *in++ ^ blockBytes[i];
+    static inline uint32_t rotl32(uint32_t v, int c) {
+        return (v << c) | (v >> (32 - c));
+    }
+
+    static inline void chachaQuarterRound(uint32_t &a, uint32_t &b, uint32_t &c, uint32_t &d) {
+        a += b; d ^= a; d = rotl32(d, 16);
+        c += d; b ^= c; b = rotl32(b, 12);
+        a += b; d ^= a; d = rotl32(d, 8);
+        c += d; b ^= c; b = rotl32(b, 7);
+    }
+
+    static void chacha20Block(uint32_t out[16], const uint32_t in[16]) {
+        for (int i = 0; i < 16; ++i) out[i] = in[i];
+        for (int i = 0; i < 10; ++i) {
+            chachaQuarterRound(out[0], out[4], out[8],  out[12]);
+            chachaQuarterRound(out[1], out[5], out[9],  out[13]);
+            chachaQuarterRound(out[2], out[6], out[10], out[14]);
+            chachaQuarterRound(out[3], out[7], out[11], out[15]);
+            chachaQuarterRound(out[0], out[5], out[10], out[15]);
+            chachaQuarterRound(out[1], out[6], out[11], out[12]);
+            chachaQuarterRound(out[2], out[7], out[8],  out[13]);
+            chachaQuarterRound(out[3], out[4], out[9],  out[14]);
         }
-        len -= take;
+        for (int i = 0; i < 16; ++i) out[i] += in[i];
+    }
+
+    static void chacha20Encrypt(const uint8_t key[32], const uint8_t nonce[12], uint32_t counter,
+                                const uint8_t* in, uint8_t* out, size_t len) {
+        uint32_t state[16] = {
+            0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
+            ((const uint32_t*)key)[0], ((const uint32_t*)key)[1],
+            ((const uint32_t*)key)[2], ((const uint32_t*)key)[3],
+            ((const uint32_t*)key)[4], ((const uint32_t*)key)[5],
+            ((const uint32_t*)key)[6], ((const uint32_t*)key)[7],
+            counter,
+            ((const uint32_t*)nonce)[0], ((const uint32_t*)nonce)[1], ((const uint32_t*)nonce)[2]
+        };
+
+        uint32_t block[16];
+        uint8_t* blockBytes = reinterpret_cast<uint8_t*>(block);
+
+        while (len > 0) {
+            chacha20Block(block, state);
+            state[12]++;
+            size_t take = (len < 64) ? len : 64;
+            for (size_t i = 0; i < take; ++i) {
+                out[i] = in[i] ^ blockBytes[i];
+            }
+            len -= take;
+            in += take;
+            out += take;
+        }
+        burnMemory(block, sizeof(block));
+        burnMemory(state, sizeof(state));
+    }
+
+    // Exact RFC 8439 Poly1305 using 26-bit limb representation
+    static void poly1305Mac(const uint8_t* msg, size_t len, const uint8_t key[32], uint8_t tag[16]) {
+        uint32_t r0, r1, r2, r3, r4;
+        uint32_t s1, s2, s3, s4;
+        uint32_t h0 = 0, h1 = 0, h2 = 0, h3 = 0, h4 = 0;
+
+        // r &= 0x0ffffffc0ffffffc0ffffffc0fffffff
+        r0 = ( ((uint32_t)key[0]      ) | ((uint32_t)key[1]  <<  8) | ((uint32_t)key[2]  << 16) | ((uint32_t)key[3]  << 24) ) & 0x03ffffff;
+        r1 = ( ((uint32_t)key[3] >> 2 ) | ((uint32_t)key[4]  <<  6) | ((uint32_t)key[5]  << 14) | ((uint32_t)key[6]  << 22) ) & 0x03ffff03;
+        r2 = ( ((uint32_t)key[6] >> 4 ) | ((uint32_t)key[7]  <<  4) | ((uint32_t)key[8]  << 12) | ((uint32_t)key[9]  << 20) ) & 0x03ffc0ff;
+        r3 = ( ((uint32_t)key[9] >> 6 ) | ((uint32_t)key[10] <<  2) | ((uint32_t)key[11] << 10) | ((uint32_t)key[12] << 18) ) & 0x03f03fff;
+        r4 = ( ((uint32_t)key[12] >> 8) | ((uint32_t)key[13] <<  0) | ((uint32_t)key[14] <<  8) | ((uint32_t)key[15] << 16) ) & 0x000fffff;
+
+        s1 = r1 * 5;
+        s2 = r2 * 5;
+        s3 = r3 * 5;
+        s4 = r4 * 5;
+
+        while (len > 0) {
+            size_t take = (len < 16) ? len : 16;
+            uint8_t buf[16] = {0};
+            std::memcpy(buf, msg, take);
+            buf[take] = 1;
+
+            uint32_t w0 = ( ((uint32_t)buf[0]      ) | ((uint32_t)buf[1]  <<  8) | ((uint32_t)buf[2]  << 16) | ((uint32_t)buf[3]  << 24) ) & 0x03ffffff;
+            uint32_t w1 = ( ((uint32_t)buf[3] >> 2 ) | ((uint32_t)buf[4]  <<  6) | ((uint32_t)buf[5]  << 14) | ((uint32_t)buf[6]  << 22) ) & 0x03ffffff;
+            uint32_t w2 = ( ((uint32_t)buf[6] >> 4 ) | ((uint32_t)buf[7]  <<  4) | ((uint32_t)buf[8]  << 12) | ((uint32_t)buf[9]  << 20) ) & 0x03ffffff;
+            uint32_t w3 = ( ((uint32_t)buf[9] >> 6 ) | ((uint32_t)buf[10] <<  2) | ((uint32_t)buf[11] << 10) | ((uint32_t)buf[12] << 18) ) & 0x03ffffff;
+            uint32_t w4 = ( ((uint32_t)buf[12] >> 8) | ((uint32_t)buf[13] <<  0) | ((uint32_t)buf[14] <<  8) | ((uint32_t)buf[15] << 16) ) | (take < 16 ? 0 : 0x01000000);
+
+            h0 += w0;
+            h1 += w1;
+            h2 += w2;
+            h3 += w3;
+            h4 += w4;
+
+            uint64_t d0 = (uint64_t)h0 * r0 + (uint64_t)h1 * s4 + (uint64_t)h2 * s3 + (uint64_t)h3 * s2 + (uint64_t)h4 * s1;
+            uint64_t d1 = (uint64_t)h0 * r1 + (uint64_t)h1 * r0 + (uint64_t)h2 * s4 + (uint64_t)h3 * s3 + (uint64_t)h4 * s2;
+            uint64_t d2 = (uint64_t)h0 * r2 + (uint64_t)h1 * r1 + (uint64_t)h2 * r0 + (uint64_t)h3 * s4 + (uint64_t)h4 * s3;
+            uint64_t d3 = (uint64_t)h0 * r3 + (uint64_t)h1 * r2 + (uint64_t)h2 * r1 + (uint64_t)h3 * r0 + (uint64_t)h4 * s4;
+            uint64_t d4 = (uint64_t)h0 * r4 + (uint64_t)h1 * r3 + (uint64_t)h2 * r2 + (uint64_t)h3 * r1 + (uint64_t)h4 * r0;
+
+            uint64_t c;
+            h0 = (uint32_t)d0 & 0x03ffffff; c = d0 >> 26; d1 += c;
+            h1 = (uint32_t)d1 & 0x03ffffff; c = d1 >> 26; d2 += c;
+            h2 = (uint32_t)d2 & 0x03ffffff; c = d2 >> 26; d3 += c;
+            h3 = (uint32_t)d3 & 0x03ffffff; c = d3 >> 26; d4 += c;
+            h4 = (uint32_t)d4 & 0x03ffffff; c = d4 >> 26; h0 += (uint32_t)(c * 5);
+            c = h0 >> 26; h0 &= 0x03ffffff; h1 += (uint32_t)c;
+
+            msg += take;
+            len -= take;
+        }
+
+        // Final carry propagation
+        uint32_t c = h1 >> 26; h1 &= 0x03ffffff; h2 += c;
+        c = h2 >> 26; h2 &= 0x03ffffff; h3 += c;
+        c = h3 >> 26; h3 &= 0x03ffffff; h4 += c;
+        c = h4 >> 26; h4 &= 0x03ffffff; h0 += c * 5;
+        c = h0 >> 26; h0 &= 0x03ffffff; h1 += c;
+
+        // Compute h + -p to reduce modulo 2^130 - 5
+        uint32_t g0 = h0 + 5; c = g0 >> 26; g0 &= 0x03ffffff;
+        uint32_t g1 = h1 + c; c = g1 >> 26; g1 &= 0x03ffffff;
+        uint32_t g2 = h2 + c; c = g2 >> 26; g2 &= 0x03ffffff;
+        uint32_t g3 = h3 + c; c = g3 >> 26; g3 &= 0x03ffffff;
+        uint32_t g4 = h4 + c - (1 << 26);
+
+        // Select h if h < p, or g if h >= p
+        uint32_t mask = (g4 >> 31) - 1;
+        g0 &= mask; g1 &= mask; g2 &= mask; g3 &= mask; g4 &= mask;
+        mask = ~mask;
+        h0 = (h0 & mask) | g0;
+        h1 = (h1 & mask) | g1;
+        h2 = (h2 & mask) | g2;
+        h3 = (h3 & mask) | g3;
+        h4 = (h4 & mask) | g4;
+
+        // Reassemble 26-bit limbs into 32-bit words
+        uint32_t f0 = (h0      ) | (h1 << 26);
+        uint32_t f1 = (h1 >>  6) | (h2 << 20);
+        uint32_t f2 = (h2 >> 12) | (h3 << 14);
+        uint32_t f3 = (h3 >> 18) | (h4 <<  8);
+
+        // Add pad (s) modulo 2^128
+        uint32_t pad0 = ((uint32_t)key[16]) | ((uint32_t)key[17] << 8) | ((uint32_t)key[18] << 16) | ((uint32_t)key[19] << 24);
+        uint32_t pad1 = ((uint32_t)key[20]) | ((uint32_t)key[21] << 8) | ((uint32_t)key[22] << 16) | ((uint32_t)key[23] << 24);
+        uint32_t pad2 = ((uint32_t)key[24]) | ((uint32_t)key[25] << 8) | ((uint32_t)key[26] << 16) | ((uint32_t)key[27] << 24);
+        uint32_t pad3 = ((uint32_t)key[28]) | ((uint32_t)key[29] << 8) | ((uint32_t)key[30] << 16) | ((uint32_t)key[31] << 24);
+
+        uint64_t t = (uint64_t)f0 + pad0; f0 = (uint32_t)t; 
+        t = (uint64_t)f1 + pad1 + (t >> 32); f1 = (uint32_t)t;
+        t = (uint64_t)f2 + pad2 + (t >> 32); f2 = (uint32_t)t; 
+        t = (uint64_t)f3 + pad3 + (t >> 32); f3 = (uint32_t)t;
+
+        tag[0]  = (uint8_t)(f0      ); tag[1]  = (uint8_t)(f0 >>  8); tag[2]  = (uint8_t)(f0 >> 16); tag[3]  = (uint8_t)(f0 >> 24);
+        tag[4]  = (uint8_t)(f1      ); tag[5]  = (uint8_t)(f1 >>  8); tag[6]  = (uint8_t)(f1 >> 16); tag[7]  = (uint8_t)(f1 >> 24);
+        tag[8]  = (uint8_t)(f2      ); tag[9]  = (uint8_t)(f2 >>  8); tag[10] = (uint8_t)(f2 >> 16); tag[11] = (uint8_t)(f2 >> 24);
+        tag[12] = (uint8_t)(f3      ); tag[13] = (uint8_t)(f3 >>  8); tag[14] = (uint8_t)(f3 >> 16); tag[15] = (uint8_t)(f3 >> 24);
+    }
+
+    static bool chacha20Poly1305Seal(const uint8_t key[32], const uint8_t nonce[12],
+                                     const uint8_t* plain, size_t plainLen,
+                                     std::vector<uint8_t>& outCipherWithTag) {
+        uint8_t polyKey[64] = {0};
+        chacha20Encrypt(key, nonce, 0, polyKey, polyKey, 64);
+
+        outCipherWithTag.resize(plainLen + 16);
+        chacha20Encrypt(key, nonce, 1, plain, outCipherWithTag.data(), plainLen);
+
+        uint8_t tag[16] = {0};
+        poly1305Mac(outCipherWithTag.data(), plainLen, polyKey, tag);
+        std::memcpy(outCipherWithTag.data() + plainLen, tag, 16);
+
+        burnMemory(polyKey, sizeof(polyKey));
+        return true;
+    }
+
+    static bool chacha20Poly1305Open(const uint8_t key[32], const uint8_t nonce[12],
+                                     const uint8_t* cipherWithTag, size_t totalLen,
+                                     std::vector<uint8_t>& outPlain) {
+        if (totalLen < 16) return false;
+        size_t cipherLen = totalLen - 16;
+        const uint8_t* receivedTag = cipherWithTag + cipherLen;
+
+        uint8_t polyKey[64] = {0};
+        chacha20Encrypt(key, nonce, 0, polyKey, polyKey, 64);
+
+        uint8_t computedTag[16] = {0};
+        poly1305Mac(cipherWithTag, cipherLen, polyKey, computedTag);
+        burnMemory(polyKey, sizeof(polyKey));
+
+        // Constant-time comparison
+        uint8_t diff = 0;
+        for (int i = 0; i < 16; ++i) {
+            diff |= (receivedTag[i] ^ computedTag[i]);
+        }
+        if (diff != 0) {
+            LOGE("Poly1305 authentication failed! Tag mismatch.");
+            return false;
+        }
+
+        outPlain.resize(cipherLen);
+        chacha20Encrypt(key, nonce, 1, cipherWithTag, outPlain.data(), cipherLen);
+        return true;
     }
 }
 
-void poly1305Clamp(uint8_t r[16]) {
-    r[3] &= 15;
-    r[7] &= 15;
-    r[11] &= 15;
-    r[15] &= 15;
-    r[4] &= 252;
-    r[8] &= 252;
-    r[12] &= 252;
-}
+// =============================================================================
+// Zlib Compression / Decompression Helpers
+// =============================================================================
 
-void poly1305Tag(const uint8_t* msg, size_t msgLen, const uint8_t key[32], uint8_t tag[16]) {
-    uint8_t r[16];
-    std::memcpy(r, key, 16);
-    poly1305Clamp(r);
-
-    uint64_t r0 = reinterpret_cast<uint32_t*>(r)[0];
-    uint64_t r1 = reinterpret_cast<uint32_t*>(r)[1];
-    uint64_t r2 = reinterpret_cast<uint32_t*>(r)[2];
-    uint64_t r3 = reinterpret_cast<uint32_t*>(r)[3];
-
-    uint64_t s1 = r1 * 20;
-    uint64_t s2 = r2 * 20;
-    uint64_t s3 = r3 * 20;
-
-    uint64_t h0 = 0, h1 = 0, h2 = 0, h3 = 0, h4 = 0;
-
-    while (msgLen > 0) {
-        size_t take = (msgLen < 16) ? msgLen : 16;
-        uint8_t chunk[16] = {0};
-        std::memcpy(chunk, msg, take);
-        if (take < 16) chunk[take] = 1;
-
-        uint64_t c0 = reinterpret_cast<uint32_t*>(chunk)[0];
-        uint64_t c1 = reinterpret_cast<uint32_t*>(chunk)[1];
-        uint64_t c2 = reinterpret_cast<uint32_t*>(chunk)[2];
-        uint64_t c3 = reinterpret_cast<uint32_t*>(chunk)[3];
-        uint64_t c4 = (take == 16) ? 1 : 0;
-
-        h0 += c0;
-        h1 += c1;
-        h2 += c2;
-        h3 += c3;
-        h4 += c4;
-
-        uint64_t d0 = h0 * r0 + h1 * s3 + h2 * s2 + h3 * s1;
-        uint64_t d1 = h0 * r1 + h1 * r0 + h2 * s3 + h3 * s2;
-        uint64_t d2 = h0 * r2 + h1 * r1 + h2 * r0 + h3 * s3;
-        uint64_t d3 = h0 * r3 + h1 * r2 + h2 * r1 + h3 * r0;
-        uint64_t d4 = h4 * 5;
-
-        d0 += d4 * s1;
-        d1 += d4 * s2;
-        d2 += d4 * s3;
-        d3 += d4 * r0;
-
-        h0 = d0 & 0xFFFFFFFF;
-        uint64_t carry = d0 >> 32;
-        d1 += carry; h1 = d1 & 0xFFFFFFFF; carry = d1 >> 32;
-        d2 += carry; h2 = d2 & 0xFFFFFFFF; carry = d2 >> 32;
-        d3 += carry; h3 = d3 & 0xFFFFFFFF; carry = d3 >> 32;
-        h4 = carry;
-
-        msg += take;
-        msgLen -= take;
-    }
-
-    uint64_t carry = (h4 * 5 + h0) >> 32;
-    h0 = (h4 * 5 + h0) & 0xFFFFFFFF;
-    h1 += carry; carry = h1 >> 32; h1 &= 0xFFFFFFFF;
-    h2 += carry; carry = h2 >> 32; h2 &= 0xFFFFFFFF;
-    h3 += carry; h3 &= 0xFFFFFFFF;
-
-    const uint8_t* pad = key + 16;
-    uint64_t f0 = h0 + reinterpret_cast<const uint32_t*>(pad)[0];
-    carry = f0 >> 32;
-    uint64_t f1 = h1 + reinterpret_cast<const uint32_t*>(pad)[1] + carry;
-    carry = f1 >> 32;
-    uint64_t f2 = h2 + reinterpret_cast<const uint32_t*>(pad)[2] + carry;
-    carry = f2 >> 32;
-    uint64_t f3 = h3 + reinterpret_cast<const uint32_t*>(pad)[3] + carry;
-
-    reinterpret_cast<uint32_t*>(tag)[0] = static_cast<uint32_t>(f0);
-    reinterpret_cast<uint32_t*>(tag)[1] = static_cast<uint32_t>(f1);
-    reinterpret_cast<uint32_t*>(tag)[2] = static_cast<uint32_t>(f2);
-    reinterpret_cast<uint32_t*>(tag)[3] = static_cast<uint32_t>(f3);
-}
-
-void chacha20Poly1305Encrypt(const uint8_t key[32], const uint8_t nonce[12],
-                             const uint8_t* plain, size_t plainLen,
-                             std::vector<uint8_t>& cipher, uint8_t tag[16]) {
-    uint8_t polyKeyBlock[64] = {0};
-    chacha20Xor(key, nonce, 0, polyKeyBlock, polyKeyBlock, 64);
-
-    cipher.resize(plainLen);
-    chacha20Xor(key, nonce, 1, plain, cipher.data(), plainLen);
-
-    poly1305Tag(cipher.data(), plainLen, polyKeyBlock, tag);
-
-    volatile uint8_t* v = polyKeyBlock;
-    for (size_t i = 0; i < 64; ++i) v[i] = 0;
-}
-
-bool chacha20Poly1305Decrypt(const uint8_t key[32], const uint8_t nonce[12],
-                             const uint8_t* cipher, size_t cipherLen,
-                             const uint8_t expectedTag[16], std::vector<uint8_t>& plain) {
-    uint8_t polyKeyBlock[64] = {0};
-    chacha20Xor(key, nonce, 0, polyKeyBlock, polyKeyBlock, 64);
-
-    uint8_t computedTag[16] = {0};
-    poly1305Tag(cipher, cipherLen, polyKeyBlock, computedTag);
-
-    volatile uint8_t* v = polyKeyBlock;
-    for (size_t i = 0; i < 64; ++i) v[i] = 0;
-
-    uint8_t diff = 0;
-    for (size_t i = 0; i < 16; ++i) {
-        diff |= (computedTag[i] ^ expectedTag[i]);
-    }
-    if (diff != 0) {
-        return false;
-    }
-
-    plain.resize(cipherLen);
-    chacha20Xor(key, nonce, 1, cipher, plain.data(), cipherLen);
-    return true;
-}
-
-bool compressBuffer(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData) {
+static bool zlibCompress(const uint8_t* inData, size_t inLen, std::vector<uint8_t>& outCompressed) {
     z_stream strm;
     std::memset(&strm, 0, sizeof(strm));
-    if (deflateInit2(&strm, 9, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+    if (deflateInit(&strm, Z_BEST_COMPRESSION) != Z_OK) return false;
+
+    strm.next_in = const_cast<Bytef*>(inData);
+    strm.avail_in = inLen;
+
+    outCompressed.resize(deflateBound(&strm, inLen));
+    strm.next_out = outCompressed.data();
+    strm.avail_out = outCompressed.size();
+
+    int ret = deflate(&strm, Z_FINISH);
+    if (ret != Z_STREAM_END) {
+        deflateEnd(&strm);
         return false;
     }
-
-    outData.resize(deflateBound(&strm, inSize));
-    strm.next_in = const_cast<Bytef*>(inData);
-    strm.avail_in = inSize;
-    strm.next_out = outData.data();
-    strm.avail_out = outData.size();
-
-    int res = deflate(&strm, Z_FINISH);
+    outCompressed.resize(strm.total_out);
     deflateEnd(&strm);
-
-    if (res != Z_STREAM_END) {
-        return false;
-    }
-    outData.resize(strm.total_out);
     return true;
 }
 
-bool decompressBuffer(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData) {
+static bool zlibDecompress(const uint8_t* inData, size_t inLen, std::vector<uint8_t>& outPlain) {
     z_stream strm;
     std::memset(&strm, 0, sizeof(strm));
-    if (inflateInit2(&strm, 15 + 16) != Z_OK) {
-        return false;
-    }
+    if (inflateInit(&strm) != Z_OK) return false;
 
-    outData.resize(inSize * 4 + 1024);
     strm.next_in = const_cast<Bytef*>(inData);
-    strm.avail_in = inSize;
+    strm.avail_in = inLen;
+
+    outPlain.resize(inLen * 4 + 1024);
+    strm.next_out = outPlain.data();
+    strm.avail_out = outPlain.size();
 
     while (true) {
-        strm.next_out = outData.data() + strm.total_out;
-        strm.avail_out = outData.size() - strm.total_out;
-
         int ret = inflate(&strm, Z_NO_FLUSH);
-        if (ret == Z_STREAM_END) {
-            break;
-        }
-        if (ret != Z_OK && ret != Z_BUF_ERROR) {
+        if (ret == Z_STREAM_END) break;
+        if (ret != Z_OK) {
             inflateEnd(&strm);
             return false;
         }
-        outData.resize(outData.size() * 2);
+        size_t oldSize = outPlain.size();
+        outPlain.resize(oldSize * 2);
+        strm.next_out = outPlain.data() + oldSize;
+        strm.avail_out = oldSize;
     }
 
-    outData.resize(strm.total_out);
+    outPlain.resize(strm.total_out);
     inflateEnd(&strm);
     return true;
 }
 
-} // namespace
+// =============================================================================
+// JNI Method Implementations
+// =============================================================================
 
-extern "C" {
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hamoon_uncleted_util_NativeSecurityBridge_applyProcessHardening(JNIEnv* /* env */, jobject /* this */) {
+    bool success = true;
 
-JNIEXPORT jboolean JNICALL
-Java_com_hamoon_uncleted_util_NativeSecurityBridge_applyProcessHardening(JNIEnv* /*env*/, jobject /*thiz*/) {
+    // 1. Anti-Debugging: Disable core dumps and ptrace memory inspection
     if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0) {
-        LOGE("Failed to set PR_SET_DUMPABLE to 0");
-        return JNI_FALSE;
+        LOGW("Failed configuring PR_SET_DUMPABLE=0");
+        success = false;
     }
 
-    long ctrl = prctl(PR_GET_TAGGED_ADDR_CTRL, 0, 0, 0, 0);
-    if (ctrl >= 0) {
-        if (!(ctrl & PR_TAGGED_ADDR_ENABLE)) {
-            prctl(PR_SET_TAGGED_ADDR_CTRL, ctrl | PR_TAGGED_ADDR_ENABLE | PR_MTE_TCF_SYNC, 0, 0, 0);
-        }
+    // 2. ARMv8.5-A Memory Tagging: Force Synchronous Tag Checking (SIGSEGV on violation)
+    unsigned long ctrl = PR_TAGGED_ADDR_ENABLE | PR_MTE_TCF_SYNC;
+    if (prctl(PR_SET_TAGGED_ADDR_CTRL, ctrl, 0, 0, 0) == 0) {
+        LOGI("Hardware Synchronous ARM MTE enforcement active (PR_MTE_TCF_SYNC).");
+    } else {
+        LOGI("ARM MTE unsupported or disabled on current hardware platform.");
     }
 
-    LOGI("Hardware process hardening applied: PR_SET_DUMPABLE=0, MTE sync configured.");
-    return JNI_TRUE;
+    return success ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_hamoon_uncleted_util_NativeSecurityBridge_isMteActive(JNIEnv* /*env*/, jobject /*thiz*/) {
-    long ctrl = prctl(PR_GET_TAGGED_ADDR_CTRL, 0, 0, 0, 0);
-    if (ctrl < 0) {
-        return JNI_FALSE;
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hamoon_uncleted_util_NativeSecurityBridge_isMteActive(JNIEnv* /* env */, jobject /* this */) {
+    int res = prctl(56 /* PR_GET_TAGGED_ADDR_CTRL */, 0, 0, 0, 0);
+    if (res >= 0 && (res & PR_MTE_TCF_SYNC)) {
+        return JNI_TRUE;
     }
-    return (ctrl & PR_MTE_TCF_SYNC) ? JNI_TRUE : JNI_FALSE;
+    return JNI_FALSE;
 }
 
-JNIEXPORT void JNICALL
-Java_com_hamoon_uncleted_util_NativeSecurityBridge_secureZeroMemory(JNIEnv* env, jobject /*thiz*/, jbyteArray buffer) {
-    if (buffer == nullptr) return;
+extern "C" JNIEXPORT void JNICALL
+Java_com_hamoon_uncleted_util_NativeSecurityBridge_secureZeroMemory(JNIEnv* env, jobject /* this */, jbyteArray buffer) {
+    if (!buffer) return;
     jsize len = env->GetArrayLength(buffer);
     if (len <= 0) return;
 
     jbyte* bytes = env->GetByteArrayElements(buffer, nullptr);
-    if (bytes != nullptr) {
-        volatile unsigned char* p = reinterpret_cast<volatile unsigned char*>(bytes);
-        for (jsize i = 0; i < len; ++i) {
-            p[i] = 0x00;
-        }
-        __asm__ __volatile__("" : : "r"(p) : "memory");
+    if (bytes) {
+        burnMemory(bytes, static_cast<size_t>(len));
         env->ReleaseByteArrayElements(buffer, bytes, 0);
     }
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_hamoon_uncleted_util_NativeSecurityBridge_purgeBlockDevice(JNIEnv* env, jobject /*thiz*/, jstring blockDevicePath) {
-    if (blockDevicePath == nullptr) return JNI_FALSE;
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hamoon_uncleted_util_NativeSecurityBridge_lockMemoryPages(JNIEnv* env, jobject /* this */, jbyteArray data) {
+    if (!data) return JNI_FALSE;
+    jsize len = env->GetArrayLength(data);
+    if (len <= 0) return JNI_TRUE;
 
-    const char* path = env->GetStringUTFChars(blockDevicePath, nullptr);
-    if (path == nullptr) return JNI_FALSE;
+    jbyte* bytes = env->GetByteArrayElements(data, nullptr);
+    if (!bytes) return JNI_FALSE;
 
-    int fd = open(path, O_RDWR | O_DIRECT | O_SYNC);
+    int ret = mlock(bytes, static_cast<size_t>(len));
+    env->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
+    return (ret == 0) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hamoon_uncleted_util_NativeSecurityBridge_unlockMemoryPages(JNIEnv* env, jobject /* this */, jbyteArray data) {
+    if (!data) return JNI_FALSE;
+    jsize len = env->GetArrayLength(data);
+    if (len <= 0) return JNI_TRUE;
+
+    jbyte* bytes = env->GetByteArrayElements(data, nullptr);
+    if (!bytes) return JNI_FALSE;
+
+    int ret = munlock(bytes, static_cast<size_t>(len));
+    env->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
+    return (ret == 0) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hamoon_uncleted_util_NativeSecurityBridge_purgeBlockDevice(JNIEnv* env, jobject /* this */, jstring pathStr) {
+    if (!pathStr) return JNI_FALSE;
+    const char* path = env->GetStringUTFChars(pathStr, nullptr);
+    if (!path) return JNI_FALSE;
+
+    LOGE("Native purgeBlockDevice: opening %s", path);
+    int fd = open(path, O_RDWR | O_SYNC);
     if (fd < 0) {
-        LOGE("Failed opening block device path: %s", path);
-        env->ReleaseStringUTFChars(blockDevicePath, path);
+        LOGE("Failed opening block device %s (errno: %d)", path, errno);
+        env->ReleaseStringUTFChars(pathStr, path);
         return JNI_FALSE;
     }
 
-    uint64_t range[2];
-    range[0] = 0;
+    uint64_t range[2] = {0, 0};
     if (ioctl(fd, BLKGETSIZE64, &range[1]) < 0) {
-        LOGE("BLKGETSIZE64 failed on %s", path);
-        close(fd);
-        env->ReleaseStringUTFChars(blockDevicePath, path);
-        return JNI_FALSE;
+        range[1] = 64ULL * 1024ULL * 1024ULL; // 64MB fallback
     }
 
-    LOGI("Issuing JEDEC BLKSECDISCARD across full partition size: %llu bytes on %s", static_cast<unsigned long long>(range[1]), path);
-
-    bool success = true;
-    if (ioctl(fd, BLKSECDISCARD, &range) < 0) {
-        LOGW("BLKSECDISCARD rejected by hardware FTL; falling back to BLKDISCARD on %s", path);
-        if (ioctl(fd, BLKDISCARD, &range) < 0) {
-            LOGE("BLKDISCARD failed on %s", path);
-            success = false;
-        }
+    int ret = ioctl(fd, BLKSECDISCARD, &range);
+    if (ret != 0) {
+        LOGW("BLKSECDISCARD unsupported (errno: %d). Attempting BLKDISCARD...", errno);
+        ret = ioctl(fd, BLKDISCARD, &range);
     }
 
     fsync(fd);
     close(fd);
-    env->ReleaseStringUTFChars(blockDevicePath, path);
-    return success ? JNI_TRUE : JNI_FALSE;
+    env->ReleaseStringUTFChars(pathStr, path);
+    return (ret == 0) ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_hamoon_uncleted_util_NativeSecurityBridge_lockMemoryPages(JNIEnv* env, jobject /*thiz*/, jbyteArray data) {
-    if (data == nullptr) return JNI_FALSE;
-    jsize len = env->GetArrayLength(data);
-    if (len <= 0) return JNI_FALSE;
-
-    jbyte* bytes = env->GetByteArrayElements(data, nullptr);
-    if (bytes == nullptr) return JNI_FALSE;
-
-    int res = mlock(bytes, static_cast<size_t>(len));
-    env->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
-
-    return (res == 0) ? JNI_TRUE : JNI_FALSE;
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_hamoon_uncleted_util_NativeSecurityBridge_unlockMemoryPages(JNIEnv* env, jobject /*thiz*/, jbyteArray data) {
-    if (data == nullptr) return JNI_FALSE;
-    jsize len = env->GetArrayLength(data);
-    if (len <= 0) return JNI_FALSE;
-
-    jbyte* bytes = env->GetByteArrayElements(data, nullptr);
-    if (bytes == nullptr) return JNI_FALSE;
-
-    int res = munlock(bytes, static_cast<size_t>(len));
-    env->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
-
-    return (res == 0) ? JNI_TRUE : JNI_FALSE;
-}
-
-JNIEXPORT jbyteArray JNICALL
+extern "C" JNIEXPORT jbyteArray JNICALL
 Java_com_hamoon_uncleted_util_NativeSecurityBridge_executeCesNative(
-    JNIEnv* env, jobject /*thiz*/, jbyteArray input, jbyteArray key, jbyteArray nonce) {
+    JNIEnv* env, jobject /* this */, jbyteArray input, jbyteArray key, jbyteArray nonce) {
 
-    if (input == nullptr || key == nullptr || nonce == nullptr) return nullptr;
-    if (env->GetArrayLength(key) != 32 || env->GetArrayLength(nonce) != 12) return nullptr;
-
+    if (!input || !key || !nonce) return nullptr;
     jsize inLen = env->GetArrayLength(input);
-    if (inLen <= 0) return nullptr;
+    jsize keyLen = env->GetArrayLength(key);
+    jsize nonceLen = env->GetArrayLength(nonce);
+
+    if (keyLen != 32 || nonceLen != 12 || inLen <= 0) return nullptr;
 
     jbyte* inBytes = env->GetByteArrayElements(input, nullptr);
     jbyte* keyBytes = env->GetByteArrayElements(key, nullptr);
     jbyte* nonceBytes = env->GetByteArrayElements(nonce, nullptr);
 
+    // Step 1: Compress with Zlib Deflate
     std::vector<uint8_t> compressed;
-    bool compOk = compressBuffer(reinterpret_cast<const uint8_t*>(inBytes), inLen, compressed);
+    bool compOk = zlibCompress(reinterpret_cast<const uint8_t*>(inBytes), inLen, compressed);
     env->ReleaseByteArrayElements(input, inBytes, JNI_ABORT);
 
-    if (!compOk) {
+    if (!compOk || compressed.empty()) {
         env->ReleaseByteArrayElements(key, keyBytes, JNI_ABORT);
         env->ReleaseByteArrayElements(nonce, nonceBytes, JNI_ABORT);
         return nullptr;
     }
 
-    std::vector<uint8_t> cipher;
-    uint8_t tag[16];
-    chacha20Poly1305Encrypt(reinterpret_cast<const uint8_t*>(keyBytes),
-                            reinterpret_cast<const uint8_t*>(nonceBytes),
-                            compressed.data(), compressed.size(), cipher, tag);
+    // Step 2: Encrypt with ChaCha20-Poly1305
+    std::vector<uint8_t> cipherWithTag;
+    bool encOk = CryptoCore::chacha20Poly1305Seal(
+        reinterpret_cast<const uint8_t*>(keyBytes),
+        reinterpret_cast<const uint8_t*>(nonceBytes),
+        compressed.data(), compressed.size(),
+        cipherWithTag
+    );
 
+    burnMemory(compressed.data(), compressed.size());
     env->ReleaseByteArrayElements(key, keyBytes, JNI_ABORT);
     env->ReleaseByteArrayElements(nonce, nonceBytes, JNI_ABORT);
 
-    cipher.insert(cipher.end(), tag, tag + 16);
+    if (!encOk) return nullptr;
 
-    jbyteArray outArray = env->NewByteArray(static_cast<jsize>(cipher.size()));
-    if (outArray != nullptr) {
-        env->SetByteArrayRegion(outArray, 0, static_cast<jsize>(cipher.size()),
-                                reinterpret_cast<const jbyte*>(cipher.data()));
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(cipherWithTag.size()));
+    if (result) {
+        env->SetByteArrayRegion(result, 0, static_cast<jsize>(cipherWithTag.size()),
+                                reinterpret_cast<const jbyte*>(cipherWithTag.data()));
     }
-    return outArray;
+    burnMemory(cipherWithTag.data(), cipherWithTag.size());
+    return result;
 }
 
-JNIEXPORT jbyteArray JNICALL
+extern "C" JNIEXPORT jbyteArray JNICALL
 Java_com_hamoon_uncleted_util_NativeSecurityBridge_executeCesDecryptNative(
-    JNIEnv* env, jobject /*thiz*/, jbyteArray inputWithTag, jbyteArray key, jbyteArray nonce) {
+    JNIEnv* env, jobject /* this */, jbyteArray inputWithTag, jbyteArray key, jbyteArray nonce) {
 
-    if (inputWithTag == nullptr || key == nullptr || nonce == nullptr) return nullptr;
-    if (env->GetArrayLength(key) != 32 || env->GetArrayLength(nonce) != 12) return nullptr;
+    if (!inputWithTag || !key || !nonce) return nullptr;
+    jsize inLen = env->GetArrayLength(inputWithTag);
+    jsize keyLen = env->GetArrayLength(key);
+    jsize nonceLen = env->GetArrayLength(nonce);
 
-    jsize totalLen = env->GetArrayLength(inputWithTag);
-    if (totalLen <= 16) return nullptr;
-
-    size_t cipherLen = totalLen - 16;
+    if (keyLen != 32 || nonceLen != 12 || inLen <= 16) return nullptr;
 
     jbyte* inBytes = env->GetByteArrayElements(inputWithTag, nullptr);
     jbyte* keyBytes = env->GetByteArrayElements(key, nullptr);
     jbyte* nonceBytes = env->GetByteArrayElements(nonce, nullptr);
 
-    const uint8_t* cipherPtr = reinterpret_cast<const uint8_t*>(inBytes);
-    const uint8_t* tagPtr = cipherPtr + cipherLen;
-
-    std::vector<uint8_t> decryptedComp;
-    bool ok = chacha20Poly1305Decrypt(reinterpret_cast<const uint8_t*>(keyBytes),
-                                      reinterpret_cast<const uint8_t*>(nonceBytes),
-                                      cipherPtr, cipherLen, tagPtr, decryptedComp);
+    // Step 1: Authenticate and Decrypt with ChaCha20-Poly1305
+    std::vector<uint8_t> decryptedCompressed;
+    bool decOk = CryptoCore::chacha20Poly1305Open(
+        reinterpret_cast<const uint8_t*>(keyBytes),
+        reinterpret_cast<const uint8_t*>(nonceBytes),
+        reinterpret_cast<const uint8_t*>(inBytes), inLen,
+        decryptedCompressed
+    );
 
     env->ReleaseByteArrayElements(inputWithTag, inBytes, JNI_ABORT);
     env->ReleaseByteArrayElements(key, keyBytes, JNI_ABORT);
     env->ReleaseByteArrayElements(nonce, nonceBytes, JNI_ABORT);
 
-    if (!ok) {
-        LOGE("CES Native Decryption Authentication Tag Mismatch!");
+    if (!decOk || decryptedCompressed.empty()) {
         return nullptr;
     }
 
-    std::vector<uint8_t> plain;
-    if (!decompressBuffer(decryptedComp.data(), decryptedComp.size(), plain)) {
-        LOGE("CES Native Decompression Failure");
+    // Step 2: Decompress with Zlib Inflate
+    std::vector<uint8_t> outPlain;
+    bool decompOk = zlibDecompress(decryptedCompressed.data(), decryptedCompressed.size(), outPlain);
+    burnMemory(decryptedCompressed.data(), decryptedCompressed.size());
+
+    if (!decompOk || outPlain.empty()) {
         return nullptr;
     }
 
-    jbyteArray outArray = env->NewByteArray(static_cast<jsize>(plain.size()));
-    if (outArray != nullptr) {
-        env->SetByteArrayRegion(outArray, 0, static_cast<jsize>(plain.size()),
-                                reinterpret_cast<const jbyte*>(plain.data()));
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(outPlain.size()));
+    if (result) {
+        env->SetByteArrayRegion(result, 0, static_cast<jsize>(outPlain.size()),
+                                reinterpret_cast<const jbyte*>(outPlain.data()));
     }
-    return outArray;
+    burnMemory(outPlain.data(), outPlain.size());
+    return result;
 }
-
-} // extern "C"

@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     // Domain-Driven Fragment Instances (Lazy Loaded)
     private val dashboardFragment by lazy { DashboardFragment() }
+    private val antiForensicsFragment by lazy { AntiForensicsFragment() }
     private val hardwareSentinelsFragment by lazy { HardwareSentinelsFragment() }
     private val cryptoEngineFragment by lazy { CryptoEngineFragment() }
     private val authenticationFragment by lazy { AuthenticationFragment() }
@@ -57,15 +58,15 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // 1. Initial UI State: Hide drawer until storage & biometric authentication clears
         binding.drawerLayout.visibility = View.INVISIBLE
         binding.initialLoadingIndicator.visibility = View.VISIBLE
 
-        // 2. Background Initialization (God Mode, SELinux policies & Root verification)
         lifecycleScope.launch {
             val authResult = withContext(Dispatchers.IO) {
                 initializeSystemRequirements()
             }
+
+            if (isFinishing || isDestroyed) return@launch
 
             if (authResult.requiresBiometric) {
                 promptBiometricAuth()
@@ -74,7 +75,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             }
         }
 
-        // 3. Ensure Monitoring Foreground Service is active for Primary User
         startMonitoringServiceIfNeeded()
     }
 
@@ -83,9 +83,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         val isRooted = if (isPrimaryUser) RootChecker.isDeviceRooted() else false
 
         if (isRooted && isPrimaryUser) {
-            Log.i(TAG, "Root detected on primary user. Executing God Mode initialization routines.")
             try {
-                GodMode.forceEnableAccessibility(applicationContext)
                 GodMode.whitelistFromBatteryOptimizations(applicationContext)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed executing God Mode startup routines", e)
@@ -123,6 +121,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun onAuthenticationSuccess() {
+        if (isFinishing || isDestroyed) return
         isAuthenticating = false
         binding.initialLoadingIndicator.visibility = View.GONE
         binding.drawerLayout.visibility = View.VISIBLE
@@ -143,7 +142,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         toggle.syncState()
 
         binding.navView.setNavigationItemSelectedListener(this)
-
         setupFragments()
 
         showFragment(dashboardFragment, getString(R.string.menu_dashboard))
@@ -171,7 +169,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             val serviceIntent = Intent(this, MonitoringService::class.java)
             try {
                 ContextCompat.startForegroundService(this, serviceIntent)
-                Log.i(TAG, "MonitoringService active on primary user.")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed starting MonitoringService", e)
             }
@@ -179,8 +176,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun setupFragments() {
-        supportFragmentManager.commit {
+        if (isFinishing || isDestroyed) return
+        if (supportFragmentManager.findFragmentByTag("DASHBOARD") != null) return
+
+        supportFragmentManager.commit(allowStateLoss = true) {
             add(R.id.nav_host_fragment, dashboardFragment, "DASHBOARD").hide(dashboardFragment)
+            add(R.id.nav_host_fragment, antiForensicsFragment, "ANTI_FORENSICS").hide(antiForensicsFragment)
             add(R.id.nav_host_fragment, hardwareSentinelsFragment, "HARDWARE").hide(hardwareSentinelsFragment)
             add(R.id.nav_host_fragment, cryptoEngineFragment, "CRYPTO").hide(cryptoEngineFragment)
             add(R.id.nav_host_fragment, authenticationFragment, "AUTH").hide(authenticationFragment)
@@ -197,6 +198,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         val (fragment, title) = when (item.itemId) {
             R.id.nav_dashboard -> dashboardFragment to getString(R.string.menu_dashboard)
+            R.id.nav_anti_forensics -> antiForensicsFragment to "Anti-Forensics & Pre-OS"
             R.id.nav_hardware_sentinels -> hardwareSentinelsFragment to getString(R.string.menu_hardware_sentinels)
             R.id.nav_crypto_engine -> cryptoEngineFragment to getString(R.string.menu_crypto_engine)
             R.id.nav_authentication -> authenticationFragment to getString(R.string.menu_authentication)
@@ -217,8 +219,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun showFragment(fragment: Fragment, title: String) {
         if (fragment == activeFragment && fragment.isVisible) return
+        if (isFinishing || isDestroyed) return
 
-        supportFragmentManager.commit {
+        supportFragmentManager.commit(allowStateLoss = true) {
             hide(activeFragment)
             show(fragment)
         }

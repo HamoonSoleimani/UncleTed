@@ -17,13 +17,13 @@ object EmergencyDestructionEngine {
      * Executes complete sub-millisecond emergency destruction sequence:
      * 1. Isolates all radio and network interfaces.
      * 2. Destroys discrete StrongBox/Titan M2 master key silicon registers.
-     * 3. Issues direct JEDEC BLKSECDISCARD IOCTL hardware commands to storage controllers.
-     * 4. Erases Vold user keys and synthetic password blobs.
+     * 3. Erases Vold user keys and synthetic password blobs.
+     * 4. Issues root-level JEDEC BLKSECDISCARD / BLKDISCARD to metadata partitions.
      * 5. Stages Bootloader Control Block (BCB) recovery wipe command.
-     * 6. Triggers platform recovery wipe or hardware fallback panic.
+     * 6. Triggers recovery wipe or hardware reboot fallback.
      */
     suspend fun executeDestructionSequence(context: Context, reason: String): Unit = withContext(Dispatchers.IO) {
-        Log.e(TAG, "!!! INITIATING SUB-MILLISECOND EMERGENCY DESTRUCTION: $reason !!!")
+        Log.e(TAG, "!!! INITIATING EMERGENCY DESTRUCTION: $reason !!!")
         EventLogger.log(context, "CRITICAL: Emergency destruction sequence executed (Reason: $reason)")
 
         // 1. Isolate network and radio interfaces
@@ -35,13 +35,13 @@ object EmergencyDestructionEngine {
         val isRooted = RootChecker.isDeviceRooted()
 
         if (isRooted) {
-            // 3. Purge Vold user keys and issue JEDEC silicon-level hardware sanitize
+            // 3. Purge Vold user keys and execute root-level silicon sanitize
             evictAndZeroEncryptionKeys()
 
             // 4. Stage low-level BCB recovery command
             stageRecoveryWipeCommand()
 
-            // 5. Trigger platform recovery wipe via platform authority or fallback reboot
+            // 5. Trigger platform recovery wipe or hardware fallback reboot
             val platformSuccess = triggerPlatformRecoveryWipe(context, reason)
             if (!platformSuccess) {
                 executeKernelRebootFallback()
@@ -52,7 +52,7 @@ object EmergencyDestructionEngine {
                 val strategy = DefenseCoordinator.resolveStrategy(context)
                 strategy.executeWipe(reason)
             } catch (e: Exception) {
-                Log.e(TAG, "DefenseStrategy wipe failed, falling back to platform recovery wipe", e)
+                Log.e(TAG, "DefenseStrategy wipe failed, falling back to platform recovery wipe: ${e.message}", e)
                 triggerPlatformRecoveryWipe(context, reason)
             }
         }
@@ -64,9 +64,8 @@ object EmergencyDestructionEngine {
     }
 
     /**
-     * Overwriting the 16KB FBE metadata block device containing the root Key Encryption Keys (KEKs)
-     * instantly renders all userdata blocks unrecoverable, bypassing UFS/NVMe wear-leveling pitfalls.
-     * Integrates JEDEC JESD220 / JESD84-B51 BLKSECDISCARD hardware commands.
+     * Deletes Vold user keys and issues hardware discard commands directly via elevated root shell.
+     * Bypasses userspace SELinux sandbox restrictions on raw block devices.
      */
     suspend fun evictAndZeroEncryptionKeys() {
         Log.e(TAG, "Evicting Vold user keys and executing JEDEC silicon-level hardware sanitize...")
@@ -81,36 +80,20 @@ object EmergencyDestructionEngine {
         )
         RootExecutor.runMultiple(keyDemolitionCommands, logErrors = false)
 
-        // Primary JEDEC Hardware Sanitize: Issue BLKSECDISCARD IOCTL directly to metadata partition
-        val metadataPath = findPartitionBlockPath("metadata")
-        if (metadataPath != null) {
-            Log.e(TAG, "Issuing JEDEC BLKSECDISCARD IOCTL to metadata partition: $metadataPath")
-            val discardSuccess = if (NativeSecurityBridge.isNativeLoaded()) {
-                NativeSecurityBridge.executeSiliconDiscard(metadataPath)
-            } else {
-                false
-            }
+        val metadataPath = findPartitionBlockPath("metadata") ?: "/dev/block/by-name/metadata"
 
-            if (!discardSuccess) {
-                Log.w(TAG, "Direct IOCTL discard failed; executing kernel dd block zero fallback on $metadataPath")
-                RootExecutor.run("dd if=/dev/zero of=$metadataPath bs=1048576 count=16 conv=fsync", logErrors = false)
-            }
-        } else {
-            val userdataPath = findPartitionBlockPath("userdata")
-            if (userdataPath != null) {
-                val discardSuccess = if (NativeSecurityBridge.isNativeLoaded()) {
-                    NativeSecurityBridge.executeSiliconDiscard(userdataPath)
-                } else {
-                    false
-                }
+        // Execute block discard via root domain to bypass untrusted_app SELinux denials
+        val discardCommands = listOf(
+            "blkdiscard -s $metadataPath 2>/dev/null || blkdiscard $metadataPath 2>/dev/null || true",
+            "dd if=/dev/zero of=$metadataPath bs=1048576 count=16 conv=fsync 2>/dev/null || true",
+            "sync"
+        )
+        RootExecutor.runMultiple(discardCommands, logErrors = false)
 
-                if (!discardSuccess) {
-                    RootExecutor.run("dd if=/dev/zero of=$userdataPath bs=4096 count=1024 conv=fsync", logErrors = false)
-                }
-            }
+        // Secondary: invoke native JNI if running in a privileged domain
+        if (NativeSecurityBridge.isNativeLoaded()) {
+            NativeSecurityBridge.executeSiliconDiscard(metadataPath)
         }
-
-        RootExecutor.run("sync", logErrors = false)
     }
 
     suspend fun stageRecoveryWipeCommand() {
@@ -122,12 +105,12 @@ object EmergencyDestructionEngine {
             "sync"
         )
         RootExecutor.runMultiple(commands, logErrors = false)
-        Log.i(TAG, "BCB wipe command successfully staged under /cache/recovery/command.")
+        Log.i(TAG, "BCB wipe command staged under /cache/recovery/command.")
     }
 
     fun triggerPlatformRecoveryWipe(context: Context, reason: String): Boolean {
         return try {
-            Log.i(TAG, "Invoking RecoverySystem.rebootWipeUserData via platform reflection...")
+            Log.i(TAG, "Invoking RecoverySystem.rebootWipeUserData via reflection...")
             val recoverySystemClass = RecoverySystem::class.java
             val methods = recoverySystemClass.declaredMethods.filter { it.name == "rebootWipeUserData" }
 
