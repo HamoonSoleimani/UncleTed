@@ -145,17 +145,25 @@ object RootActions {
         val moduleId = "uncleted_privapp"
         val modulePath = "$MODULES_DIR/$moduleId"
         val targetPrivAppDir = "$modulePath/system/priv-app/UncleTed"
+        val targetLibDir = "$targetPrivAppDir/lib/arm64"
         val targetEtcDir = "$modulePath/system/etc/permissions"
         val bootScriptPath = "$SERVICE_DIR/uncleted_boot.sh"
         val postMountScriptPath = "$POST_MOUNT_DIR/uncleted_boot.sh"
 
+        // Boot script: mounts overlayfs if metamodule is missing and only purges /data/app if /system/priv-app is confirmed active
         val serviceScriptContent = """
             #!/system/bin/sh
             export PATH="/system/bin:/system/xbin:/vendor/bin:${'$'}PATH"
             (
                 LOG="/data/adb/uncleted/boot.log"
                 mkdir -p /data/adb/uncleted
-                echo "[${'$'}(date)] On-device boot script active (v8.0.1)" > "${'$'}LOG"
+                echo "[${'$'}(date)] Uncle Ted boot service active (v8.0.1)" > "${'$'}LOG"
+
+                # Early-boot fallback mount for KernelSU without metamodule
+                if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "$modulePath/system/priv-app/UncleTed/UncleTed.apk" ]; then
+                    echo "[${'$'}(date)] /system/priv-app not mounted. Attempting overlayfs fallback..." >> "${'$'}LOG"
+                    mount -t overlay overlay -o lowerdir=$modulePath/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
+                fi
 
                 while [ "${'$'}(getprop sys.boot_completed)" != "1" ]; do
                     sleep 2
@@ -171,11 +179,24 @@ object RootActions {
                 done
 
                 sleep 3
-                pm enable --user 0 "$pkgName" >/dev/null 2>&1 || true
+
+                # Only purge /data/app user-space duplicates IF /system/priv-app mount is verified active!
+                if [ -f "/system/priv-app/UncleTed/UncleTed.apk" ]; then
+                    echo "[${'$'}(date)] /system/priv-app active. Purging /data/app user override..." >> "${'$'}LOG"
+                    find /data/app -type d -name "*$pkgName*" -exec rm -rf {} + 2>/dev/null || true
+                    cmd package install-existing --user 0 "$pkgName" >> "${'$'}LOG" 2>&1 || pm install-existing --user 0 "$pkgName" >> "${'$'}LOG" 2>&1 || true
+                    pm enable --user 0 "$pkgName" >/dev/null 2>&1 || true
+                else
+                    echo "[${'$'}(date)] WARNING: /system/priv-app not mounted! Retaining /data/app to avoid app deletion." >> "${'$'}LOG"
+                fi
 
                 if command -v ksud >/dev/null 2>&1; then
                     ksud profile set $pkgName --allow-su true >/dev/null 2>&1 || true
                     ksud profile set $pkgName allow.su true >/dev/null 2>&1 || true
+                fi
+                if command -v apd >/dev/null 2>&1; then
+                    apd profile set $pkgName --allow-su true >/dev/null 2>&1 || true
+                    apd profile set $pkgName allow.su true >/dev/null 2>&1 || true
                 fi
             ) &
         """.trimIndent()
@@ -185,6 +206,7 @@ object RootActions {
 
         val commands = listOf(
             "mkdir -p $targetPrivAppDir",
+            "mkdir -p $targetLibDir",
             "mkdir -p $targetEtcDir",
             "mkdir -p $SERVICE_DIR",
             "mkdir -p $POST_MOUNT_DIR",
@@ -192,8 +214,13 @@ object RootActions {
             "cp -f \"$sourceApk\" \"$targetPrivAppDir/UncleTed.apk\"",
             "cp -f \"$sourceApk\" \"$BACKUP_DIR/UncleTed.apk\"",
             "cp -f \"$permissionsXmlPath\" \"$targetEtcDir/privapp-permissions-uncleted.xml\"",
+            // Extract native ARM64 libraries from APK to priv-app lib directory
+            "unzip -j -o \"$sourceApk\" \"lib/arm64-v8a/*\" -d \"$targetLibDir\" 2>/dev/null || true",
             "chmod 755 $targetPrivAppDir",
             "chmod 644 $targetPrivAppDir/UncleTed.apk",
+            "chmod 755 $targetPrivAppDir/lib 2>/dev/null || true",
+            "chmod 755 $targetLibDir 2>/dev/null || true",
+            "chmod 644 $targetLibDir/*.so 2>/dev/null || true",
             "chmod 644 $BACKUP_DIR/UncleTed.apk",
             "chmod 755 $targetEtcDir",
             "chmod 644 $targetEtcDir/privapp-permissions-uncleted.xml",
@@ -204,14 +231,14 @@ object RootActions {
             "echo 'version=v8.0.1' >> $modulePath/module.prop",
             "echo 'versionCode=8' >> $modulePath/module.prop",
             "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
-            "echo 'description=Systemless integration into /system/priv-app with dual-install support.' >> $modulePath/module.prop",
+            "echo 'description=Universal systemless integration into /system/priv-app.' >> $modulePath/module.prop",
             "cp -f \"${tempBootScript.absolutePath}\" \"$bootScriptPath\"",
             "chmod 755 $bootScriptPath",
             "chown 0:0 $bootScriptPath",
             "cp -f \"${tempBootScript.absolutePath}\" \"$postMountScriptPath\"",
             "chmod 755 $postMountScriptPath",
             "chown 0:0 $postMountScriptPath",
-            "find /data/app -type d -name \"*${pkgName}*\" -exec rm -rf {} + 2>/dev/null || true",
+            // DO NOT delete /data/app here! The boot script will delete it upon reboot once /system/priv-app is confirmed mounted.
             "sync"
         )
 

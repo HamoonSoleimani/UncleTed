@@ -85,6 +85,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         if (isRooted && isPrimaryUser) {
             try {
                 GodMode.whitelistFromBatteryOptimizations(applicationContext)
+                // Clean up legacy forced accessibility service from older versions to fix One UI 40Hz / touch lag
+                GodMode.cleanupLegacyAccessibility(applicationContext)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed executing God Mode startup routines", e)
             }

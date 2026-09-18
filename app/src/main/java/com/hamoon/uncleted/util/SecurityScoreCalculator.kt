@@ -48,7 +48,10 @@ object SecurityScoreCalculator {
                 titleRes = R.string.check_accessibility_title,
                 descriptionRes = R.string.check_accessibility_desc,
                 weight = 20,
-                isMet = { PermissionUtils.isAccessibilityServiceEnabled(context, PowerButtonService::class.java) }
+                isMet = {
+                    // On rooted devices, hardware volume keys are intercepted via kernel getevent without accessibility
+                    isRooted || PermissionUtils.isAccessibilityServiceEnabled(context, PowerButtonService::class.java)
+                }
             ),
             ChecklistItem(
                 iconRes = R.drawable.ic_smartphone_24,

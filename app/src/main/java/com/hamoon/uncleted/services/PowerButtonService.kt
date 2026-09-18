@@ -10,11 +10,18 @@ import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.util.DeviceAdminHelper
-import com.hamoon.uncleted.util.Keylogger
+import com.hamoon.uncleted.util.RootChecker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PowerButtonService : AccessibilityService() {
 
     private val tag = "PowerButtonService"
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Hardware Wipe Sequence: [VOL_UP, VOL_DOWN, VOL_UP, VOL_DOWN]
     private val WIPE_SEQUENCE = listOf(
@@ -33,9 +40,32 @@ class PowerButtonService : AccessibilityService() {
 
         val info = serviceInfo ?: AccessibilityServiceInfo()
         info.packageNames = null
-        info.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
-        info.eventTypes = AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+        info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+
+        // Disable global text change event monitoring to eliminate system-wide IPC serialization lag
+        info.eventTypes = 0
+        info.flags = 0
         serviceInfo = info
+
+        // CRITICAL ONE UI / DISPLAY FIX:
+        // FLAG_REQUEST_FILTER_KEY_EVENTS installs an InputFilter in InputDispatcher, which causes
+        // taps to register as holds and caps display refresh rate to 40Hz/60Hz on Samsung devices.
+        // On rooted devices, hardware keys are monitored via root kernel getevent with 0ms delay.
+        serviceScope.launch {
+            val isRooted = try { RootChecker.isDeviceRooted() } catch (_: Exception) { false }
+            withContext(Dispatchers.Main) {
+                val currentInfo = serviceInfo ?: AccessibilityServiceInfo()
+                currentInfo.packageNames = null
+                currentInfo.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+                currentInfo.eventTypes = 0
+                if (!isRooted && SecurityPreferences.isHardwareWipeEnabled(this@PowerButtonService)) {
+                    currentInfo.flags = AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+                } else {
+                    currentInfo.flags = 0
+                }
+                serviceInfo = currentInfo
+            }
+        }
 
         Handler(Looper.getMainLooper()).post {
             Toast.makeText(applicationContext, "Uncle Ted Service: ACTIVE", Toast.LENGTH_SHORT).show()
@@ -91,14 +121,13 @@ class PowerButtonService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val accEvent = event ?: return
-        val packageName = accEvent.packageName?.toString() ?: return
-        if (packageName == this.packageName) return
-
-        if (accEvent.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
-            Keylogger.recordAccessibilityEvent(this, accEvent)
-        }
+        // No-op to eliminate touch latency and 40Hz refresh rate throttling
     }
 
     override fun onInterrupt() {}
+
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
+    }
 }

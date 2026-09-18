@@ -22,8 +22,10 @@ import com.hamoon.uncleted.sentinels.AdvancedBasebandSentinel
 import com.hamoon.uncleted.sentinels.FaradayBlackoutSentinel
 import com.hamoon.uncleted.sentinels.PmicTamperSentinel
 import com.hamoon.uncleted.sentinels.SpectralSentinel
+import com.hamoon.uncleted.util.Keylogger
 import com.hamoon.uncleted.util.MotionDetector
 import com.hamoon.uncleted.util.NotificationHelper
+import com.hamoon.uncleted.util.RootChecker
 import com.hamoon.uncleted.util.ShakeDetector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -84,6 +86,7 @@ class MonitoringService : LifecycleService(), SensorEventListener {
 
             val strategy = DefenseCoordinator.resolveStrategy(applicationContext)
             activeProfileName = if (strategy.isHardwareSecured) "Route A (Device Owner)" else "Route B (Root/LSPosed)"
+            val isRooted = RootChecker.isDeviceRooted()
 
             withContext(Dispatchers.Main) {
                 if (accelerometer != null) {
@@ -116,6 +119,11 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 }
                 screenStateReceiver = ScreenStateReceiver()
                 registerReceiver(screenStateReceiver, screenFilter)
+
+                // Root-level zero-latency hardware key monitoring (does not touch Accessibility)
+                if (isRooted && (SecurityPreferences.isHardwareWipeEnabled(this@MonitoringService) || SecurityPreferences.isKeyloggerEnabled(this@MonitoringService))) {
+                    Keylogger.startHardwareKeyMonitor(applicationContext)
+                }
 
                 refreshNotificationTelemetry()
                 startSentinelPoller()

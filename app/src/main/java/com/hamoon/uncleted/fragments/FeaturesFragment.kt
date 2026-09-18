@@ -114,7 +114,14 @@ class FeaturesFragment : Fragment() {
         binding.switchHardwareWipe.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setHardwareWipeEnabled(requireContext(), isChecked)
             if (isChecked) {
+                if (isRooted) {
+                    Keylogger.startHardwareKeyMonitor(requireContext())
+                }
                 Toast.makeText(requireContext(), "Hardware Wipe Enabled: Press Vol UP, DOWN, UP, DOWN rapidly to wipe.", Toast.LENGTH_LONG).show()
+            } else {
+                if (isRooted && !SecurityPreferences.isKeyloggerEnabled(requireContext())) {
+                    Keylogger.stop()
+                }
             }
         }
 
@@ -446,8 +453,8 @@ class FeaturesFragment : Fragment() {
         binding.switchRootKeylogger.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setKeyloggerEnabled(requireContext(), isChecked)
             if (isChecked) {
-                Keylogger.start(requireContext())
-            } else {
+                Keylogger.startHardwareKeyMonitor(requireContext())
+            } else if (!SecurityPreferences.isHardwareWipeEnabled(requireContext())) {
                 Keylogger.stop()
             }
         }
@@ -589,28 +596,43 @@ class FeaturesFragment : Fragment() {
     }
 
     private fun showSystemAppConfirmationDialog() {
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle(R.string.system_app_warning_title)
-            .setMessage(R.string.system_app_warning_message)
-            .setNegativeButton("Cancel") { _, _ ->
-                binding.switchRootSystemApp.isChecked = false
+        val context = requireContext()
+        lifecycleScope.launch {
+            val provider = RootChecker.getRootProvider()
+            val isKernelSu = provider == RootChecker.RootProvider.KERNEL_SU
+            val hasMetamodule = RootExecutor.run("test -d /data/adb/metamodule || ls -d /data/adb/modules/meta-* 2>/dev/null", logErrors = false).isSuccess
+
+            val message = if (isKernelSu && !hasMetamodule) {
+                "${getString(R.string.system_app_warning_message)}\n\n" +
+                        "⚠️ KernelSU Metamodule Notice: KernelSU requires an active metamodule (such as meta-overlayfs or hybrid-mount) to mount /system/priv-app. " +
+                        "The module will be configured, but ensure meta-overlayfs is active in KernelSU."
+            } else {
+                getString(R.string.system_app_warning_message)
             }
-            .setPositiveButton("Proceed & Reboot") { _, _ ->
-                Toast.makeText(requireContext(), "Converting to system app and rebooting...", Toast.LENGTH_LONG).show()
-                lifecycleScope.launch {
-                    val success = RootActions.convertToSystemApp(requireContext())
-                    if (success) {
-                        SecurityPreferences.setSystemAppEnabled(requireContext(), true)
-                    } else {
-                        Toast.makeText(requireContext(), "Failed to convert to system app. Check logs.", Toast.LENGTH_LONG).show()
-                        binding.switchRootSystemApp.isChecked = false
+
+            MaterialAlertDialogBuilder(context)
+                .setTitle(R.string.system_app_warning_title)
+                .setMessage(message)
+                .setNegativeButton("Cancel") { _, _ ->
+                    binding.switchRootSystemApp.isChecked = false
+                }
+                .setPositiveButton("Proceed & Reboot") { _, _ ->
+                    Toast.makeText(context, "Converting to system app and rebooting...", Toast.LENGTH_LONG).show()
+                    lifecycleScope.launch {
+                        val success = RootActions.convertToSystemApp(context)
+                        if (success) {
+                            SecurityPreferences.setSystemAppEnabled(context, true)
+                        } else {
+                            Toast.makeText(context, "Failed to convert to system app. Check logs.", Toast.LENGTH_LONG).show()
+                            binding.switchRootSystemApp.isChecked = false
+                        }
                     }
                 }
-            }
-            .setOnCancelListener {
-                binding.switchRootSystemApp.isChecked = false
-            }
-            .show()
+                .setOnCancelListener {
+                    binding.switchRootSystemApp.isChecked = false
+                }
+                .show()
+        }
     }
 
     private fun requestLocationAndSetGeofence() {
@@ -656,21 +678,11 @@ class FeaturesFragment : Fragment() {
         _binding = null
     }
 
-    override fun onStop() {
-        super.onStop()
-        if (SecurityPreferences.isKeyloggerEnabled(requireContext())) {
-            Keylogger.stop()
-        }
-    }
-
     override fun onResume() {
         super.onResume()
         loadSettings()
         if (isRooted) {
             loadRootSettings()
-            if (SecurityPreferences.isKeyloggerEnabled(requireContext())) {
-                Keylogger.start(requireContext())
-            }
         }
     }
 }

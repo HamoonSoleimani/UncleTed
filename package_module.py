@@ -8,7 +8,8 @@ Generates an out-of-the-box flashable ZIP compatible with:
 - Custom Recoveries (TWRP / OrangeFox / EvolutionX / Lineage Recovery)
 
 Implements:
-- True systemless priv-app integration (cleans /data/app to force /system/priv-app binding)
+- True systemless priv-app integration with verified-mount /data/app deduplication
+- Fallback overlayfs mounting for KernelSU environments without metamodules
 - Privileged permission allowlist injection (MASTER_CLEAR, MANAGE_USB, REBOOT, WRITE_SECURE_SETTINGS)
 - Native 64-bit library deployment (libuncleted_native.so with ARMv8.5-A MTE support)
 - Discrete StrongBox / Titan M2 KeyMint runtime compatibility
@@ -171,10 +172,12 @@ if [ -f "$APK_FILE" ]; then
   fi
 fi
 
-# Clean up any manual user-space installs in /data/app so PMS binds to /system/priv-app
-ui_print "- Purging user-space overrides in /data/app..."
-find /data/app -type d -name "*com.hamoon.uncleted*" -exec rm -rf {} + 2>/dev/null || true
-rm -rf /data/app/*com.hamoon.uncleted* 2>/dev/null || true
+# Only purge /data/app in recovery mode; in bootmode, wait until service.sh verifies active mount
+if [ "$BOOTMODE" = "false" ]; then
+  ui_print "- Purging user-space overrides in /data/app..."
+  find /data/app -type d -name "*com.hamoon.uncleted*" -exec rm -rf {} + 2>/dev/null || true
+  rm -rf /data/app/*com.hamoon.uncleted* 2>/dev/null || true
+fi
 
 ui_print "- Setting permissions and security contexts..."
 chmod -R 755 "$MODPATH"
@@ -216,6 +219,12 @@ export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
   mkdir -p /data/adb/uncleted
   echo "[$(date)] Uncle Ted boot service active (v8.0.1)" > "$LOG"
 
+  # Fallback mount for KernelSU / APatch if /system was not mounted by metamodule
+  if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "/data/adb/modules/uncleted_privapp/system/priv-app/UncleTed/UncleTed.apk" ]; then
+    echo "[$(date)] /system/priv-app not mounted. Attempting overlayfs fallback..." >> "$LOG"
+    mount -t overlay overlay -o lowerdir=/data/adb/modules/uncleted_privapp/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
+  fi
+
   # Apply Multi-User early framework properties
   if command -v resetprop >/dev/null 2>&1; then
     resetprop fw.max_users 5
@@ -249,12 +258,15 @@ export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
 
   PKG="com.hamoon.uncleted"
 
-  # Clean /data/app overrides if they were recreated
-  find /data/app -type d -name "*com.hamoon.uncleted*" -exec rm -rf {} + 2>/dev/null || true
-
-  # Activate the systemless priv-app package for User 0
-  cmd package install-existing --user 0 "$PKG" >> "$LOG" 2>&1 || pm install-existing --user 0 "$PKG" >> "$LOG" 2>&1
-  pm enable --user 0 "$PKG" >/dev/null 2>&1 || true
+  # Only purge /data/app user-space duplicates IF /system/priv-app mount is verified active!
+  if [ -f "/system/priv-app/UncleTed/UncleTed.apk" ]; then
+    find /data/app -type d -name "*com.hamoon.uncleted*" -exec rm -rf {} + 2>/dev/null || true
+    cmd package install-existing --user 0 "$PKG" >> "$LOG" 2>&1 || pm install-existing --user 0 "$PKG" >> "$LOG" 2>&1 || true
+    pm enable --user 0 "$PKG" >/dev/null 2>&1 || true
+    echo "[$(date)] Priv-app bound and activated for User 0" >> "$LOG"
+  else
+    echo "[$(date)] WARNING: /system/priv-app not mounted! Retaining /data/app to prevent app loss." >> "$LOG"
+  fi
 
   # Auto-configure Root Manager superuser profiles
   if command -v ksud >/dev/null 2>&1; then
@@ -293,19 +305,6 @@ chmod 755 "$POST_MOUNT_D_DIR/uncleted_boot.sh"
 chown 0:0 "$POST_MOUNT_D_DIR/uncleted_boot.sh"
 
 if [ "$BOOTMODE" = "true" ]; then
-  ui_print "- Activating package authority for User 0..."
-  PKG="com.hamoon.uncleted"
-  cmd package install-existing --user 0 "$PKG" >/dev/null 2>&1 || pm install-existing --user 0 "$PKG" >/dev/null 2>&1 || true
-  pm enable --user 0 "$PKG" >/dev/null 2>&1 || true
-
-  if command -v resetprop >/dev/null 2>&1; then
-    resetprop fw.max_users 5
-    resetprop fw.show_multiuserui 1
-    resetprop persist.sys.max_users 5
-    resetprop persist.sys.fw.max_users 5
-  fi
-  settings put global allow_user_switching_when_system_user_locked 1 >/dev/null 2>&1 || true
-
   if command -v ksud >/dev/null 2>&1; then
     ui_print "- Configuring KernelSU superuser profile..."
     ksud profile set com.hamoon.uncleted --allow-su >/dev/null 2>&1 || true
@@ -344,10 +343,20 @@ if [ -f "$APK_SRC" ]; then
     unzip -j -o "$APK_SRC" "lib/arm64-v8a/*" -d "$TARGET_LIB_DIR" >/dev/null 2>&1 || true
 fi
 
-# Purge any user-space /data/app installs to force systemless priv-app binding
-ui_print "- Removing conflicting /data/app installations..."
-find /data/app -type d -name "*com.hamoon.uncleted*" -exec rm -rf {} + 2>/dev/null || true
-rm -rf /data/app/*com.hamoon.uncleted* 2>/dev/null || true
+# KernelSU Metamodule Check: Metamodule is required by KernelSU to mount /system/priv-app
+if [ -d "/data/adb/ksu" ] || command -v ksud >/dev/null 2>&1; then
+    if [ ! -d "/data/adb/metamodule" ] && [ ! -d "/data/adb/modules/meta-overlay" ] && [ ! -d "/data/adb/modules/meta-overlayfs" ] && [ ! -d "/data/adb/modules/meta-hybrid_mount" ] && [ ! -d "/data/adb/modules/meta-magic_mount" ]; then
+        ui_print "********************************************************"
+        ui_print "! NOTICE: KernelSU Metamodule (e.g. meta-overlayfs)    !"
+        ui_print "! is required by KernelSU to mount /system/priv-app.   !"
+        ui_print "! If the app does not show as a system app on reboot,  !"
+        ui_print "! please install 'meta-overlayfs' in KernelSU Modules. !"
+        ui_print "********************************************************"
+    fi
+fi
+
+# DO NOT delete /data/app during live in-manager installation!
+# service.sh will safely clean it upon reboot once /system/priv-app is confirmed mounted.
 
 ui_print "- Applying SELinux contexts and POSIX permissions..."
 set_perm_recursive "$MODPATH/system" 0 0 0755 0644
@@ -372,10 +381,6 @@ settings put global allow_user_switching_when_system_user_locked 1 >/dev/null 2>
 
 PKG="com.hamoon.uncleted"
 if [ "$BOOTMODE" = "true" ]; then
-    ui_print "- Activating system package for User 0..."
-    cmd package install-existing --user 0 "$PKG" >/dev/null 2>&1 || pm install-existing --user 0 "$PKG" >/dev/null 2>&1 || true
-    pm enable --user 0 "$PKG" >/dev/null 2>&1 || true
-
     if command -v ksud >/dev/null 2>&1; then
         ui_print "- Configuring KernelSU superuser profile..."
         ksud profile set com.hamoon.uncleted --allow-su >/dev/null 2>&1 || true
@@ -407,6 +412,11 @@ MODDIR=${0%/*}
 export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
 
 (
+  # Early-boot fallback mount for KernelSU without metamodule
+  if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "$MODDIR/system/priv-app/UncleTed/UncleTed.apk" ]; then
+    mount -t overlay overlay -o lowerdir=$MODDIR/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
+  fi
+
   # Apply early-boot Multi-User properties
   if command -v resetprop >/dev/null 2>&1; then
     resetprop fw.max_users 5
@@ -438,11 +448,12 @@ export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
 
   PKG="com.hamoon.uncleted"
 
-  # Ensure /data/app user duplicates do not override the priv-app mount
-  find /data/app -type d -name "*com.hamoon.uncleted*" -exec rm -rf {} + 2>/dev/null || true
-
-  cmd package install-existing --user 0 "$PKG" >/dev/null 2>&1 || pm install-existing --user 0 "$PKG" >/dev/null 2>&1 || true
-  pm enable --user 0 "$PKG" >/dev/null 2>&1 || true
+  # Only purge /data/app user-space duplicates IF /system/priv-app mount is verified active!
+  if [ -f "/system/priv-app/UncleTed/UncleTed.apk" ]; then
+    find /data/app -type d -name "*com.hamoon.uncleted*" -exec rm -rf {} + 2>/dev/null || true
+    cmd package install-existing --user 0 "$PKG" >/dev/null 2>&1 || pm install-existing --user 0 "$PKG" >/dev/null 2>&1 || true
+    pm enable --user 0 "$PKG" >/dev/null 2>&1 || true
+  fi
 
   if command -v ksud >/dev/null 2>&1; then
     ksud profile set com.hamoon.uncleted --allow-su >/dev/null 2>&1 || true

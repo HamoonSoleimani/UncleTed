@@ -11,6 +11,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.databinding.FragmentDestructionProtocolsBinding
+import com.hamoon.uncleted.util.Keylogger
 import com.hamoon.uncleted.util.RootActions
 import com.hamoon.uncleted.util.RootChecker
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +58,14 @@ class DestructionProtocolsFragment : Fragment() {
         binding.switchHardwareWipe.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setHardwareWipeEnabled(context, isChecked)
             if (isChecked) {
+                if (isRooted) {
+                    Keylogger.startHardwareKeyMonitor(context)
+                }
                 Toast.makeText(context, "Hardware Button Wipe armed: Press Vol UP, DOWN, UP, DOWN rapidly.", Toast.LENGTH_LONG).show()
+            } else {
+                if (isRooted && !SecurityPreferences.isKeyloggerEnabled(context)) {
+                    Keylogger.stop()
+                }
             }
         }
 
