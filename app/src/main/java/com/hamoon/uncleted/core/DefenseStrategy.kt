@@ -5,6 +5,7 @@ interface DefenseStrategy {
     val isHardwareSecured: Boolean
 
     suspend fun executeWipe(reason: String)
+    suspend fun executeStandardWipe(reason: String)
     suspend fun setUsbDataPortEnabled(enabled: Boolean)
     suspend fun configureBruteForceThreshold(maxFailedAttempts: Int)
     suspend fun evictMemoryKeysAndLock()

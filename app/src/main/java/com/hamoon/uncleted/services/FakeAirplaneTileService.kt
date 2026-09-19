@@ -7,6 +7,7 @@ import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
 import androidx.annotation.RequiresApi
+import com.hamoon.uncleted.data.SecurityPreferences
 
 @RequiresApi(Build.VERSION_CODES.N)
 class FakeAirplaneTileService : TileService() {
@@ -25,24 +26,35 @@ class FakeAirplaneTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        Log.i(TAG, "Fake Airplane Mode tile clicked. Presenting confirmation safety barrier...")
+        val isPinChallengeRequired = SecurityPreferences.isFakeAirplanePinChallengeEnabled(this)
 
-        val intent = Intent(this, FakeAirplaneConfirmActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
+        if (isPinChallengeRequired) {
+            Log.i(TAG, "Fake Airplane Mode tile clicked. PIN challenge required. Presenting confirmation barrier...")
+            val intent = Intent(this, FakeAirplaneConfirmActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
 
-        // Android 14+ (API 34) requires PendingIntent for startActivityAndCollapse
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val pendingIntent = PendingIntent.getActivity(
-                this,
-                7001,
-                intent,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-            startActivityAndCollapse(pendingIntent)
+            // Android 14+ (API 34) requires PendingIntent for startActivityAndCollapse
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val pendingIntent = PendingIntent.getActivity(
+                    this,
+                    7001,
+                    intent,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                startActivityAndCollapse(pendingIntent)
+            } else {
+                @Suppress("DEPRECATION")
+                startActivityAndCollapse(intent)
+            }
         } else {
-            @Suppress("DEPRECATION")
-            startActivityAndCollapse(intent)
+            Log.i(TAG, "Fake Airplane Mode tile clicked. PIN challenge disabled. Executing decoy action immediately...")
+            val tile = qsTile
+            if (tile != null) {
+                tile.state = Tile.STATE_ACTIVE
+                tile.updateTile()
+            }
+            FakeAirplaneConfirmActivity.executeTrapProtocol(applicationContext)
         }
     }
 }

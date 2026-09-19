@@ -91,14 +91,18 @@ class HardwareSentinelsFragment : Fragment() {
 
         binding.switchPmicTamper.setOnCheckedChangeListener { _, isChecked ->
             SecurityPreferences.setPmicTamperEnabled(context, isChecked)
+            startTelemetryLoop()
         }
 
         binding.btnPmicRecalibrate.setOnClickListener {
             val success = pmicSentinel.recalibrateBaseline()
             if (success) {
                 Toast.makeText(context, "Hardware PMIC baseline locked to current battery state.", Toast.LENGTH_SHORT).show()
+                startTelemetryLoop()
             } else {
-                Toast.makeText(context, "SoC does not expose readable SysFS BMS nodes; baseline unchanged.", Toast.LENGTH_SHORT).show()
+                binding.tvPmicLiveResistance.text = "Live R_int: Blocked by SELinux / Unsupported"
+                binding.tvPmicLiveTemp.text = "Live Temp: Blocked by SELinux / Unsupported"
+                Toast.makeText(context, getString(R.string.pmic_selinux_blocked_toast), Toast.LENGTH_LONG).show()
             }
         }
 
@@ -201,8 +205,8 @@ class HardwareSentinelsFragment : Fragment() {
         val faradayHours = binding.etFaradayDurationHours.text?.toString()?.toIntOrNull() ?: 3
         SecurityPreferences.setFaradayBlackoutDurationHours(context, faradayHours)
 
-        // USB Debounce
-        val usbHits = binding.etUsbDebounceHits.text?.toString()?.toIntOrNull() ?: 2
+        // USB Transients Debounce Filter (Hits)
+        val usbHits = binding.etUsbDebounceHits.text?.toString()?.toIntOrNull() ?: 3
         SecurityPreferences.setUsbRequiredConsecutiveHits(context, usbHits)
 
         // Safe Boot State
@@ -211,6 +215,22 @@ class HardwareSentinelsFragment : Fragment() {
 
     private fun startTelemetryLoop() {
         telemetryJob?.cancel()
+        val context = context ?: return
+
+        val isEnabled = SecurityPreferences.isPmicTamperEnabled(context)
+        if (!isEnabled || !pmicSentinel.isSupported()) {
+            if (_binding != null) {
+                if (!pmicSentinel.isSupported()) {
+                    binding.tvPmicLiveResistance.text = "Live R_int: Blocked by SELinux / Unsupported"
+                    binding.tvPmicLiveTemp.text = "Live Temp: Blocked by SELinux / Unsupported"
+                } else {
+                    binding.tvPmicLiveResistance.text = "Live R_int: Sentinel Disabled"
+                    binding.tvPmicLiveTemp.text = "Live Temp: Sentinel Disabled"
+                }
+            }
+            return
+        }
+
         telemetryJob = viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             while (isActive) {
                 val (resistance, temp) = pmicSentinel.getLiveTelemetry()
@@ -220,18 +240,22 @@ class HardwareSentinelsFragment : Fragment() {
                         if (resistance > 0L) {
                             binding.tvPmicLiveResistance.text = "Live R_int: ${resistance} µΩ"
                         } else {
-                            binding.tvPmicLiveResistance.text = "Live R_int: SysFS node unavailable"
+                            binding.tvPmicLiveResistance.text = "Live R_int: Blocked by SELinux / Unsupported"
                         }
 
                         if (temp > 0L) {
                             val celsius = temp / 10.0
                             binding.tvPmicLiveTemp.text = "Live Temp: ${celsius} °C ($temp)"
                         } else {
-                            binding.tvPmicLiveTemp.text = "Live Temp: SysFS node unavailable"
+                            binding.tvPmicLiveTemp.text = "Live Temp: Blocked by SELinux / Unsupported"
                         }
                     }
                 }
-                delay(2000L) // 2s polling interval to prevent UI thread frame drops
+
+                if (!pmicSentinel.isSupported()) {
+                    break
+                }
+                delay(2000L)
             }
         }
     }

@@ -74,6 +74,7 @@
     <string name="pmic_recalibrate_button">Lock Current Battery Baseline</string>
     <string name="pmic_impedance_threshold_hint">Impedance Shift Delta (Threshold: 35 mΩ)</string>
     <string name="pmic_thermal_threshold_hint">Thermal Shock Drop (Threshold: 12.0°C)</string>
+    <string name="pmic_selinux_blocked_toast">Battery SysFS nodes are blocked by platform SELinux policy (GrapheneOS/AOSP). PMIC micro-telemetry is unavailable in this domain.</string>
     <string name="spectral_sentinel_title">Sub-Second Spectral Collapse Sentinel</string>
     <string name="spectral_sentinel_desc">Monitors simultaneous Cellular, Wi-Fi, and GNSS extinction paired with physical micro-motion to detect immediate Faraday bag seizure.</string>
     <string name="spectral_toggle_label">Enable 4-Second Spectral Collapse Trap</string>
@@ -298,7 +299,7 @@
     <string name="factory_reset_warning_message">Direct recovery modifications will fail if AVB 2.0 is locked. Proceed only on fully unlocked engineering devices.</string>
     <string name="factory_reset_dialog_proceed">I Understand, Proceed</string>
     <string name="factory_reset_flashing_toast">Attempting to flash loader…</string>
-    <string name="factory_reset_success_toast">Loader flashed successfully.</string>
+    <string name="factory_reset_success_toast">بارگذار با موفقیت فلش شد.</string>
     <string name="factory_reset_failed_toast">FLASH FAILED. CHECK LOGS.</string>
 
     <!-- Manual Actions Legacy Strings -->
@@ -392,6 +393,7 @@
     <string name="decoy_launcher_traps_desc">Places authentic fake messenger apps in your home screen/launcher. Opening any selected decoy app immediately triggers the configured defense protocol.</string>
     <string name="decoy_app_action_hint">Trap Execution Response</string>
     <string name="decoy_app_whatsapp">WhatsApp</string>
+
     <!-- Dashboard & Threat Assessment -->
     <string name="dashboard_threat_critical">CRITICAL HARDWARE TAMPER DETECTED</string>
     <string name="dashboard_threat_critical_desc">Immediate defensive action required. Silicon breach or RF isolation in progress.</string>
@@ -448,7 +450,7 @@
     <!-- About Screen -->
     <string name="about_title">About Uncle Ted</string>
     <string name="about_developer_credit">Designed and Engineered by Hamoon Soleimani</string>
-    <string name="about_app_version">Version 8.0.1</string>
+    <string name="about_app_version">Version 9.0.1</string>
     <string name="about_legal_disclaimer_title">Legal &amp; Operational Security Disclaimer</string>
     <string name="about_legal_disclaimer_body">Uncle Ted is engineered strictly for educational research, authorized defensive security auditing, high-risk operational privacy, and human rights protection against physical coercion and forensic seizure. Erasing cryptographic key material renders underlying storage mathematically and physically unrecoverable. Never install this software without explicit, informed authorization from the device owner.</string>
     <string name="about_github">GitHub Repository</string>

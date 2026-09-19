@@ -81,6 +81,21 @@ class DeviceOwnerStrategy(
         }
     }
 
+    override suspend fun executeStandardWipe(reason: String) {
+        Log.i(TAG, "Executing standard platform wipe / factory reset (Reason: $reason)")
+        EventLogger.log(context, "STANDARD_WIPE: Executing normal factory reset via Device Owner.")
+
+        // Do NOT destroy discrete StrongBox suicide key in silicon; trigger standard platform reset
+        try {
+            dpm.wipeData(
+                DevicePolicyManager.WIPE_EXTERNAL_STORAGE or DevicePolicyManager.WIPE_SILENTLY
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Standard silent wipe failed, falling back to legacy wipeData flag", e)
+            dpm.wipeData(0)
+        }
+    }
+
     override suspend fun setUsbDataPortEnabled(enabled: Boolean) {
         Log.i(TAG, "Configuring hardware USB data signaling: enabled=$enabled")
         EventLogger.log(context, "HARDWARE: USB data signaling toggled: enabled=$enabled")

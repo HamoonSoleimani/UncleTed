@@ -45,8 +45,10 @@ object RootActions {
         // 1. Isolate radio and network interfaces
         blockAllNetworkTraffic(context)
 
-        // 2. Destroy discrete Titan M2/StrongBox silicon master key
-        StrongBoxSecurityManager.executeMasterKeySuicide(context)
+        // 2. Destroy discrete Titan M2/StrongBox silicon master key for lethal shredding levels
+        if (level != WipeLevel.STANDARD_WIPE) {
+            StrongBoxSecurityManager.executeMasterKeySuicide(context)
+        }
 
         when (level) {
             WipeLevel.STANDARD_WIPE -> {
@@ -119,7 +121,7 @@ object RootActions {
         val pkgName = context.packageName
 
         val provider = RootChecker.getRootProvider()
-        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v8.0.1)")
+        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v9.0.1)")
 
         val permissionsXmlPath = "${context.filesDir.parent}/privapp-permissions-uncleted.xml"
         val permissionsXmlContent = """
@@ -157,7 +159,7 @@ object RootActions {
             (
                 LOG="/data/adb/uncleted/boot.log"
                 mkdir -p /data/adb/uncleted
-                echo "[${'$'}(date)] Uncle Ted boot service active (v8.0.1)" > "${'$'}LOG"
+                echo "[${'$'}(date)] Uncle Ted boot service active (v9.0.1)" > "${'$'}LOG"
 
                 # Early-boot fallback mount for KernelSU without metamodule
                 if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "$modulePath/system/priv-app/UncleTed/UncleTed.apk" ]; then
@@ -228,8 +230,8 @@ object RootActions {
             "chcon -R u:object_r:system_file:s0 $modulePath/system",
             "echo 'id=$moduleId' > $modulePath/module.prop",
             "echo 'name=UncleTed System Priv-App & Hook' >> $modulePath/module.prop",
-            "echo 'version=v8.0.1' >> $modulePath/module.prop",
-            "echo 'versionCode=8' >> $modulePath/module.prop",
+            "echo 'version=v9.0.1' >> $modulePath/module.prop",
+            "echo 'versionCode=9' >> $modulePath/module.prop",
             "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
             "echo 'description=Universal systemless integration into /system/priv-app.' >> $modulePath/module.prop",
             "cp -f \"${tempBootScript.absolutePath}\" \"$bootScriptPath\"",
@@ -238,7 +240,6 @@ object RootActions {
             "cp -f \"${tempBootScript.absolutePath}\" \"$postMountScriptPath\"",
             "chmod 755 $postMountScriptPath",
             "chown 0:0 $postMountScriptPath",
-            // DO NOT delete /data/app here! The boot script will delete it upon reboot once /system/priv-app is confirmed mounted.
             "sync"
         )
 

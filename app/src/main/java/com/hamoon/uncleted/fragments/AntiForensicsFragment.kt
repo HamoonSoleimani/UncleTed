@@ -41,12 +41,22 @@ class AntiForensicsFragment : Fragment() {
         loadSettings()
         setupListeners()
         observeEphemeralKeyStatus()
+        checkDevicePlatformCapabilities()
     }
 
     private fun loadSettings() {
         val context = requireContext()
         binding.switchOprfEnabled.isChecked = OprfPreferences.isOprfEnabled(context)
         binding.etOprfServerUrl.setText(OprfPreferences.getServerUrl(context))
+    }
+
+    private fun checkDevicePlatformCapabilities() {
+        val diagnostics = BootloaderHardeningHelper.getDeviceDiagnostics()
+        if (diagnostics.platform == BootloaderHardeningHelper.PlatformSecurityModel.SAMSUNG_KNOX) {
+            binding.btnExportAvbPayloads.text = "Export Bootloader & Knox Security Advisory"
+        } else {
+            binding.btnExportAvbPayloads.text = "Export AVB 2.0 & Recovery Hardening Artifacts"
+        }
     }
 
     private fun setupListeners() {
@@ -142,12 +152,33 @@ class AntiForensicsFragment : Fragment() {
         }
 
         binding.btnExportAvbPayloads.setOnClickListener {
-            viewLifecycleOwner.lifecycleScope.launch {
-                val path = withContext(Dispatchers.IO) {
-                    BootloaderHardeningHelper.exportAvbSigningInstructions(context)
-                }
-                Toast.makeText(context, "AVB instructions written to $path", Toast.LENGTH_LONG).show()
+            val diagnostics = BootloaderHardeningHelper.getDeviceDiagnostics()
+
+            if (diagnostics.platform == BootloaderHardeningHelper.PlatformSecurityModel.SAMSUNG_KNOX) {
+                MaterialAlertDialogBuilder(context)
+                    .setTitle("Samsung Knox & Bootloader Advisory")
+                    .setMessage(diagnostics.warningMessage)
+                    .setPositiveButton("Export Knox Advisory") { _, _ ->
+                        exportAvbInstructions(forceGeneric = false)
+                    }
+                    .setNeutralButton("Export Generic AOSP Guide") { _, _ ->
+                        exportAvbInstructions(forceGeneric = true)
+                    }
+                    .setNegativeButton("Close", null)
+                    .show()
+            } else {
+                exportAvbInstructions(forceGeneric = false)
             }
+        }
+    }
+
+    private fun exportAvbInstructions(forceGeneric: Boolean) {
+        val context = requireContext()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val path = withContext(Dispatchers.IO) {
+                BootloaderHardeningHelper.exportAvbSigningInstructions(context, forceGeneric)
+            }
+            Toast.makeText(context, "Artifact written to: $path", Toast.LENGTH_LONG).show()
         }
     }
 

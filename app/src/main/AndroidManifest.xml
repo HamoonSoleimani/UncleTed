@@ -105,7 +105,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Uncle Ted v8.0.1 - NIST PQC Hybrid, OHTTP Canary, Hardware StrongBox, MTE, and Vold Eviction." />
+            android:value="Uncle Ted v9.0.1 - NIST PQC Hybrid, OHTTP Canary, Hardware StrongBox, MTE, and Vold Eviction." />
         <meta-data
             android:name="xposedminversion"
             android:value="93" />
@@ -335,7 +335,7 @@
             android:directBootAware="true"
             android:foregroundServiceType="location" />
 
-        <!-- USB Tripwire Service (Defined in package com.hamoon.uncleted.services inside util/UsbTripwireService.kt) -->
+        <!-- USB Tripwire Service -->
         <service
             android:name=".services.UsbTripwireService"
             android:enabled="true"

@@ -6,8 +6,10 @@ import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SeekBarPreference
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.hamoon.uncleted.R
 import com.hamoon.uncleted.data.SecurityPreferences
+import com.hamoon.uncleted.util.BootloaderHardeningHelper
 import com.hamoon.uncleted.util.LocaleManager
 
 class SettingsFragment : PreferenceFragmentCompat() {
@@ -19,16 +21,14 @@ class SettingsFragment : PreferenceFragmentCompat() {
         val themePreference: ListPreference? = findPreference("theme")
         themePreference?.onPreferenceChangeListener =
             Preference.OnPreferenceChangeListener { _, newValue ->
-                // The new value is saved automatically. We just need to apply it.
                 applyTheme(newValue as String)
                 true
             }
 
-        // ### NEW: Language Preference Handler ###
+        // Language Preference Handler
         val languagePreference: ListPreference? = findPreference("language")
         languagePreference?.onPreferenceChangeListener =
             Preference.OnPreferenceChangeListener { _, newValue ->
-                // Apply the new locale. AppCompat will handle recreating the activity.
                 LocaleManager.setLocale(newValue as String)
                 true
             }
@@ -40,10 +40,37 @@ class SettingsFragment : PreferenceFragmentCompat() {
                 SecurityPreferences.setShakeSensitivity(requireContext(), newValue as Int)
                 true
             }
+
+        // USB Transients Debounce Preference Handler
+        val usbDebouncePref: SeekBarPreference? = findPreference("pref_usb_debounce_hits")
+        usbDebouncePref?.value = SecurityPreferences.getUsbRequiredConsecutiveHits(requireContext())
+        usbDebouncePref?.onPreferenceChangeListener =
+            Preference.OnPreferenceChangeListener { _, newValue ->
+                val hits = newValue as Int
+                SecurityPreferences.setUsbRequiredConsecutiveHits(requireContext(), hits)
+                true
+            }
+
+        // Bootloader & AVB Status Preference Handler
+        val avbStatusPref: Preference? = findPreference("pref_bootloader_avb_status")
+        val diagnostics = BootloaderHardeningHelper.getDeviceDiagnostics()
+        avbStatusPref?.summary = "Platform: ${diagnostics.platform.name} (${diagnostics.manufacturer} ${diagnostics.model})"
+        avbStatusPref?.setOnPreferenceClickListener {
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle("Hardware Security Diagnostics")
+                .setMessage(
+                    "Device: ${diagnostics.manufacturer} ${diagnostics.model}\n\n" +
+                            "Security Model: ${diagnostics.platform.name}\n\n" +
+                            "Custom AVB Lockable: ${if (diagnostics.isCustomAvbSupported) "YES" else "NO"}\n\n" +
+                            "${diagnostics.warningMessage}"
+                )
+                .setPositiveButton("OK", null)
+                .show()
+            true
+        }
     }
 
     private fun applyTheme(themeValue: String) {
-        // This sets the base night mode. The Application class handles applying the specific AMOLED theme.
         val mode = when (themeValue) {
             "light" -> AppCompatDelegate.MODE_NIGHT_NO
             "dark", "amoled" -> AppCompatDelegate.MODE_NIGHT_YES

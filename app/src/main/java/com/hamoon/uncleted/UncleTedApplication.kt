@@ -9,6 +9,7 @@ import android.os.UserManager
 import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.preference.PreferenceManager
+import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.util.LocaleManager
 import com.hamoon.uncleted.util.NativeSecurityBridge
 
@@ -30,14 +31,7 @@ class UncleTedApplication : Application() {
         }
 
         // 2. Safe Direct Boot Guard: Do NOT access CE storage in BFU mode
-        val userManager = getSystemService(Context.USER_SERVICE) as? UserManager
-        val isUnlocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            userManager?.isUserUnlocked ?: true
-        } else {
-            true
-        }
-
-        if (isUnlocked) {
+        if (SecurityPreferences.isUserUnlocked(this)) {
             try {
                 val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
                 val languageValue = sharedPreferences.getString("language", "system") ?: "system"
@@ -49,12 +43,16 @@ class UncleTedApplication : Application() {
             Log.i(TAG, "Device is in BFU state. Deferring CE SharedPreferences access until unlock.")
         }
 
-        // 3. Register Activity Lifecycle Callbacks safely
+        // 3. Register Activity Lifecycle Callbacks safely with dynamic unlock validation
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityPreCreated(activity: Activity, savedInstanceState: Bundle?) {
-                if (isUnlocked) {
+                // Dynamically evaluate unlocked state on each activity creation to prevent stale BFU closure capture
+                if (SecurityPreferences.isUserUnlocked(activity)) {
                     try {
                         val prefs = PreferenceManager.getDefaultSharedPreferences(this@UncleTedApplication)
+                        val languageValue = prefs.getString("language", "system") ?: "system"
+                        LocaleManager.setLocale(languageValue)
+
                         val themeValue = prefs.getString("theme", "system")
                         applyNightModeForActivity(themeValue)
                         if (themeValue == "amoled") {

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Universal Module Packager for Uncle Ted (v8.0.1)
+Universal Module Packager for Uncle Ted (v9.0.1)
 Generates an out-of-the-box flashable ZIP compatible with:
 - KernelSU / KernelSU-Next (In-app & Recovery)
 - Magisk / Kitsune Mask (In-app & Recovery)
@@ -24,11 +24,11 @@ import zipfile
 
 MODULE_ID = "uncleted_privapp"
 MODULE_NAME = "UncleTed System Priv-App & Hook"
-MODULE_VERSION = "v8.0.1"
-MODULE_VERSION_CODE = "8"
+MODULE_VERSION = "v9.0.1"
+MODULE_VERSION_CODE = "9"
 MODULE_AUTHOR = "Hamoon Soleimani"
 MODULE_DESCRIPTION = (
-    "v8.0.1: Domain-driven defense suite with discrete Titan M2 StrongBox suicide engine, "
+    "v9.0.1: Domain-driven defense suite with discrete Titan M2 StrongBox suicide engine, "
     "NIST FIPS 203 ML-KEM-768 + X25519 PQC, RFC 9458 OHTTP covert canary, BLE proximity key sharding, "
     "Plausible Deniability DNG vault, ARMv8.5-A synchronous MTE hardening, physical USB HAL port severing, "
     "cold Vold keyring eviction, multi-user decoy space migration, and native LSPosed Keyguard interception hooks."
@@ -54,12 +54,13 @@ POSSIBLE_PERM_PATHS = [
 
 POSSIBLE_APK_PATHS = [
     os.path.join(APP_DIR, "build", "outputs", "apk", "release", f"UncleTed-{MODULE_VERSION}.apk"),
+    os.path.join(APP_DIR, "build", "outputs", "apk", "release", "UncleTed-v9.0.1.apk"),
     os.path.join(APP_DIR, "build", "outputs", "apk", "release", "app-release.apk"),
     os.path.join(APP_DIR, "build", "outputs", "apk", "release", "app-release-unsigned.apk"),
     os.path.join(APP_DIR, "build", "outputs", "apk", "debug", "app-debug.apk"),
     os.path.join(PROJECT_ROOT, f"UncleTed-{MODULE_VERSION}.apk"),
+    os.path.join(PROJECT_ROOT, "UncleTed-v9.0.1.apk"),
     os.path.join(PROJECT_ROOT, "UncleTed-v8.0.1.apk"),
-    os.path.join(PROJECT_ROOT, "UncleTed-v7.0.1.apk"),
 ]
 
 SYSTEM_PROP_CONTENT = """# Multi-User Framework Flags for Uncle Ted Decoy Space
@@ -71,7 +72,7 @@ persist.sys.fw.max_users=5
 
 UPDATE_BINARY_CONTENT = r'''#!/bin/sh
 ##########################################################################################
-# Universal Recovery & Root Manager Installer for Uncle Ted (v8.0.1)
+# Universal Recovery & Root Manager Installer for Uncle Ted (v9.0.1)
 # Compatible with AOSP / Evolution X / Lineage Recovery (/bin/sh) and TWRP (/sbin/sh)
 ##########################################################################################
 
@@ -98,7 +99,7 @@ ui_print() {
 
 ui_print "***********************************************"
 ui_print "       Uncle Ted System Defense Suite          "
-ui_print "    Hardware StrongBox & Hook Mode (v8.0.1)    "
+ui_print "    Hardware StrongBox & Hook Mode (v9.0.1)    "
 ui_print "***********************************************"
 
 BOOTMODE=false
@@ -217,7 +218,7 @@ export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
 (
   LOG="/data/adb/uncleted/boot.log"
   mkdir -p /data/adb/uncleted
-  echo "[$(date)] Uncle Ted boot service active (v8.0.1)" > "$LOG"
+  echo "[$(date)] Uncle Ted boot service active (v9.0.1)" > "$LOG"
 
   # Fallback mount for KernelSU / APatch if /system was not mounted by metamodule
   if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "/data/adb/modules/uncleted_privapp/system/priv-app/UncleTed/UncleTed.apk" ]; then
@@ -323,14 +324,14 @@ else
 fi
 
 ui_print " "
-ui_print "✓ Installation successful (v8.0.1)!"
+ui_print "✓ Installation successful (v9.0.1)!"
 ui_print "✓ Systemless priv-app, StrongBox, Multi-User, and ARM MTE layers armed."
 exit 0
 '''
 
 CUSTOMIZE_SH_CONTENT = r'''#!/sbin/sh
 ##########################################################################################
-# Magisk / KernelSU / APatch In-App Customization Script (v8.0.1)
+# Magisk / KernelSU / APatch In-App Customization Script (v9.0.1)
 ##########################################################################################
 
 ui_print "- Extracting native ARMv8.5-A MTE hardened libraries..."

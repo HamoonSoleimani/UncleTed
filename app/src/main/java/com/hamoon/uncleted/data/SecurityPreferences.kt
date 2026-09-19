@@ -697,7 +697,7 @@ object SecurityPreferences {
     }
 
     // =========================================================================
-    // 8. Physical USB Gadget Controller Tripwire
+    // 8. Physical USB Gadget Controller Tripwire & Transients Debounce Filter
     // =========================================================================
     fun setUsbTripwireEnabled(context: Context, isEnabled: Boolean) {
         getDeviceProtectedPrefs(context).edit().putBoolean("BFU_USB_TRIPWIRE_ENABLED", isEnabled).apply()
@@ -716,19 +716,20 @@ object SecurityPreferences {
     }
 
     fun setUsbRequiredConsecutiveHits(context: Context, hits: Int) {
-        getDeviceProtectedPrefs(context).edit().putInt("BFU_USB_REQUIRED_HITS", hits).apply()
+        val bounded = hits.coerceIn(1, 10)
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_USB_REQUIRED_HITS", bounded).apply()
         if (isUserUnlocked(context)) {
-            getInstance(context).edit().putInt("USB_REQUIRED_HITS", hits).apply()
+            getInstance(context).edit().putInt("USB_REQUIRED_HITS", bounded).apply()
         }
     }
 
     fun getUsbRequiredConsecutiveHits(context: Context): Int {
         return if (!isUserUnlocked(context)) {
-            getDeviceProtectedPrefs(context).getInt("BFU_USB_REQUIRED_HITS", 2)
+            getDeviceProtectedPrefs(context).getInt("BFU_USB_REQUIRED_HITS", 3)
         } else {
             getDeviceProtectedPrefs(context).getInt(
                 "BFU_USB_REQUIRED_HITS",
-                getInstance(context).getInt("USB_REQUIRED_HITS", 2)
+                getInstance(context).getInt("USB_REQUIRED_HITS", 3)
             )
         }
     }

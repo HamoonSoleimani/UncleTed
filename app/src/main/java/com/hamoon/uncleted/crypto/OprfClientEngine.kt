@@ -96,7 +96,7 @@ object OprfClientEngine {
             val request = Request.Builder()
                 .url(serverUrl)
                 .post(jsonPayload.toString().toRequestBody(MEDIA_TYPE_JSON))
-                .header("User-Agent", "UncleTed-OPRF/v8.0.1")
+                .header("User-Agent", "UncleTed-OPRF/v9.0.1")
                 .build()
 
             val response = httpClient.newCall(request).execute()

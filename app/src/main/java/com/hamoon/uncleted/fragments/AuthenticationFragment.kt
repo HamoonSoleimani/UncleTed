@@ -92,8 +92,13 @@ class AuthenticationFragment : Fragment() {
     }
 
     private fun setupAirplaneTileActionDropdown(currentAction: String) {
-        val actions = listOf("LOCK", "WIPE", "DURESS")
-        val labels = listOf("Lock Device to BFU", "Immediate Silicon Wipe (Lethal)", "Silent Duress Canary")
+        val actions = listOf("LOCK", "STANDARD_WIPE", "WIPE", "DURESS")
+        val labels = listOf(
+            "Lock Device to BFU",
+            "Standard Platform Wipe (Factory Reset)",
+            "Immediate Silicon Wipe (Lethal)",
+            "Silent Duress Canary"
+        )
         val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, labels)
         binding.autoAirplaneTileAction.setAdapter(adapter)
 
@@ -183,7 +188,7 @@ class AuthenticationFragment : Fragment() {
         }
 
         binding.autoAirplaneTileAction.setOnItemClickListener { _, _, position, _ ->
-            val actions = listOf("LOCK", "WIPE", "DURESS")
+            val actions = listOf("LOCK", "STANDARD_WIPE", "WIPE", "DURESS")
             val selectedAction = actions[position]
             SecurityPreferences.setFakeAirplaneAction(context, selectedAction)
             Toast.makeText(context, "Airplane mode tile action: $selectedAction", Toast.LENGTH_SHORT).show()

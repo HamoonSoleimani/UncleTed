@@ -28,7 +28,6 @@ class UsbTripwireService : Service() {
         private const val TAG = "UsbTripwireService"
         private const val NOTIFICATION_ID = 2002
         private const val POLLING_INTERVAL_MS = 1000L
-        private const val REQUIRED_CONSECUTIVE_HITS = 2
     }
 
     override fun onCreate() {
@@ -80,14 +79,15 @@ class UsbTripwireService : Service() {
 
                 if (isLocked) {
                     val isDataConnected = UsbDetector.isDataCableConnected(this@UsbTripwireService)
+                    val requiredHits = SecurityPreferences.getUsbRequiredConsecutiveHits(this@UsbTripwireService)
 
                     if (isDataConnected) {
                         consecutiveDataHits++
-                        Log.w(TAG, "Host data cable detected while locked ($consecutiveDataHits/$REQUIRED_CONSECUTIVE_HITS)")
+                        Log.w(TAG, "Host data cable detected while locked ($consecutiveDataHits/$requiredHits)")
 
-                        if (consecutiveDataHits >= REQUIRED_CONSECUTIVE_HITS) {
-                            Log.e(TAG, "!!! HOST CONNECTION CONFIRMED WHILE LOCKED: EXECUTING KILLSWITCH !!!")
-                            EventLogger.log(this@UsbTripwireService, "CRITICAL: Physical USB data host breach detected!")
+                        if (consecutiveDataHits >= requiredHits) {
+                            Log.e(TAG, "!!! HOST CONNECTION CONFIRMED WHILE LOCKED ($consecutiveDataHits SUSTAINED HITS): EXECUTING KILLSWITCH !!!")
+                            EventLogger.log(this@UsbTripwireService, "CRITICAL: Physical USB data host breach detected ($consecutiveDataHits hits)!")
 
                             val strategy = DefenseCoordinator.resolveStrategy(this@UsbTripwireService)
                             strategy.setUsbDataPortEnabled(false)

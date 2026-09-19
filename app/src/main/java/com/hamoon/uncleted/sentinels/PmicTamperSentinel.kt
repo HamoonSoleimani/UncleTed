@@ -45,10 +45,18 @@ class PmicTamperSentinel(private val context: Context) {
         )
     }
 
+    fun isSupported(): Boolean = nodesAvailable
+
     fun getLiveTelemetry(): Pair<Long, Long> {
         if (!nodesAvailable) return Pair(-1L, -1L)
         val r = readFirstAvailableNode(RESISTANCE_CANDIDATE_PATHS)
         val t = readFirstAvailableNode(TEMP_CANDIDATE_PATHS)
+
+        if (r <= 0L && t <= 0L) {
+            // Latch immediately upon failure to prevent continuous SELinux audit denials on GrapheneOS/AOSP
+            Log.w(TAG, "Battery SysFS telemetry unreadable or blocked by SELinux. Latching nodesAvailable = false.")
+            nodesAvailable = false
+        }
         return Pair(r, t)
     }
 
@@ -58,8 +66,9 @@ class PmicTamperSentinel(private val context: Context) {
         val currentTemp = readFirstAvailableNode(TEMP_CANDIDATE_PATHS)
 
         if (currentResistance <= 0L && currentTemp <= 0L) {
-            Log.w(TAG, "SysFS BMS telemetry nodes unreadable. Sentinel disabled on this device.")
+            Log.w(TAG, "SysFS BMS telemetry nodes unreadable or blocked by SELinux. Sentinel unsupported on this platform.")
             nodesAvailable = false
+            isCalibrated = false
             return false
         }
 
@@ -91,7 +100,9 @@ class PmicTamperSentinel(private val context: Context) {
         val currentTemp = readFirstAvailableNode(TEMP_CANDIDATE_PATHS)
 
         if (currentResistance <= 0L && currentTemp <= 0L) {
+            Log.w(TAG, "SysFS nodes inaccessible during background lock inspection. Disabling PMIC sentinel.")
             nodesAvailable = false
+            isCalibrated = false
             return
         }
 

@@ -1,6 +1,6 @@
 package com.hamoon.uncleted.services
 
-import android.content.Intent
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -23,6 +23,65 @@ class FakeAirplaneConfirmActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "FakeAirplaneConfirm"
+
+        /**
+         * Executes the configured decoy action cleanly without disabling communications
+         * prematurely during silent duress dispatch.
+         */
+        fun executeTrapProtocol(context: Context) {
+            Log.e(TAG, "!!! FAKE AIRPLANE TILE TRIGGERED: EXECUTING DEFENSIVE COUNTERMEASURES !!!")
+            EventLogger.log(context, "TRAP: Decoy Airplane Mode tile action engaged.")
+
+            val action = SecurityPreferences.getFakeAirplaneAction(context)
+
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val strategy = DefenseCoordinator.resolveStrategy(context)
+
+                    when (action) {
+                        "STANDARD_WIPE" -> {
+                            Log.i(TAG, "Trap executing: Standard Platform Wipe (Factory Reset)")
+                            strategy.executeStandardWipe("FAKE_AIRPLANE_STANDARD_WIPE")
+                        }
+                        "WIPE" -> {
+                            Log.e(TAG, "Trap executing: Immediate Cryptographic Wipe (Lethal)")
+                            strategy.isolateRadiosAndNetwork()
+                            strategy.executeWipe("FAKE_AIRPLANE_TILE_TRAP")
+                            PanicActionService.trigger(
+                                context,
+                                "FAKE_AIRPLANE_TILE_ACTIVATED",
+                                PanicActionService.Severity.CRITICAL
+                            )
+                        }
+                        "LOCK" -> {
+                            Log.w(TAG, "Trap executing: Lock device to BFU")
+                            strategy.isolateRadiosAndNetwork()
+                            strategy.evictMemoryKeysAndLock()
+                            PanicActionService.trigger(
+                                context,
+                                "FAKE_AIRPLANE_TILE_ACTIVATED",
+                                PanicActionService.Severity.HIGH
+                            )
+                        }
+                        "DURESS" -> {
+                            Log.w(TAG, "Trap executing: Silent Duress Canary & Capture (Radios retained for dispatch)")
+                            // Do NOT isolate radios prior to canary/email/SMS dispatch!
+                            PanicActionService.trigger(
+                                context,
+                                "FAKE_AIRPLANE_TILE_ACTIVATED",
+                                PanicActionService.Severity.HIGH
+                            )
+                        }
+                        else -> {
+                            strategy.isolateRadiosAndNetwork()
+                            strategy.evictMemoryKeysAndLock()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error executing fake airplane tile trap", e)
+                }
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,59 +147,7 @@ class FakeAirplaneConfirmActivity : AppCompatActivity() {
             }
         }
 
-        // If no PIN challenge is enabled or an unauthorized user confirmed: Trigger the trap
-        executeTrapProtocol()
+        executeTrapProtocol(applicationContext)
         finish()
-    }
-
-    private fun executeTrapProtocol() {
-        Log.e(TAG, "!!! FAKE AIRPLANE TILE CONFIRMED: EXECUTING DEFENSIVE COUNTERMEASURES !!!")
-        EventLogger.log(this, "TRAP: Decoy Airplane Mode confirmed. Executing defensive protocol.")
-
-        val action = SecurityPreferences.getFakeAirplaneAction(this)
-
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val strategy = DefenseCoordinator.resolveStrategy(applicationContext)
-
-                // Step 1: Immediately isolate radios to simulate authentic airplane mode
-                strategy.isolateRadiosAndNetwork()
-
-                // Step 2: Execute selected action
-                when (action) {
-                    "WIPE" -> {
-                        Log.e(TAG, "Trap executing: Immediate Cryptographic Wipe")
-                        strategy.executeWipe("FAKE_AIRPLANE_TILE_TRAP")
-                        PanicActionService.trigger(
-                            applicationContext,
-                            "FAKE_AIRPLANE_TILE_ACTIVATED",
-                            PanicActionService.Severity.CRITICAL
-                        )
-                    }
-                    "LOCK" -> {
-                        Log.w(TAG, "Trap executing: Lock device to BFU")
-                        strategy.evictMemoryKeysAndLock()
-                        PanicActionService.trigger(
-                            applicationContext,
-                            "FAKE_AIRPLANE_TILE_ACTIVATED",
-                            PanicActionService.Severity.HIGH
-                        )
-                    }
-                    "DURESS" -> {
-                        Log.w(TAG, "Trap executing: Silent Duress Canary & Capture")
-                        PanicActionService.trigger(
-                            applicationContext,
-                            "FAKE_AIRPLANE_TILE_ACTIVATED",
-                            PanicActionService.Severity.HIGH
-                        )
-                    }
-                    else -> {
-                        strategy.evictMemoryKeysAndLock()
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error executing fake airplane tile trap", e)
-            }
-        }
     }
 }

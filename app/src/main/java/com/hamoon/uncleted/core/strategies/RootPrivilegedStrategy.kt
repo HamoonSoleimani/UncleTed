@@ -48,6 +48,20 @@ class RootPrivilegedStrategy(
         }
     }
 
+    override suspend fun executeStandardWipe(reason: String) {
+        Log.i(TAG, "Executing root-level standard factory reset (Reason: $reason)")
+        EventLogger.log(context, "STANDARD_WIPE: Staging BCB command for normal factory reset.")
+
+        EmergencyDestructionEngine.stageRecoveryWipeCommand()
+        val rebootResult = RootExecutor.run("reboot recovery")
+        if (!rebootResult.isSuccess) {
+            val platformSuccess = EmergencyDestructionEngine.triggerPlatformRecoveryWipe(context, reason)
+            if (!platformSuccess) {
+                EmergencyDestructionEngine.executeKernelRebootFallback()
+            }
+        }
+    }
+
     override suspend fun setUsbDataPortEnabled(enabled: Boolean) {
         Log.i(TAG, "Manipulating USB Gadget controller via elevated shell: enabled=$enabled")
         EventLogger.log(context, "HARDWARE: Root USB gadget controller state modified: enabled=$enabled")
