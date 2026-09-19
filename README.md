@@ -24,6 +24,7 @@
 <p align="center">
   <img width="829" height="601" alt="Uncle Ted Architecture Overview" src="https://github.com/user-attachments/assets/cef2fb8b-4fdd-40f5-9778-c89e2f4a9825" />
 </p>
+<img width="1361" height="1079" alt="image" src="https://github.com/user-attachments/assets/b8048b25-e480-4da0-b902-01b80d12fb4c" />
 
 ---
 
