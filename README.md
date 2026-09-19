@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/HamoonSoleimani/UncleTed/blob/main/uncle-ted-manual.pdf">
+    <img src="https://img.shields.io/badge/Documentation-Operator%20Manual%20(PDF)-red.svg?style=for-the-badge&logo=adobeacrobatreader" alt="Operator Manual PDF">
+  </a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Version-v8.0.1-brightgreen.svg" alt="Version">
   <img src="https://img.shields.io/badge/Target%20SDK-34%20(Android%2014)-green.svg" alt="Target SDK">
@@ -25,9 +31,12 @@
   <img width="829" height="601" alt="Uncle Ted Architecture Overview" src="https://github.com/user-attachments/assets/cef2fb8b-4fdd-40f5-9778-c89e2f4a9825" />
 </p>
 
+> 📖 **Comprehensive Documentation:** For detailed operational tradecraft, threat modeling, and deployment architectures, consult the official [Uncle Ted Operator Manual (PDF)](https://github.com/HamoonSoleimani/UncleTed/blob/main/uncle-ted-manual.pdf).
+
 ---
 
 ### **Table of Contents**
+- [📖 Operator Manual (PDF)](#-comprehensive-documentation)
 - [⚠️ Legal & Ethical Disclaimer](#️-legal--ethical-disclaimer)
 - [📊 Architectural Comparison: Deployment Profiles](#-architectural-comparison-deployment-profiles)
 - [🏗️ System Architecture (Dual-Profile & Sub-OS Engine)](#️-system-architecture-dual-profile--sub-os-engine)
@@ -78,7 +87,9 @@
 
 ## 📊 Architectural Comparison: Deployment Profiles
 
-On modern Android (Android 9 through 16), the platform enforces strict security boundaries between unprivileged apps, system services, kernel memory, and hardware execution environments. Uncle Ted operates across two privileged architectural routes: **Route A (Enterprise Device Owner with Locked Bootloader & Enforcing AVB 2.0)** and **Route B (Systemless Priv-App with native LSPosed hooks in `system_server` and early init hooks)**.
+On modern Android (Android 9 through 16), the platform enforces strict security boundaries between unprivileged apps, system services, kernel memory, and hardware execution environments. Uncle Ted operates universally across stock Android OEM firmware (Samsung, Motorola, Pixel, Xiaomi, etc.) as an anti-forensic alternative to privacy-focused operating systems like GrapheneOS, or can be deployed directly alongside GrapheneOS to add physical duress, anti-coercion, and silicon crypto-shredding layers.
+
+The suite operates across two privileged architectural routes: **Route A (Enterprise Device Owner with Locked Bootloader & Enforcing AVB 2.0)** and **Route B (Systemless Priv-App with native LSPosed hooks in `system_server` and early init hooks)**.
 
 | Security Vector / Capability | Standalone APK (Stock OS / Sideloaded) | Route A: Device Owner via ADB (Locked Bootloader & AVB) | Route B: Privileged Root + LSPosed (Unlocked Bootloader) | Technical Root Cause / Mechanism |
 | :--- | :---: | :---: | :---: | :--- |
@@ -213,7 +224,7 @@ Uncle Ted v8.0.1 features a decoupled, strategy-based architecture coordinated b
 ---
 
 ### 6. NIST FIPS 203 Post-Quantum Cryptographic Hybrid Engine (ML-KEM-768 + X25519)
-- **Quantum-Resistant KEM Architecture (`PostQuantumEngine`):** Integrates the finalized NIST FIPS 203 post-quantum standard **ML-KEM-768** (CRYSTALS-Kyber) operating in tandem with classical **Curve25519 (X25519)** [1, 2].
+- **Quantum-Resistant KEM Architecture (`PostQuantumEngine`):** Integrates the finalized NIST FIPS 203 post-quantum standard **ML-KEM-768** (CRYSTALS-Kyber) operating in tandem with classical **Curve25519 (X25519)**.
 - **Immunity to "Harvest Now, Decrypt Later" (HNDL):** Adversaries capturing distress signals or encrypted storage archives cannot retroactively decrypt evidentiary dossiers or alert metadata using Shor's algorithm on future Cryptanalytically Relevant Quantum Computers (CRQCs).
 - **HKDF-SHA512 Combiner:** Derives master 256-bit symmetric operational keys via HMAC-SHA512 combining classical ECDH shared secrets with lattice-based KEM decapsulation secrets over strict domain-separated salt anchors.
 - **Hardware-Sealed Private Keys:** Local post-quantum private keys are encrypted at rest with the discrete StrongBox master key inside `CryptoPreferences`, preventing plaintext extraction from flash dumps.
@@ -392,11 +403,11 @@ UNCLETED [COMMAND] [SMS_MASTER_PASSWORD] [OPTIONAL_ARGS]
 ## 🛠️ Technology Stack
 
 - **Languages:** 100% Modern Kotlin (Coroutines, StateFlow, Mutex) & Modern C++17 (Native NDK)
-- **Target OS:** Android 14 (API 34) | **Minimum OS:** Android 9 (API 28) | **Compatibility:** Android 9 to 16
+- **Target OS:** Android 14 (API 34) | **Minimum OS:** Android 9 (API 28) | **Compatibility:** Android 9 to 16 (Stock OEM ROMs, GrapheneOS, LineageOS, CalyxOS, AOSP)
 - **NDK Toolchain:** Clang with `-march=armv8.5-a+memtag -fsanitize=memtag -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O3` (NDK `30.0.16248370` / `26.x`)
 - **Hardware Security Modules:** Google Titan M / Titan M2, Qualcomm SPU via StrongBox KeyMint API (`FEATURE_STRONGBOX_KEYSTORE`), Hardware Monotonic Counters / RPMB
-- **Post-Quantum Cryptography:** NIST FIPS 203 ML-KEM-768 (CRYSTALS-Kyber) + Curve25519 (X25519) via Bouncy Castle PQC, HKDF-SHA512 [1, 2]
-- **Key Decoupling Architecture:** RFC 9497 Elliptic Curve Oblivious Pseudorandom Function (EC-OPRF) over `secp256r1` with blind client scalars and modular inversion [8]
+- **Post-Quantum Cryptography:** NIST FIPS 203 ML-KEM-768 (CRYSTALS-Kyber) + Curve25519 (X25519) via Bouncy Castle PQC, HKDF-SHA512
+- **Key Decoupling Architecture:** RFC 9497 Elliptic Curve Oblivious Pseudorandom Function (EC-OPRF) over `secp256r1` with blind client scalars and modular inversion
 - **Native Memory Hardening:** ARMv8.5-A Memory Tagging Extension (MTE Synchronous Mode), `prctl(PR_SET_DUMPABLE, 0)`, `mlock()` page pinning, volatile pointer zeroing barriers
 - **Storage Sanitization:** JEDEC JESD220 (UFS) and JESD84-B51 (eMMC) direct kernel IOCTLs (`BLKSECDISCARD` / `BLKDISCARD`), 64KB FBE metadata block zeroing
 - **Peripheral Bus Control:** USB HAL v1.3+, Qualcomm DWC3 driver register unbind, Linux UDC controller manipulation, SysRq hardware panic triggers
@@ -549,8 +560,9 @@ UncleTed-main/
 ## 🚀 Deployment & Installation Guide
 
 ### Prerequisites
-- **For Route A (Device Owner Mode):** An Android device running Android 9 through 16 with a locked bootloader, freshly factory reset (containing zero Google or user accounts).
+- **For Route A (Device Owner Mode):** An Android device running Android 9 through 16 with a locked bootloader (stock OEM firmware, AOSP, or security-focused ROMs such as GrapheneOS), freshly factory reset with zero user accounts.
 - **For Route B (Privileged Root & Hook Mode):** A rooted Android device running Android 9 through 16 (rooted via **Magisk**, **KernelSU**, **KernelSU-Next**, or **APatch**) with **LSPosed** installed and operational.
+- **Documentation:** Review the [Uncle Ted Operator Manual (PDF)](https://github.com/HamoonSoleimani/UncleTed/blob/main/uncle-ted-manual.pdf) for operational workflows and deployment checklists.
 
 ---
 
@@ -785,4 +797,5 @@ FastCryptoShred: 64KB metadata key block zeroed on: /dev/block/by-name/metadata
 ## 📄 License & Credits
 
 - **Author & Lead Developer:** Hamoon Soleimani ([Website](https://hamoon.net/) | [GitHub](https://github.com/HamoonSoleimani))
+- **Documentation:** [Uncle Ted Operator Manual (PDF)](https://github.com/HamoonSoleimani/UncleTed/blob/main/uncle-ted-manual.pdf)
 - **License:** Licensed under the [MIT License](LICENSE).
