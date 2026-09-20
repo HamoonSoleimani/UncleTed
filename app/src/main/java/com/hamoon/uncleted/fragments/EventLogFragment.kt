@@ -1,10 +1,14 @@
 package com.hamoon.uncleted.fragments
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -30,7 +34,11 @@ class EventLogFragment : Fragment() {
         activity?.title = "Security Event Log"
 
         val logs = EventLogger.getLogs(requireContext())
-        val adapter = EventLogAdapter(logs)
+        val adapter = EventLogAdapter(logs) { selectedLog ->
+            val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("UncleTed_EventLog", selectedLog))
+            Toast.makeText(requireContext(), "Log entry copied to clipboard", Toast.LENGTH_SHORT).show()
+        }
 
         binding.rvEventLog.layoutManager = LinearLayoutManager(requireContext())
         binding.rvEventLog.adapter = adapter
@@ -42,7 +50,10 @@ class EventLogFragment : Fragment() {
     }
 }
 
-class EventLogAdapter(private val logs: List<String>) : RecyclerView.Adapter<EventLogAdapter.LogViewHolder>() {
+class EventLogAdapter(
+    private val logs: List<String>,
+    private val onItemLongClick: (String) -> Unit
+) : RecyclerView.Adapter<EventLogAdapter.LogViewHolder>() {
 
     class LogViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val logTextView: TextView = itemView.findViewById(R.id.tv_log_entry)
@@ -54,7 +65,12 @@ class EventLogAdapter(private val logs: List<String>) : RecyclerView.Adapter<Eve
     }
 
     override fun onBindViewHolder(holder: LogViewHolder, position: Int) {
-        holder.logTextView.text = logs[position]
+        val log = logs[position]
+        holder.logTextView.text = log
+        holder.itemView.setOnLongClickListener {
+            onItemLongClick(log)
+            true
+        }
     }
 
     override fun getItemCount() = logs.size

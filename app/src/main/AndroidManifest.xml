@@ -105,10 +105,13 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Uncle Ted v9.0.1 - NIST PQC Hybrid, OHTTP Canary, Hardware StrongBox, MTE, and Vold Eviction." />
+            android:value="Uncle Ted v10.0.1 - NIST PQC Hybrid, OHTTP Canary, Hardware StrongBox, MTE, and Vold Eviction." />
         <meta-data
             android:name="xposedminversion"
             android:value="93" />
+        <meta-data
+            android:name="xposedsharedprefs"
+            android:value="false" />
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
@@ -126,6 +129,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Evidence Locker & Media Viewer Activity -->
+        <activity
+            android:name=".EvidenceGalleryActivity"
+            android:exported="false"
+            android:label="Evidence Locker &amp; Media Vault"
+            android:theme="@style/Theme.UncleTed" />
 
         <!-- Launcher Alias for Stealth Mode -->
         <activity-alias

@@ -17,6 +17,7 @@
     <string name="menu_surveillance">Surveillance &amp; Evidence</string>
     <string name="menu_destruction">Destruction Protocols</string>
     <string name="menu_permissions">System Platform Access</string>
+    <string name="menu_diagnostics">Bug Reporting &amp; Logs</string>
     <string name="menu_settings">Application Settings</string>
     <string name="menu_about">About &amp; Attribution</string>
 
@@ -243,7 +244,7 @@
     <string name="destruction_execute_level_3">Execute Level 3: OS Suicide (Soft Brick)</string>
     <string name="destruction_execute_level_4">EXECUTE LEVEL 4: NUCLEAR WINTER</string>
 
-    <!-- Automated Features & Categories (Features Layout Compatibility) -->
+    <!-- Automated Features & Categories -->
     <string name="features_panic_category">Panic &amp; Evidence Features</string>
     <string name="features_triggers_category">Automated &amp; Environment Triggers</string>
     <string name="features_config_category">App &amp; System Configuration</string>
@@ -266,7 +267,7 @@
     <string name="feature_maintenance_enabled_toast">Maintenance Mode Enabled.</string>
     <string name="feature_event_log_button">View Security Event Log</string>
 
-    <!-- Root Feature Descriptions (Features Layout Compatibility) -->
+    <!-- Root Feature Descriptions -->
     <string name="root_features_title">Root-Exclusive Features</string>
     <string name="root_features_unavailable">Root access not detected. These features are unavailable.</string>
     <string name="root_feature_gps_spoof">GPS Spoofing on Duress</string>
@@ -299,7 +300,7 @@
     <string name="factory_reset_warning_message">Direct recovery modifications will fail if AVB 2.0 is locked. Proceed only on fully unlocked engineering devices.</string>
     <string name="factory_reset_dialog_proceed">I Understand, Proceed</string>
     <string name="factory_reset_flashing_toast">Attempting to flash loader…</string>
-    <string name="factory_reset_success_toast">بارگذار با موفقیت فلش شد.</string>
+    <string name="factory_reset_success_toast">Loader flashed successfully.</string>
     <string name="factory_reset_failed_toast">FLASH FAILED. CHECK LOGS.</string>
 
     <!-- Manual Actions Legacy Strings -->
@@ -450,7 +451,7 @@
     <!-- About Screen -->
     <string name="about_title">About Uncle Ted</string>
     <string name="about_developer_credit">Designed and Engineered by Hamoon Soleimani</string>
-    <string name="about_app_version">Version 9.0.1</string>
+    <string name="about_app_version">Version 10.0.1</string>
     <string name="about_legal_disclaimer_title">Legal &amp; Operational Security Disclaimer</string>
     <string name="about_legal_disclaimer_body">Uncle Ted is engineered strictly for educational research, authorized defensive security auditing, high-risk operational privacy, and human rights protection against physical coercion and forensic seizure. Erasing cryptographic key material renders underlying storage mathematically and physically unrecoverable. Never install this software without explicit, informed authorization from the device owner.</string>
     <string name="about_github">GitHub Repository</string>

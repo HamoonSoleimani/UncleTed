@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- This allows the FileProvider to share files from the app's internal "files" directory,
-         where CameraHandler saves photos and videos. -->
+    <!-- Grants FileProvider access to evidence files, images, and diagnostic dumps -->
     <files-path name="shared_files" path="." />
+    <files-path name="diagnostics_files" path="diagnostics" />
+    <cache-path name="shared_cache" path="." />
 </paths>

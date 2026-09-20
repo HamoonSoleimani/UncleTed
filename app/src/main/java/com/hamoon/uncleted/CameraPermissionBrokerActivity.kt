@@ -23,24 +23,39 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
         private const val TAG = "CameraBrokerActivity"
         private const val BROKER_NOTIFICATION_ID = 9002
         const val ACTION_MEDIA_CAPTURE_COMPLETED = "com.hamoon.uncleted.ACTION_MEDIA_CAPTURE_COMPLETED"
-        private const val MAX_BROKER_TIMEOUT_MS = 20_000L // 20s watchdog timeout for video bursts
+        const val EXTRA_REQUEST_ID = "com.hamoon.uncleted.EXTRA_REQUEST_ID"
+        private const val MAX_BROKER_TIMEOUT_MS = 60_000L
     }
 
     private var watchdogJob: Job? = null
     private var isCompleted = false
+    private var activeRequestId: Long = 0L
 
     private val captureCompletionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ACTION_MEDIA_CAPTURE_COMPLETED) {
-                Log.i(TAG, "Media capture completion signal received. Dismissing broker window.")
-                dismissBroker()
+                val receivedId = intent.getLongExtra(EXTRA_REQUEST_ID, 0L)
+                // Dismiss if request IDs match, or if either side is untracked (0L fallback)
+                if (activeRequestId == 0L || receivedId == 0L || receivedId == activeRequestId) {
+                    Log.i(TAG, "Media capture completion signal received for request $receivedId. Dismissing broker window.")
+                    dismissBroker()
+                } else {
+                    Log.d(TAG, "Ignoring capture completion signal for mismatched request $receivedId (Active: $activeRequestId)")
+                }
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "Broker activity created.")
+        activeRequestId = intent.getLongExtra(EXTRA_REQUEST_ID, 0L)
+        Log.d(TAG, "Broker activity created (Request ID: $activeRequestId).")
+
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
@@ -49,12 +64,10 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             window.addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
 
-        // Register completion receiver to keep window alive until CameraX finishes
         val filter = IntentFilter(ACTION_MEDIA_CAPTURE_COMPLETED)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(captureCompletionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -62,7 +75,6 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
             registerReceiver(captureCompletionReceiver, filter)
         }
 
-        // Cancel the trigger notification that spawned this full screen intent
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(BROKER_NOTIFICATION_ID)
     }
@@ -79,6 +91,7 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
                 putExtra("REASON", originalReason)
                 putExtra("SEVERITY", originalSeverity)
                 putExtra("IS_BROKERED", true)
+                putExtra(EXTRA_REQUEST_ID, activeRequestId)
             }
 
             try {
@@ -91,12 +104,11 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
             }
         }
 
-        // Watchdog: If CameraX or media recording stalls or errors out, dismiss automatically after 20s
         watchdogJob?.cancel()
         watchdogJob = lifecycleScope.launch {
             delay(MAX_BROKER_TIMEOUT_MS)
             if (!isCompleted) {
-                Log.w(TAG, "Watchdog timeout reached in broker activity. Dismissing.")
+                Log.w(TAG, "Watchdog timeout ($MAX_BROKER_TIMEOUT_MS ms) reached in broker activity. Dismissing.")
                 dismissBroker()
             }
         }

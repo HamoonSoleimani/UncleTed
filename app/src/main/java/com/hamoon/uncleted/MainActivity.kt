@@ -32,7 +32,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private lateinit var binding: ActivityMainBinding
     private lateinit var toggle: ActionBarDrawerToggle
 
-    // Domain-Driven Fragment Instances (Lazy Loaded)
     private val dashboardFragment by lazy { DashboardFragment() }
     private val antiForensicsFragment by lazy { AntiForensicsFragment() }
     private val hardwareSentinelsFragment by lazy { HardwareSentinelsFragment() }
@@ -43,6 +42,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private val surveillanceFragment by lazy { SurveillanceFragment() }
     private val destructionProtocolsFragment by lazy { DestructionProtocolsFragment() }
     private val permissionsFragment by lazy { PermissionsFragment() }
+    private val diagnosticsFragment by lazy { DiagnosticsFragment() }
     private val settingsFragment by lazy { SettingsFragment() }
     private val aboutFragment by lazy { AboutFragment() }
 
@@ -78,14 +78,13 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         startMonitoringServiceIfNeeded()
     }
 
-    private suspend fun initializeSystemRequirements(): InitializationResult {
+    private suspend fun initializeSystemRequirements(): InitializationResult = withContext(Dispatchers.IO) {
         val isPrimaryUser = (Process.myUid() / 100000) == 0
         val isRooted = if (isPrimaryUser) RootChecker.isDeviceRooted() else false
 
         if (isRooted && isPrimaryUser) {
             try {
                 GodMode.whitelistFromBatteryOptimizations(applicationContext)
-                // Clean up legacy forced accessibility service from older versions to fix One UI 40Hz / touch lag
                 GodMode.cleanupLegacyAccessibility(applicationContext)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed executing God Mode startup routines", e)
@@ -95,7 +94,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         val isBiometricEnabled = SecurityPreferences.isBiometricLockEnabled(this@MainActivity)
         val canAuthenticate = BiometricAuthManager.isBiometricAvailable(this@MainActivity)
 
-        return InitializationResult(
+        InitializationResult(
             requiresBiometric = isBiometricEnabled && canAuthenticate,
             isRooted = isRooted
         )
@@ -192,6 +191,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             add(R.id.nav_host_fragment, surveillanceFragment, "SURVEILLANCE").hide(surveillanceFragment)
             add(R.id.nav_host_fragment, destructionProtocolsFragment, "DESTRUCTION").hide(destructionProtocolsFragment)
             add(R.id.nav_host_fragment, permissionsFragment, "PERMISSIONS").hide(permissionsFragment)
+            add(R.id.nav_host_fragment, diagnosticsFragment, "DIAGNOSTICS").hide(diagnosticsFragment)
             add(R.id.nav_host_fragment, settingsFragment, "SETTINGS").hide(settingsFragment)
             add(R.id.nav_host_fragment, aboutFragment, "ABOUT").hide(aboutFragment)
         }
@@ -209,6 +209,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             R.id.nav_surveillance -> surveillanceFragment to getString(R.string.menu_surveillance)
             R.id.nav_destruction -> destructionProtocolsFragment to getString(R.string.menu_destruction)
             R.id.nav_permissions -> permissionsFragment to getString(R.string.menu_permissions)
+            R.id.nav_diagnostics -> diagnosticsFragment to getString(R.string.menu_diagnostics)
             R.id.nav_settings -> settingsFragment to getString(R.string.menu_settings)
             R.id.nav_about -> aboutFragment to getString(R.string.menu_about)
             else -> return false

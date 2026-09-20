@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/Version-v9.0.1-brightgreen.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v10.0.1-brightgreen.svg" alt="Version">
   <img src="https://img.shields.io/badge/Target%20SDK-34%20(Android%2014)-green.svg" alt="Target SDK">
   <img src="https://img.shields.io/badge/Compatibility-Android%209%20to%2017%20%2F%20GrapheneOS-darkgreen.svg" alt="Compatibility">
   <img src="https://img.shields.io/badge/Hardware-Titan%20M2%20%2F%20StrongBox-blueviolet.svg" alt="Titan M2 StrongBox">
@@ -48,12 +48,12 @@
   - [13. Zero-Knowledge Covert Canary Signaling via Oblivious HTTP (OHTTP / RFC 9458)](#13-zero-knowledge-covert-canary-signaling-via-oblivious-http-ohttp--rfc-9458)
   - [14. Decoy App Launcher Tripwires & Honeypot Traps (Wasted Integration)](#14-decoy-app-launcher-tripwires--honeypot-traps-wasted-integration)
   - [15. Decoy Quick Settings Airplane Tile & Direct Action Execution](#15-decoy-quick-settings-airplane-tile--direct-action-execution)
-  - [16. Lockscreen Authentication & Anti-Coercion Engine](#16-lockscreen-authentication--anti-coercion-engine)
+  - [16. Lockscreen Authentication & Anti-Coercion Engine (Salted Platform Bridge)](#16-lockscreen-authentication--anti-coercion-engine-salted-platform-bridge)
   - [17. Multi-User RAM Anti-Forensics & Seamless Decoy Space Migration](#17-multi-user-ram-anti-forensics--seamless-decoy-space-migration)
   - [18. Pre-OS Early Boot Staging, Fastboot & AVB 2.0 Hardening](#18-pre-os-early-boot-staging-fastboot--avb-20-hardening)
   - [19. Autonomous Environmental & Dead-Man Tripwires](#19-autonomous-environmental--dead-man-tripwires)
   - [20. Carrier-Blind Remote Command & Control (Ed25519 Wire, Whitelisted SMS, OTC)](#20-carrier-blind-remote-command--control-ed25519-wire-whitelisted-sms-otc)
-  - [21. Covert Surveillance & Multi-Modal Evidence Gathering](#21-covert-surveillance--multi-modal-evidence-gathering)
+  - [21. Covert Surveillance, Evidence Locker & Optical Recording Controls](#21-covert-surveillance-evidence-locker--optical-recording-controls)
 - [📡 Remote Signaling & SMS Command Reference](#-remote-signaling--sms-command-reference)
 - [🛠️ Technology Stack](#️-technology-stack)
 - [📂 Project Directory Structure](#-project-directory-structure)
@@ -99,7 +99,7 @@ On modern Android (Android 9 through 17 / GrapheneOS), the platform enforces str
 | **Baseband / Stingray Defense** | 🔴 Vulnerable to 2G Force | 🟢 **Modem-Level 2G Masking (API 34)** | 🟢 **RIL Power Cut & Timing Advance Trap** | Strips 2G from modem firmware bitmasks; detects impossible RF topologies (high RSRP with high Timing Advance on registered cells) and cuts RIL power. |
 | **Proximity Key Sharding** | 🔴 Single-Device Keys | 🟢 **BLE/UWB Shamir 2-of-2 Sharding** | 🟢 **BLE/UWB Shamir 2-of-2 Sharding** | Master secrets split across StrongBox (Shard A) and an external BLE wearable (Shard B); key evaporates if separated $> 2\text{ m}$. |
 | **Covert Canary Signaling** | 🔴 Cleartext HTTP / Webhooks | 🟢 **RFC 9458 OHTTP / Masquerade** | 🟢 **RFC 9458 OHTTP / Masquerade** | Dispatches HPKE-encrypted distress blobs disguised as standard Android telemetry to CDN relays or gateways, hiding client IP and content without self-inflicted radio cutoff. |
-| **Lockscreen Interception** | 🔴 Non-Functional | 🟡 **Fail Callback / In-App Guard** | 🟢 **100% Native Hook (Salted Hash)** | Route B intercepts `LockSettingsService` directly inside `system_server` using salted hashes. Route A relies on Gatekeeper failure callbacks and hardware wipe limits. |
+| **Lockscreen Interception** | 🔴 Non-Functional | 🟡 **Fail Callback / In-App Guard** | 🟢 **100% Native Hook (Salted Hash)** | Route B intercepts `LockSettingsService` directly inside `system_server` using salted hashes (Format v2). Route A relies on Gatekeeper failure callbacks and hardware wipe limits. |
 | **Multi-User RAM Anti-Forensics** | 🔴 Impossible | 🟡 Work Profile Segregation | 🟢 **In-Process Decoy User Migration** | Route B transitions session instantly via `IActivityManager` and evicts User 0 caches, switching to Decoy Space without leaving the primary user exposed. |
 | **Overall Defense Posture** | **3.0 / 10** | **9.9 / 10** | **9.8 / 10** | Route A delivers maximum hardware security, AVB chain of trust, and discrete HSM isolation; Route B delivers native OS-level lockscreen control, kernel bus manipulation, and sub-OS key shredding. |
 
@@ -107,7 +107,7 @@ On modern Android (Android 9 through 17 / GrapheneOS), the platform enforces str
 
 ## 🏗️ System Architecture (Dual-Profile & Sub-OS Engine)
 
-Uncle Ted v9.0.1 features a decoupled, strategy-based architecture coordinated by `DefenseCoordinator`. The platform dynamically analyzes execution privileges, hardware security module availability, and bootloader status at startup, binding the runtime to the optimal defensive strategy:
+Uncle Ted v10.0.1 features a decoupled, strategy-based architecture coordinated by `DefenseCoordinator`. The platform dynamically analyzes execution privileges, hardware security module availability, and bootloader status at startup, binding the runtime to the optimal defensive strategy:
 
 ```
                                   ┌───────────────────────────────┐
@@ -133,9 +133,9 @@ Uncle Ted v9.0.1 features a decoupled, strategy-based architecture coordinated b
  │ - Decoy Messenger Launcher Tripwires (Wasted)   │   │ - Zero-Latency USB PHY Cut + SysRq Panic Trap   │
  │ - Direct & Immediate Decoy Airplane Execution   │   │ - Stage-2 Post-Mount USB Kill (/data/adb/)      │
  │ - Standard Platform Wipe vs Silicon Shred       │   │ - Linux Kernel UDC Gadget Controller Severing   │
- │ - Native dpm.reboot() Cold BFU Key Eviction     │   │ - Ephemeral ZRAM Swap Eviction & drop_caches    │
+ │ - Unified dpm.wipeDevice() (Android 14+ / DO)   │   │ - Ephemeral ZRAM Swap Eviction & drop_caches    │
  │ - Dynamic Direct Boot (BFU) Lifecycle Discovery │   │ - Dynamic Direct Boot (BFU) Lifecycle Discovery │
- │ - Modem-Level Hardware 2G Frequency Masking     │   │ - Raw Modem RIL Power Cut via Shell             │
+ │ - Native DISALLOW_CELLULAR_2G Restriction       │   │ - Raw Modem RIL Power Cut via Shell             │
  │ - RFC 9458 Oblivious HTTP (OHTTP) Covert Canary │   │ - RFC 9458 Oblivious HTTP (OHTTP) Covert Canary │
  │ - BLE/UWB Shamir 2-of-2 Proximity Sharding      │   │ - BLE/UWB Shamir 2-of-2 Proximity Sharding      │
  │ - ARMv8.5-A Synchronous Memory Tagging (MTE)    │   │ - ARMv8.5-A Synchronous Memory Tagging (MTE)    │
@@ -209,7 +209,8 @@ Uncle Ted v9.0.1 features a decoupled, strategy-based architecture coordinated b
   rm -rf /data/system/users/0/*.key
   rm -rf /data/system/locksettings.db*
   ```
-- **Standard Platform Wipe vs. Lethal Silicon Shred:** Uncle Ted v9.0.1 introduces distinct separation between standard platform factory resets (`dpm.wipeData(0)` / standard BCB staging) and lethal silicon discard across all UI dialogs, triggers, and tiles. Users can choose non-destructive resets without burning discrete hardware suicide keys when catastrophic sanitization is not desired.
+- **Unified Android 14+ Whole-Device Wipe (`DeviceOwnerStrategy`):** On Android 14 (API 34+) and GrapheneOS, calls `dpm.wipeDevice()` with `WIPE_EXTERNAL_STORAGE` and `WIPE_SILENTLY`, preventing the fatal `IllegalStateException: User 0 is a system user and cannot be removed` caused by deprecated `wipeData()` calls on modern platforms.
+- **Distinct Separation between Standard Wipe & Silicon Shred:** Uncle Ted introduces distinct separation between standard platform factory resets (`dpm.wipeDevice(0)` / standard BCB staging) and lethal silicon discard across all UI dialogs, triggers, and tiles.
 - **64KB Metadata Partition Zero-Fill:** Zero-fills the primary File-Based Encryption metadata partition (`/dev/block/by-name/metadata`) using `RandomAccessFile` in synchronous `rws` mode and root shell `conv=fsync`, obliterating wrapped keys and directory encryption tables.
 - **JEDEC Silicon Discard Dispatch:** Issues hardware `BLKSECDISCARD` and `BLKDISCARD` IOCTLs directly to `/dev/block/by-name/metadata` via native C++ and root shell execution. Forces the UFS/eMMC memory controller to raise NAND cell voltages to physical erase levels, rendering 256GB of underlying storage mathematically indistinguishable from random noise in under 15 milliseconds.
 - **Bootloader Control Block (BCB) Formatting Marker:** Writes `--wipe_data\n--reason=UncleTed_FBE_CryptoShred` directly into `/cache/recovery/command`, ensuring that even if userspace execution halts mid-wipe, the recovery partition formats userdata on the subsequent boot cycle.
@@ -217,7 +218,7 @@ Uncle Ted v9.0.1 features a decoupled, strategy-based architecture coordinated b
 ---
 
 ### 6. NIST FIPS 203 Post-Quantum Cryptographic Hybrid Engine (ML-KEM-768 + X25519)
-- **Quantum-Resistant KEM Architecture (`PostQuantumEngine`):** Integrates the finalized NIST FIPS 203 post-quantum standard **ML-KEM-768** (CRYSTALS-Kyber) operating in tandem with classical **Curve25519 (X25519)** [1, 2].
+- **Quantum-Resistant KEM Architecture (`PostQuantumEngine`):** Integrates the finalized NIST FIPS 203 post-quantum standard **ML-KEM-768** (CRYSTALS-Kyber) operating in tandem with classical **Curve25519 (X25519)**.
 - **Immunity to "Harvest Now, Decrypt Later" (HNDL):** Adversaries capturing distress signals or encrypted storage archives cannot retroactively decrypt evidentiary dossiers or alert metadata using Shor's algorithm on future Cryptanalytically Relevant Quantum Computers (CRQCs).
 - **HKDF-SHA512 Combiner:** Derives master 256-bit symmetric operational keys via HMAC-SHA512 combining classical ECDH shared secrets with lattice-based KEM decapsulation secrets over strict domain-separated salt anchors.
 - **Hardware-Sealed Private Keys:** Local post-quantum private keys are encrypted at rest with the discrete StrongBox master key inside `CryptoPreferences`, preventing plaintext extraction from flash dumps.
@@ -226,7 +227,7 @@ Uncle Ted v9.0.1 features a decoupled, strategy-based architecture coordinated b
 
 ### 7. Exploit Mitigation, Page Pinning & Memory Hardening (ARMv8.5-A MTE, mlock & Dynamic BFU)
 - **Synchronous Hardware Memory Tagging:** Enforces `android:memtagMode="sync"` at the application level and injects `-march=armv8.5-a+memtag -fsanitize=memtag` into Clang native compilation. Memory allocations on ARMv8.5-A+ silicon (Tensor G3/G4/G5, Snapdragon 8 Gen 3+) are assigned 4-bit metadata tags; any spatial overflow or use-after-free pointer dereference triggers an instant hardware `SIGSEGV` (`SEGV_MTESERR`), stopping memory corruption exploits.
-- **Dynamic Direct Boot Lifecycle Guarding:** v9.0.1 dynamically queries `SecurityPreferences.isUserUnlocked(context)` per-activity in `UncleTedApplication`, eliminating stale BFU closure retention when the OS starts in locked state and transitions to unlocked state later.
+- **Dynamic Direct Boot Lifecycle Guarding:** Dynamically queries `SecurityPreferences.isUserUnlocked(activity)` per-activity in `onActivityPreCreated()`, eliminating stale BFU closure retention when the OS starts in locked state and transitions to unlocked state later.
 - **Process Memory Locking (`mlock`):** Pins critical plaintext byte buffers, PIN arrays, and intermediate cryptographic secrets in physical LPDDR5 RAM via `mlock()`, preventing the Android OS from swapping sensitive memory pages into unencrypted storage or dirty swap.
 - **Native Process Sandboxing (`NativeSecurityBridge`):** Calls `prctl(PR_SET_DUMPABLE, 0)` via JNI during initialization, blocking `/proc/$PID/mem` extraction, local memory inspection, and unauthorized debugger attachments (`ptrace`/`lldb`).
 - **Compiler Dead-Store Protected Zeroing:** Employs volatile C++ pointer zeroing loops with memory barriers (`burnMemory` / `secureZeroMemory`) and `std::atomic_thread_fence` to purge sensitive plaintexts, cryptographic keys, and intermediate PIN buffers from heap memory.
@@ -242,23 +243,24 @@ Uncle Ted v9.0.1 features a decoupled, strategy-based architecture coordinated b
 
 ### 9. PMIC Battery Micro-Telemetry & Anti-Disassembly Tripwire (GrapheneOS / SELinux Resilient)
 - **Hardware Power Management IC Interrogation (`PmicTamperSentinel`):** Forensic laboratories bypass timeout watchdogs by opening the device chassis, cutting the battery lead, and splicing an external DC bench power supply directly across the battery terminals (VBAT) to indefinitely sustain AFU state.
-- **GrapheneOS & Hardened AOSP SELinux Failure-Latch:** On hardened operating systems where battery SysFS nodes under `/sys/class/power_supply/battery` are blocked from third-party app domains, the sentinel detects the denial once, latches `nodesAvailable = false`, and ceases all subsequent filesystem probing. This prevents continuous SELinux audit log spam (`avc: denied`).
-- **Internal Impedance ($R_{int}$) Step-Jump Detection:** Samples Battery Management System (BMS) SysFS nodes with adaptive moving-average baselines when supported. Connecting external power supply clamps produces an abrupt electrochemical impedance shift exceeding $\Delta R > 35\text{ m}\Omega$, triggering cryptographic suicide.
+- **GrapheneOS & Hardened AOSP SELinux Failure-Latch:** On hardened operating systems where battery SysFS nodes under `/sys/class/power_supply/battery` are blocked from third-party app domains, the sentinel detects the denial once, latches `isSupported = false` persistently in Device-Protected storage, and ceases all subsequent filesystem probing. This completely stops continuous SELinux audit log spam (`avc: denied`) and eliminates UI thread frame drops.
+- **Internal Impedance ($R_{int}$) Step-Jump Detection:** Samples Battery Management System (BMS) SysFS nodes with adaptive moving-average baselines when supported on IO threads. Connecting external power supply clamps produces an abrupt electrochemical impedance shift exceeding $\Delta R > 35\text{ m}\Omega$, triggering cryptographic suicide.
 - **Thermal Gradient Shock ($dT/dt$):** Monitors the battery pack's NTC thermistor resting against the rear enclosure. Heating and prying off the rear glass causes a rapid thermal drop ($\Delta T > 12.0^\circ\text{C}$), detecting enclosure unsealing with calm-down verification to prevent false alarms from cold weather.
 
 ---
 
 ### 10. Advanced Baseband & IMSI-Catcher / Stingray Sentinel (Modem 2G Masking & Timing Advance)
-- **Modem-Level Hardware 2G Stripping (`AdvancedBasebandSentinel`):** Uses Android 12+/14+ `TelephonyManager.setAllowedNetworkTypesForReason()` to permanently strip 2G network bitmasks (`GSM`, `GPRS`, `EDGE`, `CDMA`, `1xRTT`) at the baseband modem firmware layer, preventing cellular interceptors from forcing unauthenticated, unencrypted 2G downgrades.
+- **Zero-Trust 2G Stripping via `UserManager.DISALLOW_CELLULAR_2G`:** In Route A on Android 14+ (API 34+), enforces 2G cellular blocking at the platform policy layer via `dpm.addUserRestriction(admin, UserManager.DISALLOW_CELLULAR_2G)`. Eliminates previous `SecurityException` carrier privilege denials on unlocked retail handsets.
+- **Modem-Level Firmware Bitmask Stripping:** Concurrently applies Android 12+/14+ `TelephonyManager.setAllowedNetworkTypesForReason()` on IO threads to strip 2G bitmasks (`GSM`, `GPRS`, `EDGE`, `CDMA`, `1xRTT`) where carrier privileges are available.
 - **Impossible RF Topology / Timing Advance Trap:** Cell-site simulators (Stingrays) transmit high RF power to override legitimate towers while introducing artificial propagation delays. Uncle Ted monitors registered serving cell telemetry; detecting high-power signals ($\text{RSRP} > -65\text{ dBm}$) paired with extreme Timing Advance ($\text{TA} > 30$, representing $> 2.3\text{ km}$) identifies a rogue transceiver, triggering an immediate radio cutoff.
 - **Hardware RIL Power Cut:** In Route B, issues low-level Telephony IPC service commands (`service call phone 83 i32 0`) to disconnect power from the cellular baseband bus entirely. In Route A, enforces instant global airplane mode isolation.
 
 ---
 
 ### 11. Volatile Memory Scrubbing, ZRAM Re-Keying & Plausible Deniability Vault
-- **Volatile RAM Hardening Engine (`MemoryHardeningEngine`):** Dynamically bound to `Intent.ACTION_SCREEN_OFF`. Commands the Linux kernel to drop pagecaches, dentries, and unpinned inodes (`echo 3 > /proc/sys/vm/drop_caches`) and compact memory (`compact_memory`) to eliminate unallocated plaintext fragments.
+- **Volatile RAM Hardening Engine (`MemoryHardeningEngine`):** Dynamically bound to `Intent.ACTION_SCREEN_OFF`. Commands the Linux kernel to drop pagecaches, dentries, and unpinned inodes (`echo 3 > /proc/sys/vm/drop_caches`) and compact memory to eliminate unallocated plaintext fragments without blocking broadcast threads.
 - **Ephemeral ZRAM Swap Flushing:** Flushes dirty anonymous pages (`swapoff /dev/block/zram0`), resets the swap device block allocator, and re-initializes ZRAM swap with fresh random cryptographic keys upon screen lock.
-- **Deterministic Polyglot Vault (`PlausibleDeniabilityVault`):** Compresses sensitive data with Deflate, derives deterministic symmetric keys using StrongBox Master Seeds with per-container salts via **HKDF-SHA256**, encrypts via ChaCha20-Poly1305, and shapes entropy ($H \approx 7.2\text{--}7.5\text{ bits/byte}$) into a structurally valid Adobe DNG RAW camera image container stored in `Pictures/Camera`. Fully decryptable by the owner, yet statistically indistinguishable from an ordinary camera file to forensic carvers (`bulk_extractor`, Autopsy).
+- **Deterministic Polyglot Vault (`PlausibleDeniabilityVault`):** Compresses sensitive data with Deflate, derives deterministic symmetric keys using StrongBox Master Seeds with per-container salts via **HKDF-SHA256**, encrypts via ChaCha20-Poly1305, and shapes entropy ($H \approx 7.2\text{--}7.5\text{ bits/byte}$) into a structurally valid Adobe DNG RAW camera image container stored in `Pictures/Camera`. Fully decryptable on demand in the Evidence Locker, yet statistically indistinguishable from an ordinary camera file to forensic carvers (`bulk_extractor`, Autopsy).
 
 ---
 
@@ -287,35 +289,38 @@ Uncle Ted v9.0.1 features a decoupled, strategy-based architecture coordinated b
   2. *Standard Platform Wipe:* Invokes standard Android factory reset via Device Owner.
   3. *Silent Duress Canary & Capture:* Silently captures dual-camera photos, room audio, and GPS coordinates while firing an OHTTP distress frame.
   4. *Immediate Lock & BFU Reversion:* Evicts Vold CE keys from memory and locks the device.
-  5. *Migrate to Isolated Decoy Space:* Seamlessly switches OS session to secondary user profile (`UserHandle(10)`).
+  5. *Migrate to Isolated Decoy Space:* Seamlessly switches OS session to secondary user profile (`UserHandle(10)` or `11`).
 
 ---
 
 ### 15. Decoy Quick Settings Airplane Tile & Direct Action Execution
 - **Direct Decoy Execution (`FakeAirplaneTileService`):** Provides an authentic "Airplane mode" Quick Settings tile that can be activated from the notification shade or lockscreen.
-- **Configurable Confirmation Barrier:** If the optional PIN challenge is disabled, tapping the tile immediately executes the configured action (e.g. silent duress or BFU lock) without displaying an intrusive confirmation dialog.
+- **Configurable Confirmation Barrier:** If the optional PIN challenge is disabled, tapping the tile immediately executes the configured action (e.g. silent duress, standard wipe, or BFU lock) without displaying an intrusive confirmation dialog.
 - **Safety Bypass for Device Owner:** If the PIN challenge is enabled, the true owner can enter their normal PIN to dismiss the tile safely without triggering countermeasures.
 
 ---
 
-### 16. Lockscreen Authentication & Anti-Coercion Engine
-- **Route B (Native LSPosed Hook):** Hooks `com.android.server.locksettings.LockSettingsService` directly inside `system_server`:
-  - **Salted Hash Bridge:** Credentials in `/data/system/uncleted/credentials.cfg` are stored as salted SHA-256 hashes with strict permissions (`0600` / `0644`). Raw PINs are never stored in plaintext.
+### 16. Lockscreen Authentication & Anti-Coercion Engine (Salted Platform Bridge)
+- **Route B (Native LSPosed Hook with Format v2 Bridge):** Hooks `com.android.server.locksettings.LockSettingsService` directly inside `system_server`:
+  - **Zero-Plaintext Salted Storage:** Credentials in `/data/system/uncleted/credentials.cfg` are stored strictly as salted SHA-256 hashes (`format_version=2`) with `0600` permissions. Plaintext PINs are completely eliminated from disk.
+  - **Constant-Time Verification:** Compares entered credentials using constant-time hash comparisons (`MessageDigest.isEqual`), eliminating side-channel timing attacks.
   - **Normal PIN:** Validates authentication, clears failed attempt counters, and unlocks the primary profile.
   - **Duress PIN (Silent Canary Trap):** Halts authentication at the framework level, renders an authentic "Wrong PIN" feedback state on Keyguard, and silently triggers covert camera, audio, and GPS dispatch with zero screen flickering.
   - **Wipe PIN:** Terminates Keyguard authentication, destroys the discrete StrongBox suicide key, zeros File-Based Encryption metadata headers via JEDEC discard, and stages an autonomous recovery wipe.
-  - **Honeypot PIN (Instant Migration):** Authenticates the operator, dismisses the Keyguard, and atomically transitions the active session to the secondary Decoy Space (`UserHandle(10)`) without exposing User 0 storage.
+  - **Honeypot PIN (Instant Migration):** Authenticates the operator, dismisses the Keyguard, and atomically transitions the active session to the secondary Decoy Space without exposing User 0 storage.
 - **Route A (Device Owner / Gatekeeper Integration):**
   - Enforces failed passcode limits directly on the hardware Gatekeeper/Weaver chip.
   - Disables biometric authenticators (fingerprint/face) automatically upon consecutive failures, locking Keyguard down to complex passphrases and preventing forced biometric unlock.
+  - Safely bypasses non-root `/data/system` write attempts to eliminate false sync warnings.
 
 ---
 
 ### 17. Multi-User RAM Anti-Forensics & Seamless Decoy Space Migration
 Standard multi-user switching leaves the primary owner's (User 0) Credential-Encrypted (CE) keys resident in the Linux kernel keyring, exposing them to cold-boot RAM acquisition. Uncle Ted implements **true RAM anti-forensics and atomic profile switching**:
 - **Atomic In-Process Session Switch:** When the Honeypot PIN is entered on Keyguard, `LockscreenHook` directly invokes `IActivityManager.switchUser(decoyUserId)` inside `system_server`. The bouncer dismisses and the screen transitions immediately into Decoy Space.
+- **Non-Destructive Package Disabling:** `DecoyUserManager` utilizes `pm disable --user` and `pm hide` instead of destructive uninstallation (`pm uninstall -k`), preventing `system_server` crashes in `HealthConnect`, `NotificationManagerService`, and `MidiService`.
 - **Multi-User Early Boot Injection:** Module packager injects `system.prop` (`fw.max_users=5`, `fw.show_multiuserui=1`) directly into the `init` environment, ensuring `system_server` boots with multi-user capabilities active on Android 9 through 17.
-- **Authentic Multi-User Decoy:** Moves the active OS session to a genuine secondary Android user profile (`UserHandle(10)`) named `"Personal"` backed by its own `/data/user/10` directory, separate encryption keys, distinct launcher, and decoy apps (`FakeBankingActivity`, `FakeNotesActivity`, `FakeGalleryActivity`).
+- **Authentic Multi-User Decoy:** Moves the active OS session to a genuine secondary Android user profile (`UserHandle(10)` or `11`) named `"Personal"` backed by its own `/data/user/10` directory, separate encryption keys, distinct launcher, and decoy apps (`FakeBankingActivity`, `FakeNotesActivity`, `FakeGalleryActivity`).
 
 ---
 
@@ -351,11 +356,14 @@ Uncle Ted implements a multi-tier remote signaling engine designed to operate in
 
 ---
 
-### 21. Covert Surveillance & Multi-Modal Evidence Gathering
+### 21. Covert Surveillance, Evidence Locker & Optical Recording Controls
+- **Integrated Evidence Locker & Media Vault (`EvidenceGalleryActivity`):** Complete in-app media gallery and viewer activity allowing operators to preview captured intruder photos (`.jpg`), surface screenshots (`.png`), high-definition video recordings (`.mp4`), and ambient audio (`.m4a`). Includes on-demand ChaCha20-Poly1305 decoding for DNG polyglot vaults, category filtering chips, and JEDEC silicon-level file shredding.
+- **Granular Recording Length & Lens Controls:** User-configurable recording duration menus in `SurveillanceFragment` for video (5s to 60s) and audio (15s to 300s), with independent toggles for Front Camera and Rear Camera capture to prevent unnecessary sensor cycling.
+- **Hardware CameraX Mutex & Deadlock Elimination:** Enforces strict asynchronous mutex serialization (`hardwareCameraLock`) across photo and video pipelines, active observer synchronization on `CameraState.Type.OPEN`, and a 400ms HAL cooldown buffer between closing the front lens and opening the rear lens to eliminate Qualcomm HAL concurrency deadlocks.
 - **Sequential Dual-Camera Capture:** Uses `Jetpack CameraX` with a headless `FakeLifecycleOwner` running in `RESUMED` state to capture high-resolution front- and back-camera photos, followed by video clips.
-- **Android 14 BAL & FGS Hardening:** Employs an active completion broker (`CameraPermissionBrokerActivity`) paired with broadcast completion receivers (`ACTION_MEDIA_CAPTURE_COMPLETED`) and a 20-second watchdog, preventing background camera captures from being killed prematurely.
+- **Android 14 BAL & FGS Hardening:** Employs an active completion broker (`CameraPermissionBrokerActivity`) paired with request-ID matching broadcasts (`ACTION_MEDIA_CAPTURE_COMPLETED`), shell extra forwarding in `GodMode`, and an extended 60-second watchdog to prevent background camera captures from being killed prematurely.
 - **Hybrid Input Surveillance:** Intercepts physical hardware inputs (Volume, Power) via `/dev/input/` events (`getevent -l`) while capturing soft-keyboard typing through the Accessibility event bus.
-- **Ambient Audio Surveillance:** Direct-to-disk MPEG-4 AAC audio capture (`.m4a`) using `MediaRecorder` at user-configurable recording intervals.
+- **Ambient Audio Surveillance:** Direct-to-disk MPEG-4 AAC audio capture (`.m4a`) using `MediaRecorder` at user-configured recording intervals.
 - **Stealth Screenshot (Root):** Directly reads surface buffers via `/system/bin/screencap` without generating UI flashes or notification badges.
 
 ---
@@ -391,11 +399,11 @@ UNCLETED [COMMAND] [SMS_MASTER_PASSWORD] [OPTIONAL_ARGS]
 | Command | Arguments | Severity | Description |
 | :--- | :--- | :---: | :--- |
 | `WIPE` | *None* | `CRITICAL` | Bypasses evidence collection and triggers immediate platform wipe & key eviction. |
-| `EVIDENCE`| *None* | `HIGH` | Gathers front/back photos, 15s video, 30s audio, and emails the complete dossier. |
+| `EVIDENCE`| *None* | `HIGH` | Gathers front/back photos, video, audio, and emails the complete dossier. |
 | `SIREN` | *None* | `HIGH` | Maximizes alarm streams and loops a loud emergency siren while vibrating. |
 | `LOCK` | *None* | `LOW` | Immediately closes running tasks and launches the secure lockscreen activity. |
 | `LOCATE` | *None* | `LOW` | Requests high-accuracy GPS coordinates and replies via SMS and email. |
-| `AUDIO` | `[seconds]` | `HIGH` | Records ambient room audio for specified seconds (default 60s) and emails the file. |
+| `AUDIO` | `[seconds]` | `HIGH` | Records ambient room audio for specified seconds and emails the file. |
 | `SPEAK` | `[text]` | `MEDIUM` | Maximizes volume and reads text aloud using the device's Text-to-Speech engine. |
 | `REBOOT` | *None* | `HIGH` | (Root Only) Forces an immediate hardware reboot (`/system/bin/reboot`). |
 | `SCREENSHOT`| *None* | `HIGH` | (Root Only) Takes a silent screenshot of the active screen and emails it. |
@@ -410,8 +418,8 @@ UNCLETED [COMMAND] [SMS_MASTER_PASSWORD] [OPTIONAL_ARGS]
 - **Target OS:** Android 14 (API 34) | **Minimum OS:** Android 9 (API 28) | **Compatibility:** Android 9 to 17 / GrapheneOS
 - **NDK Toolchain:** Clang with `-march=armv8.5-a+memtag -fsanitize=memtag -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O3` (NDK `30.0.16248370`)
 - **Hardware Security Modules:** Google Titan M / Titan M2, Qualcomm SPU via StrongBox KeyMint API (`FEATURE_STRONGBOX_KEYSTORE`), Hardware Monotonic Counters / RPMB
-- **Post-Quantum Cryptography:** NIST FIPS 203 ML-KEM-768 (CRYSTALS-Kyber) + Curve25519 (X25519) via Bouncy Castle PQC, HKDF-SHA512 [1, 2]
-- **Key Decoupling Architecture:** RFC 9497 Elliptic Curve Oblivious Pseudorandom Function (EC-OPRF) over `secp256r1` with blind client scalars and modular inversion [8]
+- **Post-Quantum Cryptography:** NIST FIPS 203 ML-KEM-768 (CRYSTALS-Kyber) + Curve25519 (X25519) via Bouncy Castle PQC, HKDF-SHA512
+- **Key Decoupling Architecture:** RFC 9497 Elliptic Curve Oblivious Pseudorandom Function (EC-OPRF) over `secp256r1` with blind client scalars and modular inversion
 - **Native Memory Hardening:** ARMv8.5-A Memory Tagging Extension (MTE Synchronous Mode), `prctl(PR_SET_DUMPABLE, 0)`, `mlock()` page pinning, volatile pointer zeroing barriers
 - **Storage Sanitization:** JEDEC JESD220 (UFS) and JESD84-B51 (eMMC) direct kernel IOCTLs (`BLKSECDISCARD` / `BLKDISCARD`), 64KB FBE metadata block zeroing
 - **Peripheral Bus Control:** USB HAL v1.3+, Qualcomm DWC3 driver register unbind, Linux UDC controller manipulation, SysRq hardware panic triggers
@@ -419,9 +427,9 @@ UNCLETED [COMMAND] [SMS_MASTER_PASSWORD] [OPTIONAL_ARGS]
 - **Covert Signaling Protocol:** RFC 9458 Oblivious HTTP (OHTTP), RFC 9180 Hybrid Public Key Encryption (HPKE), Brotli/zlib payload emulation
 - **Framework Hooks:** Xposed API v82 / LSPosed Framework (Zygisk Release or JingMatrix fork)
 - **Root Environments:** Magisk, KernelSU, KernelSU-Next, APatch
-- **Device Owner (Non-Root):** Android Enterprise `DevicePolicyManager` with AVB 2.0 (Verified Boot)
+- **Device Owner (Non-Root):** Android Enterprise `DevicePolicyManager` with AVB 2.0 (Verified Boot) and `dpm.wipeDevice()` (API 34+)
 - **System Privileges:** Android Privileged Permission Allowlist (`MASTER_CLEAR`, `WRITE_SECURE_SETTINGS`, `REBOOT`, `MANAGE_USERS`, `MANAGE_USB`)
-- **Camera Pipeline:** AndroidX CameraX (Core, Camera2, Lifecycle, Video) with headless `FakeLifecycleOwner`
+- **Camera Pipeline:** AndroidX CameraX (Core, Camera2, Lifecycle, Video) with headless `FakeLifecycleOwner` and asynchronous mutual exclusion
 - **Background Architecture:** AndroidX WorkManager, Direct Boot `AlarmManager` (`RTC_WAKEUP` / `ELAPSED_REALTIME_WAKEUP`), Native Foreground Services with BAL brokers
 - **UI & Layout:** Material Design 3 Components with pure black AMOLED theme support
 
@@ -449,7 +457,7 @@ UncleTed-main/
 │   │   │   │   │   ├── DefenseCoordinator.kt     <-- Runtime capability resolver
 │   │   │   │   │   ├── DefenseStrategy.kt        <-- Abstract defense strategy interface
 │   │   │   │   │   └── strategies/
-│   │   │   │   │       ├── DeviceOwnerStrategy.kt <-- Route A (Titan M2 / Locked AVB)
+│   │   │   │   │       ├── DeviceOwnerStrategy.kt <-- Route A (Titan M2 / Locked AVB / wipeDevice)
 │   │   │   │   │       └── RootPrivilegedStrategy.kt <-- Route B (Root / LSPosed)
 │   │   │   │   ├── crypto/                       <-- Hardware Keystore, PQC, OPRF & Ephemeral Engine
 │   │   │   │   │   ├── AntiRollbackManager.kt    <-- Atomic dual-anchor monotonic counter
@@ -471,22 +479,24 @@ UncleTed-main/
 │   │   │   │   │   ├── CryptoEngineFragment.kt   <-- PQC keys, StrongBox & Deniability vault
 │   │   │   │   │   ├── DashboardFragment.kt      <-- Threat score & posture meter
 │   │   │   │   │   ├── DestructionProtocolsFragment.kt <-- Multi-tier destruction pipelines
+│   │   │   │   │   ├── DiagnosticsFragment.kt    <-- Live system bug reporting, log recording & export
 │   │   │   │   │   ├── EventLogFragment.kt       <-- Security event audit log
 │   │   │   │   │   ├── HardwareSentinelsFragment.kt <-- PMIC, Spectral, Baseband & USB sentinels
 │   │   │   │   │   ├── PermissionsFragment.kt    <-- System privilege boundaries
 │   │   │   │   │   ├── ProximityTripwireFragment.kt <-- BLE/UWB Sharding & Dead-man tripwires
 │   │   │   │   │   ├── RemoteSignalingFragment.kt<-- OHTTP Canary, Ed25519 & SMS fallback
 │   │   │   │   │   ├── SettingsFragment.kt       <-- App preferences & calibration
-│   │   │   │   │   └── SurveillanceFragment.kt   <-- CameraX, audio & keylog evidence
+│   │   │   │   │   └── SurveillanceFragment.kt   <-- CameraX, audio, durations & keylog evidence
 │   │   │   │   ├── honeypot/                     <-- Decoy Launcher & Trap Activities
 │   │   │   │   │   ├── DecoyAppActivity.kt       <-- Fake Launcher App Dispatcher & Trap Trigger
 │   │   │   │   │   ├── DecoyAppManager.kt        <-- Dynamic Activity-Alias Visibility Manager
 │   │   │   │   │   ├── FakeBankingActivity.kt    <-- Credential bait trap
 │   │   │   │   │   ├── FakeGalleryActivity.kt    <-- Photo bait trap
 │   │   │   │   │   ├── FakeNotesActivity.kt      <-- Note bait trap
+│   │   │   │   │   ├── HoneypotAppAdapter.kt     <-- Decoy launcher app grid adapter
 │   │   │   │   │   └── HoneypotLauncherActivity.kt <-- Decoy launcher screen
 │   │   │   │   ├── hooks/
-│   │   │   │   │   └── LockscreenHook.kt         <-- Core system_server LSPosed hook (Salted Hash)
+│   │   │   │   │   └── LockscreenHook.kt         <-- Core system_server LSPosed hook (Salted Hash v2)
 │   │   │   │   ├── proximity/                    <-- BLE/UWB Proximity Key Sharding
 │   │   │   │   │   ├── BleProximitySentinel.kt   <-- Bluetooth GATT heartbeat & RSSI sentinel
 │   │   │   │   │   └── ProximityShardingEngine.kt<-- Shamir 2-of-2 secret sharing implementation
@@ -518,13 +528,15 @@ UncleTed-main/
 │   │   │   │   │   ├── UsbTripwireService.kt     <-- Kernel UDC SysFS data line tripwire
 │   │   │   │   │   └── ZoneWipeService.kt        <-- Multi-zone perimeter geofence suicide service
 │   │   │   │   ├── util/
-│   │   │   │   │   ├── AdvancedCameraHandler.kt  <-- Dual camera photo/video capture pipeline
+│   │   │   │   │   ├── AdvancedCameraHandler.kt  <-- Dual camera photo/video capture pipeline & cooldown
 │   │   │   │   │   ├── AdvancedCrypto.kt         <-- StrongBox & Proximity-bound encryption
 │   │   │   │   │   ├── AudioRecorder.kt          <-- Ambient AAC (.m4a) audio recorder
 │   │   │   │   │   ├── BootloaderHardeningHelper.kt <-- Pre-OS init stage-2 scripts & AVB guide
-│   │   │   │   │   ├── CredentialBridge.kt       <-- Salted hash BFU platform bridge
-│   │   │   │   │   ├── DecoyUserManager.kt       <-- Android Multi-User provisioning & memory flush
+│   │   │   │   │   ├── CameraHandler.kt          <-- CameraX mutex serialization & state monitoring
+│   │   │   │   │   ├── CredentialBridge.kt       <-- Salted hash BFU platform bridge (Format v2)
+│   │   │   │   │   ├── DecoyUserManager.kt       <-- Android Multi-User provisioning & non-destructive hiding
 │   │   │   │   │   ├── DeviceAdminHelper.kt      <-- Asynchronous strategy wipe invoker
+│   │   │   │   │   ├── DiagnosticLogCollector.kt <-- Live log recording and bug packaging
 │   │   │   │   │   ├── EmergencyDestructionEngine.kt <-- 16KB metadata & root block discard engine
 │   │   │   │   │   ├── Keylogger.kt              <-- Hardware & soft-keyboard logger
 │   │   │   │   │   ├── MemoryHardeningEngine.kt  <-- Kernel drop_caches & ZRAM swap re-keying
@@ -539,16 +551,18 @@ UncleTed-main/
 │   │   │   │   │   └── UsbDetector.kt            <-- Linux UDC gadget & SDP/CDP analyzer
 │   │   │   │   ├── vault/
 │   │   │   │   │   └── PlausibleDeniabilityVault.kt <-- Deterministic HKDF DNG polyglot vault
-│   │   │   │   └── workers/                      <-- WorkManager tasks (Watchdog)
+│   │   │   │   └── workers/                      <-- WorkManager tasks (Watchdog, Tripwire)
 │   │   │   ├── res/
 │   │   │   │   ├── drawable/                     <-- Vector drawables & adaptive icons
-│   │   │   │   ├── layout/                       <-- Material 3 layouts
+│   │   │   │   ├── layout/                       <-- Material 3 layouts (incl. evidence locker)
 │   │   │   │   ├── menu/                         <-- Navigation drawer layout
-│   │   │   │   ├── values/                       <-- Strings, themes, and styling
+│   │   │   │   ├── values/                       <-- Strings, themes, arrays, and styling
+│   │   │   │   ├── values-fa/                    <-- Complete Persian (فارسی) localization
 │   │   │   │   ├── AndroidManifest.xml           <-- System privileges & component definitions
 │   │   │   │   ├── CameraPermissionBrokerActivity.kt <-- Android 14 BAL broker with completion listener
+│   │   │   │   ├── EvidenceGalleryActivity.kt    <-- Evidence Locker, media viewer & shredder activity
 │   │   │   │   ├── LockScreenActivity.kt         <-- Hardened in-app lockscreen
-│   │   │   │   ├── MainActivity.kt               <-- Main UI dashboard & view pager coordinator
+│   │   │   │   ├── MainActivity.kt               <-- Main UI dashboard & navigation coordinator
 │   │   │   │   └── UncleTedApplication.kt        <-- Dynamic Direct-Boot runtime initializer
 │   │   │   └── build.gradle.kts                  <-- NDK CMake MTE flags, PQC packaging, Target SDK 34
 │   │   └── proguard-rules.pro                    <-- Native bridge & StrongBox rule preservation
@@ -572,15 +586,15 @@ Clone the repository and build the production APK and universal flashable root m
 git clone https://github.com/HamoonSoleimani/UncleTed.git
 cd UncleTed
 
-# Build production release APK (v9.0.1)
+# Build production release APK (v10.0.1)
 ./gradlew assembleRelease
 
-# Package universal flashable root ZIP (v9.0.1)
+# Package universal flashable root ZIP (v10.0.1)
 python3 package_module.py
 ```
 Output artifacts are generated in `app/build_output/`:
-- **`UncleTed-v9.0.1.apk`** (For Route A: Device Owner provisioning or standalone use).
-- **`UncleTed-PrivApp-v9.0.1.zip`** (For Route B: Magisk / KernelSU / APatch module).
+- **`UncleTed-v10.0.1.apk`** (For Route A: Device Owner provisioning or standalone use).
+- **`UncleTed-PrivApp-v10.0.1.zip`** (For Route B: Magisk / KernelSU / APatch module).
 
 ---
 
@@ -595,7 +609,7 @@ Output artifacts are generated in `app/build_output/`:
 4. Connect the phone to your computer via USB.
 5. Install the APK and assign Device Owner status via ADB:
    ```bash
-   adb install -r -d -g app/build_output/UncleTed-v9.0.1.apk
+   adb install -r -d -g app/build_output/UncleTed-v10.0.1.apk
    adb shell dpm set-device-owner com.hamoon.uncleted/.receivers.AdminReceiver
    ```
 6. Revoke USB Debugging and disable Developer Options in Settings:
@@ -608,13 +622,13 @@ Output artifacts are generated in `app/build_output/`:
 #### Route B: Flashing the Systemless Module (.zip) for Root & LSPosed
 *Recommended for native lockscreen PIN interception, instant Decoy Space switching, kernel-level USB PHY manipulation, and early-boot script integration.*
 
-1. Transfer `UncleTed-PrivApp-v9.0.1.zip` to your device:
+1. Transfer `UncleTed-PrivApp-v10.0.1.zip` to your device:
    ```bash
-   adb push app/build_output/UncleTed-PrivApp-v9.0.1.zip /sdcard/
+   adb push app/build_output/UncleTed-PrivApp-v10.0.1.zip /sdcard/
    ```
 2. Open **Magisk**, **KernelSU**, or **APatch Manager**.
 3. Navigate to the **Modules** tab.
-4. Tap **Install from storage**, select `UncleTed-PrivApp-v9.0.1.zip`, and allow the installer script to execute.
+4. Tap **Install from storage**, select `UncleTed-PrivApp-v10.0.1.zip`, and allow the installer script to execute.
 5. **Reboot your device**.
 
 ---
@@ -645,7 +659,7 @@ Output artifacts are generated in `app/build_output/`:
    - Tap **Provision Decoy User** to establish the isolated `Personal` secondary profile (`UserHandle(10)` or `11`).
    - Configure **Decoy App Launcher Tripwires** (select action: *Immediate Silicon Wipe*, *Standard Platform Wipe*, *Silent Duress*, *Lock to BFU*, or *Decoy Space*, and enable WhatsApp, Signal, Telegram, Threema, or Session).
    - Configure **Decoy Airplane Mode Tile Settings** (toggle optional PIN challenge on or off, and select trigger action: *Lock*, *Standard Platform Wipe*, *Immediate Silicon Wipe*, or *Silent Duress*).
-   - Tap **Save & Arm Credentials** (writes salted hashes to `/data/system/uncleted/credentials.cfg`).
+   - Tap **Save & Arm Credentials** (writes salted hashes in Format v2 to `/data/system/uncleted/credentials.cfg` on rooted systems, or stores securely in DE space).
 4. Open the **Anti-Forensics & Pre-OS** tab:
    - Tap **Arm Ephemeral Keys** to initialize the fail-closed rolling entropy buffer.
    - Configure **OPRF Evaluation Server URL** and toggle **Enforce OPRF Remote Key Splitting**.
@@ -657,6 +671,10 @@ Output artifacts are generated in `app/build_output/`:
    - Configure your **Trusted PQC Hybrid Public Key (ML-KEM-768 + X25519)** under the **Cryptography & Deniability** tab.
    - Tap **Generate Emergency Wallet Sheet (5 OTC)** and record the single-use recovery tokens.
    - Configure your **Emergency Contact** (Phone Number for SMS whitelisting or Email for SMTP dispatches).
+6. Open the **Surveillance & Evidence** tab:
+   - Set preferred **Video Recording Duration** (5s to 60s) and **Ambient Audio Duration** (15s to 300s).
+   - Select optical lenses (Front and/or Rear cameras).
+   - Inspect recorded evidentiary assets via the **Evidence Locker & Media Vault**.
 
 ---
 
@@ -736,13 +754,14 @@ adb shell pm list activities | grep com.hamoon.uncleted.honeypot
 ```
 *Expected output:* Shows enabled decoy aliases (e.g., `com.hamoon.uncleted.honeypot.WhatsAppActivity`, `com.hamoon.uncleted.honeypot.SignalActivity`).
 
-#### 8. Verify Salted Platform Bridge Synchronization (Route B)
-Confirm that the bridge file is present in Device-Protected space and populated with salted hashes:
+#### 8. Verify Salted Platform Bridge Synchronization (Route B - Format v2)
+Confirm that the bridge file is present in Device-Protected space and populated with salted hashes without plaintext credentials:
 ```bash
 adb shell su -c "cat /data/system/uncleted/credentials.cfg"
 ```
 *Expected output (Route B):*
 ```text
+format_version=2
 wipe_pin_hash=[SALTED_BASE64_HASH]
 wipe_pin_salt=[SALT_BASE64]
 duress_pin_hash=[SALTED_BASE64_HASH]

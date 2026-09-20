@@ -33,18 +33,22 @@ class DeviceOwnerStrategy(
     private fun enforcePersistentBaselineRestrictions() {
         try {
             if (SecurityPreferences.isSafeBootBlocked(context)) {
-                dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
-                Log.i(TAG, "Enforced UserManager.DISALLOW_SAFE_BOOT baseline restriction.")
+                applySafeBootPolicy(true)
             } else {
-                dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
-                Log.w(TAG, "UserManager.DISALLOW_SAFE_BOOT restriction cleared per user preference.")
+                applySafeBootPolicy(false)
+            }
+
+            if (SecurityPreferences.isHardware2GDisabled(context)) {
+                applyCellular2GPolicy(true)
+            } else {
+                applyCellular2GPolicy(false)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to apply DISALLOW_SAFE_BOOT baseline restriction", e)
+            Log.e(TAG, "Failed to apply baseline restrictions", e)
         }
     }
 
-    override suspend fun setSafeBootBlocked(blocked: Boolean) {
+    private fun applySafeBootPolicy(blocked: Boolean) {
         try {
             if (blocked) {
                 dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
@@ -56,7 +60,62 @@ class DeviceOwnerStrategy(
                 EventLogger.log(context, "POLICY WARNING: Safe Boot restriction removed by user.")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to update DISALLOW_SAFE_BOOT policy", e)
+            Log.e(TAG, "Failed to update DISALLOW_SAFE_BOOT policy: ${e.message}", e)
+        }
+    }
+
+    override suspend fun setSafeBootBlocked(blocked: Boolean) {
+        applySafeBootPolicy(blocked)
+    }
+
+    private fun applyCellular2GPolicy(blocked: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                if (blocked) {
+                    dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_CELLULAR_2G)
+                    Log.i(TAG, "Device Owner applied DISALLOW_CELLULAR_2G user restriction.")
+                    EventLogger.log(context, "POLICY: 2G cellular disallowed by Device Owner.")
+                } else {
+                    dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_CELLULAR_2G)
+                    Log.i(TAG, "Device Owner cleared DISALLOW_CELLULAR_2G user restriction.")
+                    EventLogger.log(context, "POLICY: 2G cellular restriction removed by Device Owner.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed updating DISALLOW_CELLULAR_2G policy: ${e.message}", e)
+            }
+        } else {
+            Log.w(TAG, "DISALLOW_CELLULAR_2G requires Android 14+ (API 34+). Skipping Device Owner user restriction.")
+        }
+    }
+
+    override suspend fun setCellular2GBlocked(blocked: Boolean) {
+        applyCellular2GPolicy(blocked)
+    }
+
+    /**
+     * Unified whole-device factory reset routine for Device Owner installations.
+     * Uses dpm.wipeDevice() on Android 14+ (API 34+) to avoid IllegalStateException on User 0,
+     * and cleanly falls back to dpm.wipeData() on older supported versions.
+     */
+    private fun requestWholeDeviceWipe(reason: String) {
+        val flags = DevicePolicyManager.WIPE_EXTERNAL_STORAGE or DevicePolicyManager.WIPE_SILENTLY
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                Log.i(TAG, "Executing dpm.wipeDevice() on API 34+ (Reason: $reason)")
+                dpm.wipeDevice(flags)
+            } else {
+                @Suppress("DEPRECATION")
+                Log.i(TAG, "Executing dpm.wipeData() on API < 34 (Reason: $reason)")
+                dpm.wipeData(flags)
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "SecurityException during Device Owner wipe (Reason: $reason): ${e.message}", e)
+        } catch (e: IllegalStateException) {
+            Log.e(TAG, "IllegalStateException during Device Owner wipe (Reason: $reason): ${e.message}", e)
+        } catch (e: UnsupportedOperationException) {
+            Log.e(TAG, "UnsupportedOperationException during Device Owner wipe (Reason: $reason): ${e.message}", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected exception during Device Owner wipe (Reason: $reason): ${e.message}", e)
         }
     }
 
@@ -70,15 +129,8 @@ class DeviceOwnerStrategy(
         // 2. Sever all radio communications
         isolateRadiosAndNetwork()
 
-        // 3. Command Titan M2 / Weaver / KeyMint to revoke all File-Based Encryption keys
-        try {
-            dpm.wipeData(
-                DevicePolicyManager.WIPE_EXTERNAL_STORAGE or DevicePolicyManager.WIPE_SILENTLY
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Standard silent wipe failed, falling back to legacy wipeData flag", e)
-            dpm.wipeData(0)
-        }
+        // 3. Command Titan M2 / Weaver / KeyMint to revoke all File-Based Encryption keys via platform reset
+        requestWholeDeviceWipe(reason)
     }
 
     override suspend fun executeStandardWipe(reason: String) {
@@ -86,14 +138,7 @@ class DeviceOwnerStrategy(
         EventLogger.log(context, "STANDARD_WIPE: Executing normal factory reset via Device Owner.")
 
         // Do NOT destroy discrete StrongBox suicide key in silicon; trigger standard platform reset
-        try {
-            dpm.wipeData(
-                DevicePolicyManager.WIPE_EXTERNAL_STORAGE or DevicePolicyManager.WIPE_SILENTLY
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Standard silent wipe failed, falling back to legacy wipeData flag", e)
-            dpm.wipeData(0)
-        }
+        requestWholeDeviceWipe(reason)
     }
 
     override suspend fun setUsbDataPortEnabled(enabled: Boolean) {

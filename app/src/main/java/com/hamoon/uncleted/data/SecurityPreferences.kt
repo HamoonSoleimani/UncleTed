@@ -87,7 +87,72 @@ object SecurityPreferences {
     }
 
     // =========================================================================
-    // 0. Safe Boot Policy (Anti-Bypass)
+    // 0. Surveillance Durations & Optical Configuration
+    // =========================================================================
+    fun setVideoRecordingDurationSeconds(context: Context, seconds: Int) {
+        val bounded = seconds.coerceIn(5, 120)
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_VIDEO_DURATION_SEC", bounded).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putInt("VIDEO_DURATION_SEC", bounded).apply()
+        }
+    }
+
+    fun getVideoRecordingDurationSeconds(context: Context): Int {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getInt("BFU_VIDEO_DURATION_SEC", 15)
+        } else {
+            getInstance(context).getInt("VIDEO_DURATION_SEC", 15)
+        }
+    }
+
+    fun setAudioRecordingDurationSeconds(context: Context, seconds: Int) {
+        val bounded = seconds.coerceIn(5, 600)
+        getDeviceProtectedPrefs(context).edit().putInt("BFU_AUDIO_DURATION_SEC", bounded).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putInt("AUDIO_DURATION_SEC", bounded).apply()
+        }
+    }
+
+    fun getAudioRecordingDurationSeconds(context: Context): Int {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getInt("BFU_AUDIO_DURATION_SEC", 30)
+        } else {
+            getInstance(context).getInt("AUDIO_DURATION_SEC", 30)
+        }
+    }
+
+    fun setFrontCameraCaptureEnabled(context: Context, enabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_ENABLE_FRONT_CAM", enabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("ENABLE_FRONT_CAM", enabled).apply()
+        }
+    }
+
+    fun isFrontCameraCaptureEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_ENABLE_FRONT_CAM", true)
+        } else {
+            getInstance(context).getBoolean("ENABLE_FRONT_CAM", true)
+        }
+    }
+
+    fun setBackCameraCaptureEnabled(context: Context, enabled: Boolean) {
+        getDeviceProtectedPrefs(context).edit().putBoolean("BFU_ENABLE_BACK_CAM", enabled).apply()
+        if (isUserUnlocked(context)) {
+            getInstance(context).edit().putBoolean("ENABLE_BACK_CAM", enabled).apply()
+        }
+    }
+
+    fun isBackCameraCaptureEnabled(context: Context): Boolean {
+        return if (!isUserUnlocked(context)) {
+            getDeviceProtectedPrefs(context).getBoolean("BFU_ENABLE_BACK_CAM", true)
+        } else {
+            getInstance(context).getBoolean("ENABLE_BACK_CAM", true)
+        }
+    }
+
+    // =========================================================================
+    // 0.1 Safe Boot Policy (Anti-Bypass)
     // =========================================================================
     fun setSafeBootBlocked(context: Context, blocked: Boolean) {
         getDeviceProtectedPrefs(context).edit().putBoolean("BFU_BLOCK_SAFE_BOOT", blocked).apply()
@@ -106,7 +171,7 @@ object SecurityPreferences {
     }
 
     // =========================================================================
-    // 0.1 Max Failed Passwords Threshold for Wipe
+    // 0.2 Max Failed Passwords Threshold for Wipe
     // =========================================================================
     fun getMaxFailedAttemptsForWipe(context: Context): Int {
         return if (!isUserUnlocked(context)) {
@@ -124,7 +189,7 @@ object SecurityPreferences {
     }
 
     // =========================================================================
-    // 0.2 SIM Removal Wipe Action
+    // 0.3 SIM Removal Wipe Action
     // =========================================================================
     fun isWipeOnSimRemovalEnabled(context: Context): Boolean {
         return if (!isUserUnlocked(context)) {
@@ -142,7 +207,7 @@ object SecurityPreferences {
     }
 
     // =========================================================================
-    // 0.3 Fake Airplane Mode Quick Settings Safety & Trap Controls
+    // 0.4 Fake Airplane Mode Quick Settings Safety & Trap Controls
     // =========================================================================
     fun setFakeAirplanePinChallengeEnabled(context: Context, enabled: Boolean) {
         getDeviceProtectedPrefs(context).edit().putBoolean("BFU_AIRPLANE_PIN_CHALLENGE", enabled).apply()

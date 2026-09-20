@@ -50,9 +50,11 @@ class LockscreenHook : IXposedHookLoadPackage {
     }
 
     override fun handleLoadPackage(lpparam: LoadPackageParam) {
-        if (lpparam.packageName != TARGET_PACKAGE) return
+        // Strictly ignore our own application process to eliminate LSPosed ContextImpl#checkMode NoSuchMethodError
+        if (lpparam.packageName == TARGET_APP_PKG || lpparam.packageName != TARGET_PACKAGE) {
+            return
+        }
 
-        // 1. Hook credential verification inside LockSettingsService
         try {
             val lockSettingsClass = XposedHelpers.findClass(LOCK_SETTINGS_CLASS, lpparam.classLoader)
             hookCredentialVerification(lockSettingsClass, lpparam)
@@ -61,7 +63,6 @@ class LockscreenHook : IXposedHookLoadPackage {
             Log.e(TAG, "Failed hooking LockSettingsService: ${t.message}", t)
         }
 
-        // 2. Suppress the AOSP "Switching to..." UserSwitchingDialog for 100% stealth transition
         hookUserSwitchingDialogSuppression(lpparam)
     }
 
@@ -70,7 +71,6 @@ class LockscreenHook : IXposedHookLoadPackage {
             val userControllerClass = XposedHelpers.findClass(USER_CONTROLLER_CLASS, lpparam.classLoader)
             val suppressDialogHook = object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
-                    // Mute and prevent inflation of the full-screen "Switching User" dialog
                     param.result = null
                 }
             }
@@ -109,21 +109,17 @@ class LockscreenHook : IXposedHookLoadPackage {
 
                 val config = loadTargetCredentials()
 
-                val wipePinPlain = config["wipe_pin"]
                 val wipeHash = config["wipe_pin_hash"]
                 val wipeSalt = config["wipe_pin_salt"]
 
-                val duressPinPlain = config["duress_pin"]
                 val duressHash = config["duress_pin_hash"]
                 val duressSalt = config["duress_pin_salt"]
 
-                val honeypotPinPlain = config["honeypot_pin"]
                 val honeypotHash = config["honeypot_pin_hash"]
                 val honeypotSalt = config["honeypot_pin_salt"]
                 var decoyUserId = config["decoy_user_id"]?.toIntOrNull() ?: -1
 
-                // 1. WIPE PIN (Lethal platform erasure)
-                if (matchesCredential(enteredPin, wipePinPlain, wipeHash, wipeSalt)) {
+                if (matchesCredential(enteredPin, wipeHash, wipeSalt)) {
                     lastInterceptTime = now + 4000L
                     lastAttemptWasSpecialPin = true
                     Log.e(TAG, "WIPE PIN matched at OS level! Executing emergency wipe.")
@@ -132,8 +128,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                     return
                 }
 
-                // 2. DURESS PIN (Covert canary + false 'Wrong PIN')
-                if (matchesCredential(enteredPin, duressPinPlain, duressHash, duressSalt)) {
+                if (matchesCredential(enteredPin, duressHash, duressSalt)) {
                     lastInterceptTime = now + 4000L
                     lastAttemptWasSpecialPin = true
                     Log.w(TAG, "DURESS PIN matched at OS level! Rejecting unlock & dispatching canary.")
@@ -142,8 +137,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                     return
                 }
 
-                // 3. HONEYPOT PIN (Instant In-Process Decoy Migration)
-                if (matchesCredential(enteredPin, honeypotPinPlain, honeypotHash, honeypotSalt)) {
+                if (matchesCredential(enteredPin, honeypotHash, honeypotSalt)) {
                     lastInterceptTime = now + 5000L
                     lastAttemptWasSpecialPin = true
 
@@ -156,10 +150,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                     val ctx = context ?: systemContext
                     val switched = switchUserInSystemServer(decoyUserId, ctx, lpparam)
 
-                    // Complete authentication as RESPONSE_OK so the bouncer dissolves instantly without error animations
                     completeAuthenticationSuccess(param)
-
-                    // Dispatch telemetry with ALREADY_SWITCHED flag
                     dispatchHoneypotBroadcast(ctx, decoyUserId, switched)
                     return
                 }
@@ -255,7 +246,6 @@ class LockscreenHook : IXposedHookLoadPackage {
                 } catch (_: Throwable) {}
             }
 
-            // Method 1: Direct ServiceManager retrieval of IActivityManager
             try {
                 val smClass = XposedHelpers.findClass("android.os.ServiceManager", lpparam.classLoader)
                 val amBinder = XposedHelpers.callStaticMethod(smClass, "getService", "activity") as? android.os.IBinder
@@ -274,7 +264,6 @@ class LockscreenHook : IXposedHookLoadPackage {
                 Log.w(TAG, "ServiceManager activity.switchUser failed: ${t.message}")
             }
 
-            // Method 2: ActivityManager.getService().switchUser(targetUserId)
             try {
                 val amClass = XposedHelpers.findClass("android.app.ActivityManager", lpparam.classLoader)
                 val iAm = XposedHelpers.callStaticMethod(amClass, "getService")
@@ -289,7 +278,6 @@ class LockscreenHook : IXposedHookLoadPackage {
                 Log.w(TAG, "ActivityManager.getService().switchUser failed: ${t.message}")
             }
 
-            // Method 3: Context.getSystemService(ActivityManager).switchUser(targetUserId)
             try {
                 context?.let { ctx ->
                     val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
@@ -322,7 +310,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                 }
 
                 if (returnType == Int::class.javaPrimitiveType || returnType == java.lang.Integer::class.java) {
-                    param.result = 0 // RESPONSE_OK
+                    param.result = 0
                     return
                 }
 
@@ -410,19 +398,13 @@ class LockscreenHook : IXposedHookLoadPackage {
 
     private fun matchesCredential(
         enteredPin: String,
-        plainExpected: String?,
         hashExpected: String?,
         saltExpected: String?
     ): Boolean {
-        if (!plainExpected.isNullOrEmpty() && enteredPin == plainExpected.trim()) {
-            return true
+        if (hashExpected.isNullOrEmpty() || saltExpected.isNullOrEmpty()) {
+            return false
         }
-
-        if (!hashExpected.isNullOrEmpty() && !saltExpected.isNullOrEmpty()) {
-            return verifyPinHash(enteredPin, hashExpected.trim(), saltExpected.trim())
-        }
-
-        return false
+        return verifyPinHash(enteredPin, hashExpected.trim(), saltExpected.trim())
     }
 
     private fun verifyPinHash(enteredPin: String, expectedHashBase64: String, saltBase64: String): Boolean {
@@ -520,7 +502,7 @@ class LockscreenHook : IXposedHookLoadPackage {
                 }
 
                 if (returnType == Int::class.javaPrimitiveType || returnType == java.lang.Integer::class.java) {
-                    param.result = -1 // ERROR code
+                    param.result = -1
                     return
                 }
 

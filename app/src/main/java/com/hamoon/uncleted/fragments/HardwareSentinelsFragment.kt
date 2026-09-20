@@ -95,14 +95,18 @@ class HardwareSentinelsFragment : Fragment() {
         }
 
         binding.btnPmicRecalibrate.setOnClickListener {
-            val success = pmicSentinel.recalibrateBaseline()
-            if (success) {
-                Toast.makeText(context, "Hardware PMIC baseline locked to current battery state.", Toast.LENGTH_SHORT).show()
-                startTelemetryLoop()
-            } else {
-                binding.tvPmicLiveResistance.text = "Live R_int: Blocked by SELinux / Unsupported"
-                binding.tvPmicLiveTemp.text = "Live Temp: Blocked by SELinux / Unsupported"
-                Toast.makeText(context, getString(R.string.pmic_selinux_blocked_toast), Toast.LENGTH_LONG).show()
+            viewLifecycleOwner.lifecycleScope.launch {
+                val success = withContext(Dispatchers.IO) {
+                    pmicSentinel.recalibrateBaseline(forceProbe = true)
+                }
+                if (success) {
+                    Toast.makeText(context, "Hardware PMIC baseline locked to current battery state.", Toast.LENGTH_SHORT).show()
+                    startTelemetryLoop()
+                } else {
+                    binding.tvPmicLiveResistance.text = "Live R_int: Blocked by SELinux / Unsupported"
+                    binding.tvPmicLiveTemp.text = "Live Temp: Blocked by SELinux / Unsupported"
+                    Toast.makeText(context, getString(R.string.pmic_selinux_blocked_toast), Toast.LENGTH_LONG).show()
+                }
             }
         }
 
@@ -119,10 +123,10 @@ class HardwareSentinelsFragment : Fragment() {
             val baseband = AdvancedBasebandSentinel(context)
             if (isChecked) {
                 baseband.enforceModemLevel2GBlock()
-                Toast.makeText(context, "Modem firmware 2G mask applied.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "2G disabled (Device Owner policy / Modem mask).", Toast.LENGTH_SHORT).show()
             } else {
                 baseband.restoreModemNetworkTypes()
-                Toast.makeText(context, "Modem network types restored.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "2G restriction cleared.", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -146,7 +150,6 @@ class HardwareSentinelsFragment : Fragment() {
             }
         }
 
-        // Safe Boot Switch with Confirmation Warning Dialog when disabled
         binding.switchBlockSafeBoot.setOnClickListener {
             val isChecked = binding.switchBlockSafeBoot.isChecked
             if (!isChecked) {
@@ -187,29 +190,23 @@ class HardwareSentinelsFragment : Fragment() {
     private fun saveConfiguredParameters() {
         val context = requireContext()
 
-        // PMIC Thresholds
         val rDelta = binding.etPmicImpedanceDelta.text?.toString()?.toLongOrNull() ?: 35000L
         val tDelta = binding.etPmicThermalDelta.text?.toString()?.toLongOrNull() ?: 150L
         SecurityPreferences.setPmicImpedanceDeltaThreshold(context, rDelta)
         SecurityPreferences.setPmicThermalShockDelta(context, tDelta)
 
-        // Spectral Window
         val spectralMs = binding.etSpectralQuarantineMs.text?.toString()?.toLongOrNull() ?: 15000L
         SecurityPreferences.setSpectralQuarantineMs(context, spectralMs)
 
-        // Baseband Timing Advance
         val maxTA = binding.etBasebandTimingAdvance.text?.toString()?.toIntOrNull() ?: 30
         SecurityPreferences.setTimingAdvanceThreshold(context, maxTA)
 
-        // Faraday Hours
         val faradayHours = binding.etFaradayDurationHours.text?.toString()?.toIntOrNull() ?: 3
         SecurityPreferences.setFaradayBlackoutDurationHours(context, faradayHours)
 
-        // USB Transients Debounce Filter (Hits)
         val usbHits = binding.etUsbDebounceHits.text?.toString()?.toIntOrNull() ?: 3
         SecurityPreferences.setUsbRequiredConsecutiveHits(context, usbHits)
 
-        // Safe Boot State
         SecurityPreferences.setSafeBootBlocked(context, binding.switchBlockSafeBoot.isChecked)
     }
 
@@ -218,20 +215,26 @@ class HardwareSentinelsFragment : Fragment() {
         val context = context ?: return
 
         val isEnabled = SecurityPreferences.isPmicTamperEnabled(context)
-        if (!isEnabled || !pmicSentinel.isSupported()) {
+        if (!isEnabled) {
             if (_binding != null) {
-                if (!pmicSentinel.isSupported()) {
-                    binding.tvPmicLiveResistance.text = "Live R_int: Blocked by SELinux / Unsupported"
-                    binding.tvPmicLiveTemp.text = "Live Temp: Blocked by SELinux / Unsupported"
-                } else {
-                    binding.tvPmicLiveResistance.text = "Live R_int: Sentinel Disabled"
-                    binding.tvPmicLiveTemp.text = "Live Temp: Sentinel Disabled"
-                }
+                binding.tvPmicLiveResistance.text = "Live R_int: Sentinel Disabled"
+                binding.tvPmicLiveTemp.text = "Live Temp: Sentinel Disabled"
             }
             return
         }
 
         telemetryJob = viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            val supported = pmicSentinel.probeSupportAsync()
+            if (!supported) {
+                withContext(Dispatchers.Main) {
+                    if (_binding != null) {
+                        binding.tvPmicLiveResistance.text = "Live R_int: Blocked by SELinux / Unsupported"
+                        binding.tvPmicLiveTemp.text = "Live Temp: Blocked by SELinux / Unsupported"
+                    }
+                }
+                return@launch
+            }
+
             while (isActive) {
                 val (resistance, temp) = pmicSentinel.getLiveTelemetry()
 

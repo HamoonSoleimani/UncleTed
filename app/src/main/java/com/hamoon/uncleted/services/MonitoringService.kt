@@ -62,7 +62,7 @@ class MonitoringService : LifecycleService(), SensorEventListener {
         }
     }
 
-    private suspend fun initializeComponents() {
+    private suspend fun initializeComponents() = withContext(Dispatchers.IO) {
         try {
             sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
             accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -88,6 +88,11 @@ class MonitoringService : LifecycleService(), SensorEventListener {
             activeProfileName = if (strategy.isHardwareSecured) "Route A (Device Owner)" else "Route B (Root/LSPosed)"
             val isRooted = RootChecker.isDeviceRooted()
 
+            spectralSentinel = SpectralSentinel(applicationContext)
+            pmicSentinel = PmicTamperSentinel(applicationContext).apply {
+                probeSupportAsync()
+            }
+
             withContext(Dispatchers.Main) {
                 if (accelerometer != null) {
                     sensorManager.registerListener(
@@ -104,8 +109,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 }
 
                 FaradayBlackoutSentinel.initialize(applicationContext)
-                spectralSentinel = SpectralSentinel(applicationContext)
-                pmicSentinel = PmicTamperSentinel(applicationContext)
 
                 if (SecurityPreferences.isProximityShardingEnabled(applicationContext)) {
                     bleProximitySentinel = BleProximitySentinel(applicationContext).apply {
@@ -120,7 +123,6 @@ class MonitoringService : LifecycleService(), SensorEventListener {
                 screenStateReceiver = ScreenStateReceiver()
                 registerReceiver(screenStateReceiver, screenFilter)
 
-                // Root-level zero-latency hardware key monitoring (does not touch Accessibility)
                 if (isRooted && (SecurityPreferences.isHardwareWipeEnabled(this@MonitoringService) || SecurityPreferences.isKeyloggerEnabled(this@MonitoringService))) {
                     Keylogger.startHardwareKeyMonitor(applicationContext)
                 }

@@ -93,4 +93,36 @@
         <item>5</item>
         <item>10</item>
     </string-array>
+
+    <!-- Values for Video Recording Duration -->
+    <string-array name="video_duration_entries">
+        <item>۵ ثانیه</item>
+        <item>۱۰ ثانیه</item>
+        <item>۱۵ ثانیه (پیش‌فرض)</item>
+        <item>۳۰ ثانیه</item>
+        <item>۶۰ ثانیه</item>
+    </string-array>
+    <string-array name="video_duration_values">
+        <item>5</item>
+        <item>10</item>
+        <item>15</item>
+        <item>30</item>
+        <item>60</item>
+    </string-array>
+
+    <!-- Values for Audio Recording Duration -->
+    <string-array name="audio_duration_entries">
+        <item>۱۵ ثانیه</item>
+        <item>۳۰ ثانیه (پیش‌فرض)</item>
+        <item>۶۰ ثانیه (۱ دقیقه)</item>
+        <item>۱۲۰ ثانیه (۲ دقیقه)</item>
+        <item>۳۰۰ ثانیه (۵ دقیقه)</item>
+    </string-array>
+    <string-array name="audio_duration_values">
+        <item>15</item>
+        <item>30</item>
+        <item>60</item>
+        <item>120</item>
+        <item>300</item>
+    </string-array>
 </resources>

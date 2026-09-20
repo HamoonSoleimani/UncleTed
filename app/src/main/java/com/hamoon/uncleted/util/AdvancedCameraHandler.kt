@@ -1,14 +1,17 @@
 package com.hamoon.uncleted.util
 
 import android.content.Context
+import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.location.Location
 import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.lifecycle.LifecycleOwner
+import com.hamoon.uncleted.CameraPermissionBrokerActivity
 import com.hamoon.uncleted.data.SecurityPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
@@ -17,6 +20,7 @@ object AdvancedCameraHandler {
 
     private const val TAG = "AdvancedCameraHandler"
     private const val CAPTURE_TIMEOUT_MS = 25000L
+    private const val CAMERA_SWITCH_HAL_COOLDOWN_MS = 450L
 
     data class CameraCapture(
         val frontPhoto: File?,
@@ -30,41 +34,52 @@ object AdvancedCameraHandler {
     suspend fun performFullCapture(
         context: Context,
         lifecycleOwner: LifecycleOwner,
-        videoDurationSeconds: Int = 10
+        videoDurationSeconds: Int = 10,
+        requestId: Long = 0L
     ): CameraCapture = withContext(Dispatchers.IO) {
 
-        // Safe indicator suppression request without killing cameraserver
         if (SecurityPreferences.isStealthMediaCaptureEnabled(context)) {
             RootActions.suppressPrivacyIndicators(true)
         }
 
+        val frontEnabled = SecurityPreferences.isFrontCameraCaptureEnabled(context)
+        val backEnabled = SecurityPreferences.isBackCameraCaptureEnabled(context)
+
         try {
             val location = getCurrentLocation(context)
 
-            Log.i(TAG, "Initiating front camera photo capture...")
-            val frontPhoto = withTimeoutOrNull(CAPTURE_TIMEOUT_MS) {
-                CameraHandler.takePhoto(context, lifecycleOwner, CameraSelector.LENS_FACING_FRONT)
-            }
+            val frontPhoto = if (frontEnabled) {
+                Log.i(TAG, "Initiating front camera photo capture...")
+                withTimeoutOrNull(CAPTURE_TIMEOUT_MS) {
+                    CameraHandler.takePhoto(context, lifecycleOwner, CameraSelector.LENS_FACING_FRONT)
+                }
+            } else null
 
-            val backPhoto = if (hasBackCamera(context)) {
+            delay(CAMERA_SWITCH_HAL_COOLDOWN_MS)
+
+            val backPhoto = if (backEnabled && hasBackCamera(context)) {
                 Log.i(TAG, "Initiating back camera photo capture...")
                 withTimeoutOrNull(CAPTURE_TIMEOUT_MS) {
                     CameraHandler.takePhoto(context, lifecycleOwner, CameraSelector.LENS_FACING_BACK)
                 }
             } else null
 
-            val frontVideo = if (videoDurationSeconds > 0) {
-                Log.i(TAG, "Initiating front camera video capture...")
-                withTimeoutOrNull((videoDurationSeconds + 10) * 1000L) {
+            delay(CAMERA_SWITCH_HAL_COOLDOWN_MS)
+
+            val frontVideo = if (frontEnabled && videoDurationSeconds > 0) {
+                Log.i(TAG, "Initiating front camera video capture ($videoDurationSeconds s)...")
+                withTimeoutOrNull((videoDurationSeconds + 12) * 1000L) {
                     CameraHandler.recordVideo(
                         context, lifecycleOwner, videoDurationSeconds, CameraSelector.LENS_FACING_FRONT
                     )
                 }
             } else null
 
-            val backVideo = if (videoDurationSeconds > 0 && hasBackCamera(context)) {
-                Log.i(TAG, "Initiating back camera video capture...")
-                withTimeoutOrNull((videoDurationSeconds + 10) * 1000L) {
+            delay(CAMERA_SWITCH_HAL_COOLDOWN_MS)
+
+            val backVideo = if (backEnabled && videoDurationSeconds > 0 && hasBackCamera(context)) {
+                Log.i(TAG, "Initiating back camera video capture ($videoDurationSeconds s)...")
+                withTimeoutOrNull((videoDurationSeconds + 12) * 1000L) {
                     CameraHandler.recordVideo(
                         context, lifecycleOwner, videoDurationSeconds, CameraSelector.LENS_FACING_BACK
                     )
@@ -83,6 +98,16 @@ object AdvancedCameraHandler {
             return@withContext CameraCapture(null, null, null, null, null)
         } finally {
             Log.d(TAG, "Camera capture routine completed.")
+            try {
+                val completionIntent = Intent(CameraPermissionBrokerActivity.ACTION_MEDIA_CAPTURE_COMPLETED).apply {
+                    setPackage(context.packageName)
+                    putExtra(CameraPermissionBrokerActivity.EXTRA_REQUEST_ID, requestId)
+                }
+                context.sendBroadcast(completionIntent)
+                Log.d(TAG, "Dispatched ACTION_MEDIA_CAPTURE_COMPLETED broadcast with requestId: $requestId")
+            } catch (broadcastEx: Exception) {
+                Log.e(TAG, "Failed to broadcast capture completion: ${broadcastEx.message}")
+            }
         }
     }
 

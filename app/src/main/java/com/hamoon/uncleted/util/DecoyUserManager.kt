@@ -90,36 +90,26 @@ object DecoyUserManager {
         return@withContext -1
     }
 
-    /**
-     * Fully initializes, provisions, and pre-warms the Decoy User profile in advance.
-     * Executed strictly during initial setup or background boot, never in the critical unlock path.
-     */
     suspend fun repairAndWarmDecoyUser(userId: Int) {
         if (userId <= 0) return
         Log.i(TAG, "Configuring launcher and pre-warming Decoy User $userId in advance...")
 
-        // Step 1: Pre-start and unlock the user in the background
         val warmupCmds = listOf(
             "am start-user $userId 2>/dev/null || true",
             "am unlock-user $userId 2>/dev/null || true"
         )
         RootExecutor.runMultiple(warmupCmds, logErrors = false)
 
-        // Step 2: Package isolation
         isolateDecoyFromPrimaryApp(userId)
-
-        // Step 3: Complete user setup policies and restore navigation bar & lock screen
         configureDecoyUserPolicies(userId)
-
-        // Step 4: Ensure default launcher is installed and active
         ensureLauncherEnabledForUser(userId)
     }
 
     private suspend fun isolateDecoyFromPrimaryApp(userId: Int) {
         if (userId <= 0) return
         val commands = listOf(
-            "pm uninstall -k --user $userId com.hamoon.uncleted 2>/dev/null || true",
-            "pm disable-user --user $userId com.hamoon.uncleted 2>/dev/null || true",
+            "pm disable --user $userId com.hamoon.uncleted 2>/dev/null || true",
+            "pm hide $userId com.hamoon.uncleted 2>/dev/null || true",
             "mkdir -p /data/user_de/$userId/com.hamoon.uncleted /data/user/$userId/com.hamoon.uncleted 2>/dev/null || true",
             "chown -R 1000:1000 /data/user_de/$userId/com.hamoon.uncleted /data/user/$userId/com.hamoon.uncleted 2>/dev/null || true",
             "chmod 700 /data/user_de/$userId/com.hamoon.uncleted /data/user/$userId/com.hamoon.uncleted 2>/dev/null || true"
@@ -152,7 +142,6 @@ object DecoyUserManager {
     private suspend fun ensureLauncherEnabledForUser(userId: Int) {
         if (userId <= 0) return
 
-        // Resolve primary home launcher once
         val resolveResult = RootExecutor.run(
             "cmd package resolve-activity --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null || pm resolve-activity --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME",
             logErrors = false
@@ -167,12 +156,11 @@ object DecoyUserManager {
             "com.google.android.apps.nexuslauncher"
         }
 
-        // Install only the resolved launcher in a single batched shell invocation
         val batchCmd = "cmd package install-existing --user $userId $targetLauncher 2>/dev/null || pm install-existing --user $userId $targetLauncher 2>/dev/null || true ; pm enable --user $userId $targetLauncher 2>/dev/null || true"
         RootExecutor.run(batchCmd, logErrors = false)
     }
 
-    suspend fun evictPrimaryUserCeKeys(context: Context): Boolean = withContext(Dispatchers.IO) {
+    suspend fun evictPrimaryUserCeKeys(@Suppress("UNUSED_PARAMETER") context: Context): Boolean = withContext(Dispatchers.IO) {
         Log.w(TAG, "Sanitizing primary user volatile caches and syncing filesystem buffers...")
         val commands = listOf(
             "sync",
@@ -185,19 +173,14 @@ object DecoyUserManager {
         return@withContext result.any { it.isSuccess }
     }
 
-    /**
-     * Fast-path user switch: Single atomic shell call, deferring cache drops to a background job.
-     */
     suspend fun switchToDecoyWithCeEviction(context: Context, decoyUserId: Int): Boolean = withContext(Dispatchers.IO) {
         if (decoyUserId <= 0) return@withContext false
 
         Log.w(TAG, "Executing fast session switch to Decoy User $decoyUserId...")
 
-        // Combined atomic execution: start and switch in one process
         val switchCmd = "am start-user $decoyUserId 2>/dev/null ; cmd activity switch-user $decoyUserId 2>/dev/null || am switch-user $decoyUserId"
         val result = RootExecutor.run(switchCmd, logErrors = false)
 
-        // Defer I/O intensive cache dropping to prevent freezing the switch animation
         CoroutineScope(Dispatchers.IO).launch {
             delay(5000L)
             evictPrimaryUserCeKeys(context)

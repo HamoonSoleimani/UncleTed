@@ -15,6 +15,7 @@ object RootActions {
     private const val MODULES_DIR = "$ADB_BASE/modules"
     private const val SERVICE_DIR = "$ADB_BASE/service.d"
     private const val POST_MOUNT_DIR = "$ADB_BASE/post-mount.d"
+    private const val POST_FS_DATA_DIR = "$ADB_BASE/post-fs-data.d"
     private const val BACKUP_DIR = "$ADB_BASE/uncleted"
 
     enum class WipeLevel {
@@ -121,7 +122,7 @@ object RootActions {
         val pkgName = context.packageName
 
         val provider = RootChecker.getRootProvider()
-        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v9.0.1)")
+        Log.i(TAG, "ROOT: Starting universal systemless integration ($provider) for $pkgName (v10.0.1)")
 
         val permissionsXmlPath = "${context.filesDir.parent}/privapp-permissions-uncleted.xml"
         val permissionsXmlContent = """
@@ -150,22 +151,26 @@ object RootActions {
         val targetLibDir = "$targetPrivAppDir/lib/arm64"
         val targetEtcDir = "$modulePath/system/etc/permissions"
         val bootScriptPath = "$SERVICE_DIR/uncleted_boot.sh"
-        val postMountScriptPath = "$POST_MOUNT_DIR/uncleted_boot.sh"
+        val postFsDataScriptPath = "$POST_FS_DATA_DIR/uncleted_early_mount.sh"
 
-        // Boot script: mounts overlayfs if metamodule is missing and only purges /data/app if /system/priv-app is confirmed active
+        // Early mount script for KernelSU / APatch / Magisk before Zygote & PMS scan /system/priv-app
+        val postFsDataContent = """
+            #!/system/bin/sh
+            MODDIR="$modulePath"
+            # If /system/priv-app is not already magic-mounted by a metamodule, perform early overlayfs mount
+            if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "${'$'}MODDIR/system/priv-app/UncleTed/UncleTed.apk" ]; then
+                mount -t overlay overlay -o lowerdir=${'$'}MODDIR/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
+            fi
+        """.trimIndent()
+
+        // Boot script: runs after boot to activate User 0 and clean up user-space duplicate
         val serviceScriptContent = """
             #!/system/bin/sh
             export PATH="/system/bin:/system/xbin:/vendor/bin:${'$'}PATH"
             (
                 LOG="/data/adb/uncleted/boot.log"
                 mkdir -p /data/adb/uncleted
-                echo "[${'$'}(date)] Uncle Ted boot service active (v9.0.1)" > "${'$'}LOG"
-
-                # Early-boot fallback mount for KernelSU without metamodule
-                if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "$modulePath/system/priv-app/UncleTed/UncleTed.apk" ]; then
-                    echo "[${'$'}(date)] /system/priv-app not mounted. Attempting overlayfs fallback..." >> "${'$'}LOG"
-                    mount -t overlay overlay -o lowerdir=$modulePath/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
-                fi
+                echo "[${'$'}(date)] Uncle Ted boot service active (v10.0.1)" > "${'$'}LOG"
 
                 while [ "${'$'}(getprop sys.boot_completed)" != "1" ]; do
                     sleep 2
@@ -206,12 +211,16 @@ object RootActions {
         val tempBootScript = File(context.cacheDir, "uncleted_boot.sh")
         tempBootScript.writeText(serviceScriptContent)
 
+        val tempEarlyMountScript = File(context.cacheDir, "uncleted_early_mount.sh")
+        tempEarlyMountScript.writeText(postFsDataContent)
+
         val commands = listOf(
             "mkdir -p $targetPrivAppDir",
             "mkdir -p $targetLibDir",
             "mkdir -p $targetEtcDir",
             "mkdir -p $SERVICE_DIR",
             "mkdir -p $POST_MOUNT_DIR",
+            "mkdir -p $POST_FS_DATA_DIR",
             "mkdir -p $BACKUP_DIR",
             "cp -f \"$sourceApk\" \"$targetPrivAppDir/UncleTed.apk\"",
             "cp -f \"$sourceApk\" \"$BACKUP_DIR/UncleTed.apk\"",
@@ -230,22 +239,27 @@ object RootActions {
             "chcon -R u:object_r:system_file:s0 $modulePath/system",
             "echo 'id=$moduleId' > $modulePath/module.prop",
             "echo 'name=UncleTed System Priv-App & Hook' >> $modulePath/module.prop",
-            "echo 'version=v9.0.1' >> $modulePath/module.prop",
-            "echo 'versionCode=9' >> $modulePath/module.prop",
+            "echo 'version=v10.0.1' >> $modulePath/module.prop",
+            "echo 'versionCode=10' >> $modulePath/module.prop",
             "echo 'author=Hamoon Soleimani' >> $modulePath/module.prop",
             "echo 'description=Universal systemless integration into /system/priv-app.' >> $modulePath/module.prop",
+            "cp -f \"${tempEarlyMountScript.absolutePath}\" \"$postFsDataScriptPath\"",
+            "chmod 755 $postFsDataScriptPath",
+            "chown 0:0 $postFsDataScriptPath",
+            "cp -f \"${tempEarlyMountScript.absolutePath}\" \"$modulePath/post-fs-data.sh\"",
+            "chmod 755 $modulePath/post-fs-data.sh",
             "cp -f \"${tempBootScript.absolutePath}\" \"$bootScriptPath\"",
             "chmod 755 $bootScriptPath",
             "chown 0:0 $bootScriptPath",
-            "cp -f \"${tempBootScript.absolutePath}\" \"$postMountScriptPath\"",
-            "chmod 755 $postMountScriptPath",
-            "chown 0:0 $postMountScriptPath",
+            "cp -f \"${tempBootScript.absolutePath}\" \"$modulePath/service.sh\"",
+            "chmod 755 $modulePath/service.sh",
+            "rm -f \"${tempBootScript.absolutePath}\"",
+            "rm -f \"${tempEarlyMountScript.absolutePath}\"",
             "sync"
         )
 
         val result = RootExecutor.runMultiple(commands)
         File(permissionsXmlPath).delete()
-        tempBootScript.delete()
 
         if (result.all { it.isSuccess }) {
             EventLogger.log(context, "ROOT: Universal Priv-App module configured ($provider). Reboot required.")

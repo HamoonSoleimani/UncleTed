@@ -13,4 +13,5 @@ interface DefenseStrategy {
     suspend fun isolateRadiosAndNetwork()
     suspend fun cutBasebandRadioHardware()
     suspend fun setSafeBootBlocked(blocked: Boolean)
+    suspend fun setCellular2GBlocked(blocked: Boolean)
 }

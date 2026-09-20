@@ -27,6 +27,13 @@ class RootPrivilegedStrategy(
         EventLogger.log(context, "POLICY: Root safe-boot restriction state: $blocked")
     }
 
+    override suspend fun setCellular2GBlocked(blocked: Boolean) {
+        Log.i(TAG, "Root strategy updating 2G cellular restriction: blocked=$blocked")
+        val value = if (blocked) "1" else "0"
+        RootExecutor.run("pm set-user-restriction disallow_cellular_2g $value", logErrors = false)
+        EventLogger.log(context, "POLICY: Root 2G restriction state: $blocked")
+    }
+
     override suspend fun executeWipe(reason: String) {
         Log.e(TAG, "Executing root-level cryptographic key eviction and reboot (Reason: $reason)")
         EventLogger.log(context, "CRITICAL: Root-level destruction invoked: $reason")

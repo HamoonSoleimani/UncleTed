@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Universal Module Packager for Uncle Ted (v9.0.1)
+Universal Module Packager for Uncle Ted (v10.0.1)
 Generates an out-of-the-box flashable ZIP compatible with:
 - KernelSU / KernelSU-Next (In-app & Recovery)
 - Magisk / Kitsune Mask (In-app & Recovery)
@@ -8,13 +8,14 @@ Generates an out-of-the-box flashable ZIP compatible with:
 - Custom Recoveries (TWRP / OrangeFox / EvolutionX / Lineage Recovery)
 
 Implements:
-- True systemless priv-app integration with verified-mount /data/app deduplication
+- Early post-fs-data mount script for KernelSU / APatch / Magisk before Zygote/PMS start
+- Systemless priv-app integration with verified-mount /data/app deduplication
 - Fallback overlayfs mounting for KernelSU environments without metamodules
 - Privileged permission allowlist injection (MASTER_CLEAR, MANAGE_USB, REBOOT, WRITE_SECURE_SETTINGS)
 - Native 64-bit library deployment (libuncleted_native.so with ARMv8.5-A MTE support)
 - Discrete StrongBox / Titan M2 KeyMint runtime compatibility
 - Early-boot Multi-User property injection (fw.max_users=5, fw.show_multiuserui=1)
-- Direct-Boot (BFU) platform bridge provisioning (/data/system/uncleted)
+- Direct-Boot (BFU) platform bridge provisioning (/data/system/uncleted with 0700/0600 mode)
 - User 0 package activation via 'pm install-existing' (prevents /data/app user-space overrides)
 """
 
@@ -24,11 +25,11 @@ import zipfile
 
 MODULE_ID = "uncleted_privapp"
 MODULE_NAME = "UncleTed System Priv-App & Hook"
-MODULE_VERSION = "v9.0.1"
-MODULE_VERSION_CODE = "9"
+MODULE_VERSION = "v10.0.1"
+MODULE_VERSION_CODE = "10"
 MODULE_AUTHOR = "Hamoon Soleimani"
 MODULE_DESCRIPTION = (
-    "v9.0.1: Domain-driven defense suite with discrete Titan M2 StrongBox suicide engine, "
+    "v10.0.1: Domain-driven defense suite with discrete Titan M2 StrongBox suicide engine, "
     "NIST FIPS 203 ML-KEM-768 + X25519 PQC, RFC 9458 OHTTP covert canary, BLE proximity key sharding, "
     "Plausible Deniability DNG vault, ARMv8.5-A synchronous MTE hardening, physical USB HAL port severing, "
     "cold Vold keyring eviction, multi-user decoy space migration, and native LSPosed Keyguard interception hooks."
@@ -54,11 +55,13 @@ POSSIBLE_PERM_PATHS = [
 
 POSSIBLE_APK_PATHS = [
     os.path.join(APP_DIR, "build", "outputs", "apk", "release", f"UncleTed-{MODULE_VERSION}.apk"),
+    os.path.join(APP_DIR, "build", "outputs", "apk", "release", "UncleTed-v10.0.1.apk"),
     os.path.join(APP_DIR, "build", "outputs", "apk", "release", "UncleTed-v9.0.1.apk"),
     os.path.join(APP_DIR, "build", "outputs", "apk", "release", "app-release.apk"),
     os.path.join(APP_DIR, "build", "outputs", "apk", "release", "app-release-unsigned.apk"),
     os.path.join(APP_DIR, "build", "outputs", "apk", "debug", "app-debug.apk"),
     os.path.join(PROJECT_ROOT, f"UncleTed-{MODULE_VERSION}.apk"),
+    os.path.join(PROJECT_ROOT, "UncleTed-v10.0.1.apk"),
     os.path.join(PROJECT_ROOT, "UncleTed-v9.0.1.apk"),
     os.path.join(PROJECT_ROOT, "UncleTed-v8.0.1.apk"),
 ]
@@ -70,9 +73,19 @@ persist.sys.max_users=5
 persist.sys.fw.max_users=5
 """
 
+# Early-boot mount script executed during post-fs-data before PMS initializes
+POST_FS_DATA_CONTENT = r'''#!/system/bin/sh
+MODDIR=${0%/*}
+
+# Early-boot fallback mount for KernelSU / APatch if /system was not mounted by a metamodule
+if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "$MODDIR/system/priv-app/UncleTed/UncleTed.apk" ]; then
+    mount -t overlay overlay -o lowerdir=$MODDIR/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
+fi
+'''
+
 UPDATE_BINARY_CONTENT = r'''#!/bin/sh
 ##########################################################################################
-# Universal Recovery & Root Manager Installer for Uncle Ted (v9.0.1)
+# Universal Recovery & Root Manager Installer for Uncle Ted (v10.0.1)
 # Compatible with AOSP / Evolution X / Lineage Recovery (/bin/sh) and TWRP (/sbin/sh)
 ##########################################################################################
 
@@ -99,7 +112,7 @@ ui_print() {
 
 ui_print "***********************************************"
 ui_print "       Uncle Ted System Defense Suite          "
-ui_print "    Hardware StrongBox & Hook Mode (v9.0.1)    "
+ui_print "    Hardware StrongBox & Hook Mode (v10.0.1)   "
 ui_print "***********************************************"
 
 BOOTMODE=false
@@ -137,6 +150,7 @@ fi
 MODPATH="/data/adb/modules/uncleted_privapp"
 SERVICE_D_DIR="/data/adb/service.d"
 POST_MOUNT_D_DIR="/data/adb/post-mount.d"
+POST_FS_DATA_D_DIR="/data/adb/post-fs-data.d"
 BACKUP_APK_DIR="/data/adb/uncleted"
 TARGET_PRIVAPP="$MODPATH/system/priv-app/UncleTed"
 TARGET_LIB_DIR="$TARGET_PRIVAPP/lib/arm64"
@@ -144,6 +158,7 @@ TARGET_LIB_DIR="$TARGET_PRIVAPP/lib/arm64"
 mkdir -p "$MODPATH"
 mkdir -p "$SERVICE_D_DIR"
 mkdir -p "$POST_MOUNT_D_DIR"
+mkdir -p "$POST_FS_DATA_D_DIR"
 mkdir -p "$BACKUP_APK_DIR"
 mkdir -p "$TARGET_PRIVAPP"
 mkdir -p "$TARGET_LIB_DIR"
@@ -192,18 +207,19 @@ chmod 644 "$TARGET_LIB_DIR"/*.so 2>/dev/null || true
 chmod 755 "$MODPATH/system/etc/permissions"
 chmod 644 "$MODPATH/system/etc/permissions/privapp-permissions-uncleted.xml"
 chmod 755 "$MODPATH/service.sh" 2>/dev/null || true
+chmod 755 "$MODPATH/post-fs-data.sh" 2>/dev/null || true
 chmod 755 "$MODPATH/customize.sh" 2>/dev/null || true
 chown -R 0:0 "$MODPATH"
 chcon -R u:object_r:system_file:s0 "$MODPATH/system" 2>/dev/null || true
 
-# Prepare Direct-Boot (BFU) platform bridge directory
+# Prepare Direct-Boot (BFU) platform bridge directory with strict 0700/0600 mode
 mkdir -p /data/system/uncleted
-chmod 755 /data/system/uncleted
+chmod 700 /data/system/uncleted
 chown 1000:1000 /data/system/uncleted
 chcon u:object_r:system_data_file:s0 /data/system/uncleted 2>/dev/null || true
 
 if [ -f "/data/system/uncleted/credentials.cfg" ]; then
-  chmod 644 /data/system/uncleted/credentials.cfg
+  chmod 600 /data/system/uncleted/credentials.cfg
   chown 1000:1000 /data/system/uncleted/credentials.cfg
   chcon u:object_r:system_data_file:s0 /data/system/uncleted/credentials.cfg 2>/dev/null || true
 fi
@@ -218,13 +234,7 @@ export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
 (
   LOG="/data/adb/uncleted/boot.log"
   mkdir -p /data/adb/uncleted
-  echo "[$(date)] Uncle Ted boot service active (v9.0.1)" > "$LOG"
-
-  # Fallback mount for KernelSU / APatch if /system was not mounted by metamodule
-  if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "/data/adb/modules/uncleted_privapp/system/priv-app/UncleTed/UncleTed.apk" ]; then
-    echo "[$(date)] /system/priv-app not mounted. Attempting overlayfs fallback..." >> "$LOG"
-    mount -t overlay overlay -o lowerdir=/data/adb/modules/uncleted_privapp/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
-  fi
+  echo "[$(date)] Uncle Ted boot service active (v10.0.1)" > "$LOG"
 
   # Apply Multi-User early framework properties
   if command -v resetprop >/dev/null 2>&1; then
@@ -282,14 +292,14 @@ export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
     apd profile set $PKG allow.su true >/dev/null 2>&1 || true
   fi
 
-  # Maintain platform bridge integrity
+  # Maintain platform bridge integrity with 0700 / 0600 mode
   mkdir -p /data/system/uncleted
-  chmod 755 /data/system/uncleted
+  chmod 700 /data/system/uncleted
   chown 1000:1000 /data/system/uncleted
   chcon u:object_r:system_data_file:s0 /data/system/uncleted 2>/dev/null || true
 
   if [ -f "/data/system/uncleted/credentials.cfg" ]; then
-    chmod 644 /data/system/uncleted/credentials.cfg
+    chmod 600 /data/system/uncleted/credentials.cfg
     chown 1000:1000 /data/system/uncleted/credentials.cfg
     chcon u:object_r:system_data_file:s0 /data/system/uncleted/credentials.cfg 2>/dev/null || true
   fi
@@ -301,9 +311,14 @@ echo "$BOOT_SCRIPT_CONTENT" > "$SERVICE_D_DIR/uncleted_boot.sh"
 chmod 755 "$SERVICE_D_DIR/uncleted_boot.sh"
 chown 0:0 "$SERVICE_D_DIR/uncleted_boot.sh"
 
-echo "$BOOT_SCRIPT_CONTENT" > "$POST_MOUNT_D_DIR/uncleted_boot.sh"
-chmod 755 "$POST_MOUNT_D_DIR/uncleted_boot.sh"
-chown 0:0 "$POST_MOUNT_D_DIR/uncleted_boot.sh"
+EARLY_MOUNT_CONTENT='#!/system/bin/sh
+if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "/data/adb/modules/uncleted_privapp/system/priv-app/UncleTed/UncleTed.apk" ]; then
+    mount -t overlay overlay -o lowerdir=/data/adb/modules/uncleted_privapp/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
+fi
+'
+echo "$EARLY_MOUNT_CONTENT" > "$POST_FS_DATA_D_DIR/uncleted_early_mount.sh"
+chmod 755 "$POST_FS_DATA_D_DIR/uncleted_early_mount.sh"
+chown 0:0 "$POST_FS_DATA_D_DIR/uncleted_early_mount.sh"
 
 if [ "$BOOTMODE" = "true" ]; then
   if command -v ksud >/dev/null 2>&1; then
@@ -324,14 +339,14 @@ else
 fi
 
 ui_print " "
-ui_print "✓ Installation successful (v9.0.1)!"
+ui_print "✓ Installation successful (v10.0.1)!"
 ui_print "✓ Systemless priv-app, StrongBox, Multi-User, and ARM MTE layers armed."
 exit 0
 '''
 
 CUSTOMIZE_SH_CONTENT = r'''#!/sbin/sh
 ##########################################################################################
-# Magisk / KernelSU / APatch In-App Customization Script (v9.0.1)
+# Magisk / KernelSU / APatch In-App Customization Script (v10.0.1)
 ##########################################################################################
 
 ui_print "- Extracting native ARMv8.5-A MTE hardened libraries..."
@@ -356,9 +371,6 @@ if [ -d "/data/adb/ksu" ] || command -v ksud >/dev/null 2>&1; then
     fi
 fi
 
-# DO NOT delete /data/app during live in-manager installation!
-# service.sh will safely clean it upon reboot once /system/priv-app is confirmed mounted.
-
 ui_print "- Applying SELinux contexts and POSIX permissions..."
 set_perm_recursive "$MODPATH/system" 0 0 0755 0644
 set_perm "$TARGET_PRIVAPP" 0 0 0755
@@ -369,6 +381,7 @@ fi
 set_perm "$MODPATH/system/etc/permissions" 0 0 0755
 set_perm "$MODPATH/system/etc/permissions/privapp-permissions-uncleted.xml" 0 0 0644
 set_perm "$MODPATH/system.prop" 0 0 0644
+set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 chcon -R u:object_r:system_file:s0 "$MODPATH/system"
 
 # Apply live multi-user properties immediately
@@ -395,14 +408,14 @@ if [ "$BOOTMODE" = "true" ]; then
     fi
 fi
 
-# Prepare Direct-Boot (BFU) platform bridge directory
+# Prepare Direct-Boot (BFU) platform bridge directory with 0700/0600 mode
 mkdir -p /data/system/uncleted
-chmod 755 /data/system/uncleted
+chmod 700 /data/system/uncleted
 chown 1000:1000 /data/system/uncleted
 chcon u:object_r:system_data_file:s0 /data/system/uncleted 2>/dev/null || true
 
 if [ -f "/data/system/uncleted/credentials.cfg" ]; then
-    chmod 644 /data/system/uncleted/credentials.cfg
+    chmod 600 /data/system/uncleted/credentials.cfg
     chown 1000:1000 /data/system/uncleted/credentials.cfg
     chcon u:object_r:system_data_file:s0 /data/system/uncleted/credentials.cfg 2>/dev/null || true
 fi
@@ -413,11 +426,6 @@ MODDIR=${0%/*}
 export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
 
 (
-  # Early-boot fallback mount for KernelSU without metamodule
-  if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "$MODDIR/system/priv-app/UncleTed/UncleTed.apk" ]; then
-    mount -t overlay overlay -o lowerdir=$MODDIR/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
-  fi
-
   # Apply early-boot Multi-User properties
   if command -v resetprop >/dev/null 2>&1; then
     resetprop fw.max_users 5
@@ -466,14 +474,14 @@ export PATH="/system/bin:/system/xbin:/vendor/bin:$PATH"
     apd profile set com.hamoon.uncleted allow.su true >/dev/null 2>&1 || true
   fi
 
-  # Maintain platform bridge integrity
+  # Maintain platform bridge integrity with 0700 / 0600 mode
   mkdir -p /data/system/uncleted
-  chmod 755 /data/system/uncleted
+  chmod 700 /data/system/uncleted
   chown 1000:1000 /data/system/uncleted
   chcon u:object_r:system_data_file:s0 /data/system/uncleted 2>/dev/null || true
 
   if [ -f "/data/system/uncleted/credentials.cfg" ]; then
-    chmod 644 /data/system/uncleted/credentials.cfg
+    chmod 600 /data/system/uncleted/credentials.cfg
     chown 1000:1000 /data/system/uncleted/credentials.cfg
     chcon u:object_r:system_data_file:s0 /data/system/uncleted/credentials.cfg 2>/dev/null || true
   fi
@@ -560,6 +568,7 @@ def main():
         write_zip_entry(z, "META-INF/com/google/android/update-binary", UPDATE_BINARY_CONTENT, is_executable=True)
         write_zip_entry(z, "META-INF/com/google/android/updater-script", UPDATER_SCRIPT_CONTENT, is_executable=False)
         write_zip_entry(z, "customize.sh", CUSTOMIZE_SH_CONTENT, is_executable=True)
+        write_zip_entry(z, "post-fs-data.sh", POST_FS_DATA_CONTENT, is_executable=True)
         write_zip_entry(z, "service.sh", SERVICE_SH_CONTENT, is_executable=True)
 
         # Systemless priv-app filesystem payloads

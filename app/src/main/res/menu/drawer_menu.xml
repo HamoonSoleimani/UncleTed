@@ -54,7 +54,7 @@
             android:title="@string/menu_destruction" />
     </group>
 
-    <!-- SYSTEM CONFIGURATION & ABOUT -->
+    <!-- SYSTEM CONFIGURATION, DIAGNOSTICS & ABOUT -->
     <group
         android:id="@+id/group_system"
         android:checkableBehavior="single">
@@ -63,6 +63,11 @@
             android:id="@+id/nav_permissions"
             android:icon="@drawable/ic_shield_check_24"
             android:title="@string/menu_permissions" />
+
+        <item
+            android:id="@+id/nav_diagnostics"
+            android:icon="@drawable/ic_touch_app_24"
+            android:title="@string/menu_diagnostics" />
 
         <item
             android:id="@+id/nav_settings"

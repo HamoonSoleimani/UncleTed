@@ -24,13 +24,13 @@ class BootCompletedReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "BootCompletedReceiver"
         private val isDecoyPrewarmed = AtomicBoolean(false)
+        private val isBfuInitialized = AtomicBoolean(false)
+        private val isCeInitialized = AtomicBoolean(false)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
 
-        // Multi-User Guardrail: System security policies and hardware credentials synchronization
-        // must execute exclusively under the Primary Owner (User 0).
         val isPrimaryUser = (Process.myUid() / 100000) == 0
         if (!isPrimaryUser) {
             Log.d(TAG, "Running under secondary user space (UID: ${Process.myUid()}). Skipping core security daemons.")
@@ -40,52 +40,46 @@ class BootCompletedReceiver : BroadcastReceiver() {
         val isUnlocked = SecurityPreferences.isUserUnlocked(context)
         Log.d(TAG, "Device boot event received: $action (User unlocked: $isUnlocked)")
 
-        // =========================================================================
-        // 1. Direct Boot / BFU (Before First Unlock) Phase
-        // =========================================================================
-        SecurityPreferences.syncHookCredentials(context)
+        // 1. Direct Boot / BFU Phase (Execute once per device boot cycle)
+        if (!isBfuInitialized.getAndSet(true)) {
+            SecurityPreferences.syncHookCredentials(context)
 
-        // Pre-warm, repair policies, and unlock the decoy user profile safely on boot
-        val decoyId = SecurityPreferences.getDecoyUserId(context)
-        if (decoyId > 0 && !isDecoyPrewarmed.getAndSet(true)) {
-            CoroutineScope(Dispatchers.IO).launch {
-                if (RootChecker.isDeviceRooted()) {
-                    Log.i(TAG, "Pre-warming and repairing decoy user profile for User $decoyId...")
-                    DecoyUserManager.repairAndWarmDecoyUser(decoyId)
+            val decoyId = SecurityPreferences.getDecoyUserId(context)
+            if (decoyId > 0 && !isDecoyPrewarmed.getAndSet(true)) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    if (RootChecker.isDeviceRooted()) {
+                        Log.i(TAG, "Pre-warming and repairing decoy user profile for User $decoyId...")
+                        DecoyUserManager.repairAndWarmDecoyUser(decoyId)
+                    }
+                }
+            }
+
+            com.hamoon.uncleted.honeypot.DecoyAppManager.updateAllAliases(context)
+            TripwireManager.scheduleFromLastCheckIn(context)
+
+            if (SecurityPreferences.isUsbTripwireEnabled(context)) {
+                val usbIntent = Intent(context, UsbTripwireService::class.java)
+                try {
+                    ContextCompat.startForegroundService(context, usbIntent)
+                    Log.i(TAG, "Started UsbTripwireService on boot.")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start UsbTripwireService on boot", e)
+                }
+            }
+
+            if (SecurityPreferences.isGeofenceSuicideEnabled(context)) {
+                val zoneIntent = Intent(context, ZoneWipeService::class.java)
+                try {
+                    ContextCompat.startForegroundService(context, zoneIntent)
+                    Log.i(TAG, "Started ZoneWipeService on boot.")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start ZoneWipeService on boot", e)
                 }
             }
         }
 
-        // Synchronize Decoy App launcher aliases on device boot
-        com.hamoon.uncleted.honeypot.DecoyAppManager.updateAllAliases(context)
-
-        // Autonomous Tripwire MUST be scheduled during early BFU boot.
-        TripwireManager.scheduleFromLastCheckIn(context)
-
-        if (SecurityPreferences.isUsbTripwireEnabled(context)) {
-            val usbIntent = Intent(context, UsbTripwireService::class.java)
-            try {
-                ContextCompat.startForegroundService(context, usbIntent)
-                Log.i(TAG, "Started UsbTripwireService on boot.")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start UsbTripwireService on boot", e)
-            }
-        }
-
-        if (SecurityPreferences.isGeofenceSuicideEnabled(context)) {
-            val zoneIntent = Intent(context, ZoneWipeService::class.java)
-            try {
-                ContextCompat.startForegroundService(context, zoneIntent)
-                Log.i(TAG, "Started ZoneWipeService on boot.")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start ZoneWipeService on boot", e)
-            }
-        }
-
-        // =========================================================================
-        // 2. Credential-Encrypted (CE) Phase
-        // =========================================================================
-        if (isUnlocked) {
+        // 2. Credential-Encrypted (CE) Phase (Execute once when unlocked)
+        if (isUnlocked && !isCeInitialized.getAndSet(true)) {
             if (SecurityPreferences.isProtectionEnabled(context)) {
                 val serviceIntent = Intent(context, MonitoringService::class.java)
                 try {
@@ -100,7 +94,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 WatchdogManager.scheduleOrCancelWatchdog(context)
                 Log.i(TAG, "Rescheduled WatchdogWorker on post-unlock boot.")
             }
-        } else {
+        } else if (!isUnlocked) {
             Log.i(TAG, "Device remains Before First Unlock (BFU). Skipping CE-dependent tasks.")
         }
     }

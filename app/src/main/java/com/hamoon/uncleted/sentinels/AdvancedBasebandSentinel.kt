@@ -1,7 +1,9 @@
 package com.hamoon.uncleted.sentinels
 
+import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.os.Build
+import android.os.UserManager
 import android.telephony.CellInfo
 import android.telephony.CellInfoGsm
 import android.telephony.CellInfoLte
@@ -13,12 +15,14 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.hamoon.uncleted.core.DefenseCoordinator
 import com.hamoon.uncleted.data.SecurityPreferences
+import com.hamoon.uncleted.receivers.AdminReceiver
 import com.hamoon.uncleted.services.PanicActionService
 import com.hamoon.uncleted.util.EventLogger
 import com.hamoon.uncleted.util.PermissionUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class AdvancedBasebandSentinel(private val context: Context) {
 
@@ -52,8 +56,11 @@ class AdvancedBasebandSentinel(private val context: Context) {
             return
         }
 
-        if (SecurityPreferences.isHardware2GDisabled(context)) {
-            enforceModemLevel2GBlock()
+        // Offload blocking hardware policy checks to IO dispatcher to prevent main-thread lag
+        CoroutineScope(Dispatchers.IO).launch {
+            if (SecurityPreferences.isHardware2GDisabled(context)) {
+                enforceModemLevel2GBlock()
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -81,7 +88,7 @@ class AdvancedBasebandSentinel(private val context: Context) {
                 )
                 registeredCallback = callback
                 isMonitoring = true
-                Log.i(TAG, "Advanced Baseband Sentinel armed.")
+                Log.i(TAG, "Advanced Baseband Sentinel active (Monitoring: ON).")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed registering advanced telephony callbacks", e)
             }
@@ -105,6 +112,20 @@ class AdvancedBasebandSentinel(private val context: Context) {
     }
 
     fun enforceModemLevel2GBlock() {
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+        val adminComponent = AdminReceiver.getComponentName(context)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && dpm != null && dpm.isDeviceOwnerApp(context.packageName)) {
+            try {
+                dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_CELLULAR_2G)
+                Log.i(TAG, "2G cellular traffic blocked via Device Owner restriction (DISALLOW_CELLULAR_2G).")
+                EventLogger.log(context, "POLICY: 2G cellular disallowed via Device Owner policy.")
+                return
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed applying DISALLOW_CELLULAR_2G restriction: ${e.message}", e)
+            }
+        }
+
         if (telephonyManager == null) return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -122,7 +143,7 @@ class AdvancedBasebandSentinel(private val context: Context) {
                     Log.i(TAG, "Baseband modem allowed network types bitmask updated (2G stripped).")
                 }
             } catch (e: SecurityException) {
-                Log.w(TAG, "setAllowedNetworkTypesForReason requires privileged carrier authority: ${e.message}")
+                Log.w(TAG, "setAllowedNetworkTypesForReason requires carrier privileges: ${e.message}. Non-fatal on Device Owner installations.")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed updating allowed network types: ${e.message}")
             }
@@ -130,6 +151,20 @@ class AdvancedBasebandSentinel(private val context: Context) {
     }
 
     fun restoreModemNetworkTypes() {
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+        val adminComponent = AdminReceiver.getComponentName(context)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && dpm != null && dpm.isDeviceOwnerApp(context.packageName)) {
+            try {
+                dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_CELLULAR_2G)
+                Log.i(TAG, "2G cellular restriction cleared via Device Owner (DISALLOW_CELLULAR_2G).")
+                EventLogger.log(context, "POLICY: 2G cellular restriction cleared via Device Owner.")
+                return
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed clearing DISALLOW_CELLULAR_2G restriction: ${e.message}", e)
+            }
+        }
+
         if (telephonyManager == null) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             try {
@@ -171,8 +206,6 @@ class AdvancedBasebandSentinel(private val context: Context) {
         if (cellInfoList.isEmpty()) return
 
         val maxAllowedTimingAdvance = SecurityPreferences.getTimingAdvanceThreshold(context)
-
-        // Only evaluate the serving cell the phone is actively connected to
         val registeredCells = cellInfoList.filter { it.isRegistered }
 
         for (info in registeredCells) {
