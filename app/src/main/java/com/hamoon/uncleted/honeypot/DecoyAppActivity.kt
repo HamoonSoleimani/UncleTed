@@ -2,6 +2,7 @@ package com.hamoon.uncleted.honeypot
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import com.hamoon.uncleted.LockScreenActivity
@@ -22,6 +23,17 @@ class DecoyAppActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
+
+        try {
+            reportFullyDrawn()
+        } catch (_: Exception) {}
 
         val componentClass = intent.component?.className ?: ""
         val appName = when {

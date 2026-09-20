@@ -15,6 +15,9 @@ object DecoyUserManager {
     private const val TAG = "DecoyUserManager"
     private const val DECOY_USER_NAME = "Personal"
 
+    @Volatile
+    private var isMultiUserPropsConfigured = false
+
     data class DecoyStatus(
         val isSupported: Boolean,
         val exists: Boolean,
@@ -26,7 +29,6 @@ object DecoyUserManager {
             return@withContext DecoyStatus(isSupported = false, exists = false, userId = -1)
         }
 
-        ensureMultiUserPropertyEnabled()
         val cachedId = SecurityPreferences.getDecoyUserId(context)
         val existingDecoyId = if (cachedId > 0) cachedId else findExistingDecoyUserId(context)
 
@@ -57,14 +59,14 @@ object DecoyUserManager {
 
         var decoyId = findExistingDecoyUserId(context)
         if (decoyId > 0) {
-            Log.i(TAG, "Decoy user profile verified with UID $decoyId. Running initial configuration...")
+            Log.i(TAG, "Decoy user profile verified with UID $decoyId. Running configuration...")
             repairAndWarmDecoyUser(decoyId)
             SecurityPreferences.setDecoyUserId(context, decoyId)
             CredentialBridge.syncCredentials(context)
             return@withContext decoyId
         }
 
-        Log.i(TAG, "Creating authentic secondary Android user profile: '$DECOY_USER_NAME'...")
+        Log.i(TAG, "Creating secondary Android user profile: '$DECOY_USER_NAME'...")
         val createResult = RootExecutor.run("pm create-user \"$DECOY_USER_NAME\"")
         val finalResult = if (!createResult.isSuccess) {
             RootExecutor.run("pm create-user --user-type android.os.usertype.full.SECONDARY \"$DECOY_USER_NAME\"")
@@ -76,7 +78,7 @@ object DecoyUserManager {
 
             if (parsedId != null && parsedId > 0) {
                 decoyId = parsedId
-                Log.i(TAG, "Successfully provisioned Decoy User space (UserHandle $decoyId). Configuring policies...")
+                Log.i(TAG, "Successfully provisioned Decoy User space (UserHandle $decoyId).")
 
                 repairAndWarmDecoyUser(decoyId)
 
@@ -92,11 +94,10 @@ object DecoyUserManager {
 
     suspend fun repairAndWarmDecoyUser(userId: Int) {
         if (userId <= 0) return
-        Log.i(TAG, "Configuring launcher and pre-warming Decoy User $userId in advance...")
+        Log.i(TAG, "Configuring decoy profile policies for User $userId...")
 
         val warmupCmds = listOf(
-            "am start-user $userId 2>/dev/null || true",
-            "am unlock-user $userId 2>/dev/null || true"
+            "am start-user $userId 2>/dev/null || true"
         )
         RootExecutor.runMultiple(warmupCmds, logErrors = false)
 
@@ -109,10 +110,7 @@ object DecoyUserManager {
         if (userId <= 0) return
         val commands = listOf(
             "pm disable --user $userId com.hamoon.uncleted 2>/dev/null || true",
-            "pm hide $userId com.hamoon.uncleted 2>/dev/null || true",
-            "mkdir -p /data/user_de/$userId/com.hamoon.uncleted /data/user/$userId/com.hamoon.uncleted 2>/dev/null || true",
-            "chown -R 1000:1000 /data/user_de/$userId/com.hamoon.uncleted /data/user/$userId/com.hamoon.uncleted 2>/dev/null || true",
-            "chmod 700 /data/user_de/$userId/com.hamoon.uncleted /data/user/$userId/com.hamoon.uncleted 2>/dev/null || true"
+            "pm hide $userId com.hamoon.uncleted 2>/dev/null || true"
         )
         RootExecutor.runMultiple(commands, logErrors = false)
     }
@@ -202,7 +200,7 @@ object DecoyUserManager {
         val decoyId = findExistingDecoyUserId(context)
         if (decoyId <= 0) return@withContext true
 
-        RootExecutor.run("am stop-user -w -f $decoyId", logErrors = false)
+        RootExecutor.run("am stop-user -w -f $decoyId 2>/dev/null || am stop-user $decoyId 2>/dev/null || true", logErrors = false)
         val result = RootExecutor.run("pm remove-user $decoyId")
         if (result.isSuccess) {
             SecurityPreferences.setDecoyUserId(context, -1)
@@ -246,6 +244,7 @@ object DecoyUserManager {
     }
 
     private suspend fun ensureMultiUserPropertyEnabled() {
+        if (isMultiUserPropsConfigured) return
         val commands = listOf(
             "resetprop fw.max_users 5 2>/dev/null || setprop fw.max_users 5",
             "resetprop fw.show_multiuserui 1 2>/dev/null || setprop fw.show_multiuserui 1",
@@ -254,5 +253,6 @@ object DecoyUserManager {
             "settings put global add_users_when_locked 1"
         )
         RootExecutor.runMultiple(commands, logErrors = false)
+        isMultiUserPropsConfigured = true
     }
 }

@@ -44,7 +44,6 @@ class DashboardFragment : Fragment() {
         binding.dashboardContentScrollview.isVisible = false
     }
 
-
     override fun onResume() {
         super.onResume()
         viewLifecycleOwner.lifecycleScope.launch {
@@ -55,11 +54,15 @@ class DashboardFragment : Fragment() {
     private suspend fun populateDashboard() {
         val context = context ?: return
 
-        val threatAssessment = ThreatDetectionEngine.performThreatAnalysis(context)
-        val securityLevel = SecurityScoreCalculator.calculateSecurityLevel(context)
-        val checklistItems = SecurityScoreCalculator.getChecklistItems(context)
+        val (threatAssessment, securityLevel, checklistItems) = withContext(Dispatchers.IO) {
+            val threats = ThreatDetectionEngine.performThreatAnalysis(context)
+            val secLevel = SecurityScoreCalculator.calculateSecurityLevel(context)
+            val items = SecurityScoreCalculator.getChecklistItems(context)
+            Triple(threats, secLevel, items)
+        }
 
         withContext(Dispatchers.Main) {
+            if (_binding == null) return@withContext
             binding.progressIndicator.isVisible = false
             binding.dashboardContentScrollview.isVisible = true
 
@@ -145,7 +148,6 @@ class DashboardFragment : Fragment() {
 
     private fun updateThreatAssessmentCard(context: Context, threatAssessment: ThreatDetectionEngine.ThreatAssessment) {
         if (threatAssessment.threats.isNotEmpty()) {
-            // ### THE FIX IS HERE: Corrected the variable name from noThreatView to noThreatsView ###
             noThreatsView?.isVisible = false
 
             if (threatsFoundView == null) {

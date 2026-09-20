@@ -43,10 +43,8 @@ object RootActions {
         Log.e(TAG, "ROOT: Executing destruction protocol - Level: $level")
         EventLogger.log(context, "ROOT: Executing destruction level: $level")
 
-        // 1. Isolate radio and network interfaces
         blockAllNetworkTraffic(context)
 
-        // 2. Destroy discrete Titan M2/StrongBox silicon master key for lethal shredding levels
         if (level != WipeLevel.STANDARD_WIPE) {
             StrongBoxSecurityManager.executeMasterKeySuicide(context)
         }
@@ -61,7 +59,6 @@ object RootActions {
             }
 
             WipeLevel.FAST_USERDATA -> {
-                // Sub-millisecond cryptographic metadata zeroing and Vold key shredding
                 EmergencyDestructionEngine.evictAndZeroEncryptionKeys()
                 EmergencyDestructionEngine.stageRecoveryWipeCommand()
 
@@ -75,7 +72,6 @@ object RootActions {
             }
 
             WipeLevel.SYSTEM_DESTRUCTION, WipeLevel.OS_SUICIDE -> {
-                // Cryptographically shred data and zero boot/ramdisk partitions
                 EmergencyDestructionEngine.evictAndZeroEncryptionKeys()
 
                 val bootPartitions = listOf("boot", "boot_a", "boot_b", "vendor_boot", "vendor_boot_a", "vendor_boot_b", "init_boot")
@@ -92,7 +88,6 @@ object RootActions {
             }
 
             WipeLevel.NUCLEAR_WINTER -> {
-                // Erase encryption metadata and wipe partition headers across critical partitions
                 EmergencyDestructionEngine.evictAndZeroEncryptionKeys()
 
                 val allPartitions = listOf("boot", "boot_a", "boot_b", "vendor_boot", "init_boot", "recovery", "vbmeta", "vbmeta_system", "misc", "userdata", "metadata")
@@ -107,7 +102,6 @@ object RootActions {
                 EmergencyDestructionEngine.stageRecoveryWipeCommand()
                 RootExecutor.run("reboot bootloader", logErrors = false)
 
-                // Force unconditional hardware reboot via SysRq trigger
                 RootExecutor.run("echo 1 > /proc/sys/kernel/sysrq", logErrors = false)
                 RootExecutor.run("echo c > /proc/sysrq-trigger", logErrors = false)
             }
@@ -153,17 +147,30 @@ object RootActions {
         val bootScriptPath = "$SERVICE_DIR/uncleted_boot.sh"
         val postFsDataScriptPath = "$POST_FS_DATA_DIR/uncleted_early_mount.sh"
 
-        // Early mount script for KernelSU / APatch / Magisk before Zygote & PMS scan /system/priv-app
         val postFsDataContent = """
             #!/system/bin/sh
             MODDIR="$modulePath"
-            # If /system/priv-app is not already magic-mounted by a metamodule, perform early overlayfs mount
-            if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ] && [ -f "${'$'}MODDIR/system/priv-app/UncleTed/UncleTed.apk" ]; then
-                mount -t overlay overlay -o lowerdir=${'$'}MODDIR/system/priv-app:/system/priv-app /system/priv-app 2>/dev/null || true
+            if [ -f "${'$'}MODDIR/system/priv-app/UncleTed/UncleTed.apk" ]; then
+                chcon -R u:object_r:system_file:s0 "${'$'}MODDIR/system" 2>/dev/null || true
+                chmod -R 755 "${'$'}MODDIR/system" 2>/dev/null || true
+                chmod 644 "${'$'}MODDIR/system/priv-app/UncleTed/UncleTed.apk" 2>/dev/null || true
+                chmod 644 "${'$'}MODDIR/system/etc/permissions/privapp-permissions-uncleted.xml" 2>/dev/null || true
+
+                if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ]; then
+                    mount -t overlay overlay -o "lowerdir=${'$'}MODDIR/system/priv-app:/system/priv-app,context=u:object_r:system_file:s0" /system/priv-app 2>/dev/null || true
+                fi
+
+                if [ ! -f "/system/priv-app/UncleTed/UncleTed.apk" ]; then
+                    mount -o remount,rw /system 2>/dev/null || mount -o remount,rw / 2>/dev/null || true
+                    mkdir -p /system/priv-app/UncleTed 2>/dev/null || true
+                    mkdir -p /system/etc/permissions 2>/dev/null || true
+                    mount --bind "${'$'}MODDIR/system/priv-app/UncleTed" /system/priv-app/UncleTed 2>/dev/null || true
+                    mount --bind "${'$'}MODDIR/system/etc/permissions/privapp-permissions-uncleted.xml" /system/etc/permissions/privapp-permissions-uncleted.xml 2>/dev/null || true
+                    mount -o remount,ro /system 2>/dev/null || mount -o remount,ro / 2>/dev/null || true
+                fi
             fi
         """.trimIndent()
 
-        // Boot script: runs after boot to activate User 0 and clean up user-space duplicate
         val serviceScriptContent = """
             #!/system/bin/sh
             export PATH="/system/bin:/system/xbin:/vendor/bin:${'$'}PATH"
@@ -187,7 +194,6 @@ object RootActions {
 
                 sleep 3
 
-                # Only purge /data/app user-space duplicates IF /system/priv-app mount is verified active!
                 if [ -f "/system/priv-app/UncleTed/UncleTed.apk" ]; then
                     echo "[${'$'}(date)] /system/priv-app active. Purging /data/app user override..." >> "${'$'}LOG"
                     find /data/app -type d -name "*$pkgName*" -exec rm -rf {} + 2>/dev/null || true
@@ -225,7 +231,6 @@ object RootActions {
             "cp -f \"$sourceApk\" \"$targetPrivAppDir/UncleTed.apk\"",
             "cp -f \"$sourceApk\" \"$BACKUP_DIR/UncleTed.apk\"",
             "cp -f \"$permissionsXmlPath\" \"$targetEtcDir/privapp-permissions-uncleted.xml\"",
-            // Extract native ARM64 libraries from APK to priv-app lib directory
             "unzip -j -o \"$sourceApk\" \"lib/arm64-v8a/*\" -d \"$targetLibDir\" 2>/dev/null || true",
             "chmod 755 $targetPrivAppDir",
             "chmod 644 $targetPrivAppDir/UncleTed.apk",

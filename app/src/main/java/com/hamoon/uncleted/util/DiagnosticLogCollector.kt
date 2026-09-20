@@ -39,9 +39,8 @@ object DiagnosticLogCollector {
         var selinux = "Unknown"
 
         if (isRooted) {
-            val mountCheck = RootExecutor.run("mount | grep -i uncleted", logErrors = false)
-            val directFile = RootExecutor.run("ls -la /system/priv-app/UncleTed/UncleTed.apk 2>/dev/null", logErrors = false)
-            privAppMounted = mountCheck.isSuccess || (directFile.isSuccess && directFile.output.isNotEmpty())
+            val directFile = RootExecutor.run("test -f /system/priv-app/UncleTed/UncleTed.apk && echo mounted", logErrors = false)
+            privAppMounted = directFile.isSuccess && directFile.output.any { it.contains("mounted") }
 
             val seResult = RootExecutor.run("getenforce", logErrors = false)
             if (seResult.isSuccess && seResult.output.isNotEmpty()) {

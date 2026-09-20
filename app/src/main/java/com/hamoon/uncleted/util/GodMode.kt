@@ -1,11 +1,9 @@
 package com.hamoon.uncleted.util
 
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.hamoon.uncleted.CameraPermissionBrokerActivity
-import com.hamoon.uncleted.services.PowerButtonService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -47,25 +45,8 @@ object GodMode {
         }
     }
 
-    suspend fun cleanupLegacyAccessibility(context: Context) = withContext(Dispatchers.IO) {
-        val cn = ComponentName(context, PowerButtonService::class.java)
-        val shortComponent = cn.flattenToShortString()
-        val longComponent = cn.flattenToString()
-
-        val currentServicesResult = RootExecutor.run("settings get secure enabled_accessibility_services", logErrors = false)
-        if (currentServicesResult.isSuccess) {
-            val current = currentServicesResult.output.firstOrNull() ?: ""
-            if (current.contains(shortComponent) || current.contains(longComponent)) {
-                val cleaned = current.split(":")
-                    .filter { it != shortComponent && it != longComponent && it.isNotBlank() }
-                    .joinToString(":")
-                RootExecutor.run("settings put secure enabled_accessibility_services \"$cleaned\"", logErrors = false)
-                if (cleaned.isEmpty()) {
-                    RootExecutor.run("settings put secure accessibility_enabled 0", logErrors = false)
-                }
-                Log.i(TAG, "Legacy accessibility service removed from Settings.Secure.")
-            }
-        }
+    suspend fun cleanupLegacyAccessibility(@Suppress("UNUSED_PARAMETER") context: Context) = withContext(Dispatchers.IO) {
+        Log.d(TAG, "cleanupLegacyAccessibility bypassed to prevent accessibility manager thrashing loops.")
     }
 
     suspend fun forceEnableAccessibility(@Suppress("UNUSED_PARAMETER") context: Context) = withContext(Dispatchers.IO) {

@@ -19,7 +19,6 @@ object UsbTrapdoorController {
 
     fun armTrapdoor(context: Context) {
         isTrapdoorArmed = true
-        // Proactive, instantaneous data line severing
         scope.launch {
             severPhysicalDataLines(context)
             startHardwareInterruptMonitor(context)
@@ -38,7 +37,6 @@ object UsbTrapdoorController {
     suspend fun severPhysicalDataLines(context: Context) = withContext(Dispatchers.IO) {
         Log.w(TAG, "Zero-Latency USB PHY data line severing engaged.")
 
-        // 1. Android 12+ USB HAL v1.3 Physical Disconnect
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
                 val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
@@ -49,14 +47,13 @@ object UsbTrapdoorController {
             }
         }
 
-        // 2. Hardware DWC3 / Linux UDC register unbind via root
         if (RootChecker.isDeviceRooted()) {
             val kernelSeverCmds = listOf(
                 "setprop sys.usb.config none",
                 "setprop sys.usb.state none",
                 "echo '' > /config/usb_gadget/g1/UDC 2>/dev/null || true",
                 "for udc in /sys/class/udc/*; do echo '' > \"\$udc/state\" 2>/dev/null || true; done",
-                "for mode in /sys/devices/platform/soc/*.dwc3/mode; do echo 'none' > \"\$mode\" 2>/dev/null || true; done"
+                "for mode in /sys/devices/platform/soc/*.dwc3/mode /sys/devices/platform/*.dwc3/mode; do [ -f \"\$mode\" ] && echo 'none' > \"\$mode\" 2>/dev/null || true; done"
             )
             RootExecutor.runMultiple(kernelSeverCmds, logErrors = false)
             EventLogger.log(context, "HARDWARE: USB PHY data lines severed at register layer.")
@@ -86,20 +83,18 @@ object UsbTrapdoorController {
         eventMonitorJob?.cancel()
         eventMonitorJob = scope.launch {
             while (isActive && isTrapdoorArmed) {
-                // High-priority monitor targeting active data host enumeration
                 if (isHostDataEnumerationAttempted()) {
                     Log.e(TAG, "!!! INTRUSION DETECTED: USB DATA ENUMERATION ATTEMPTED WHILE LOCKED !!!")
                     EventLogger.log(context, "CRITICAL: USB data handshake attempted on severed port. Triggering SoC panic.")
                     triggerUnconditionalHardwarePanic()
                     break
                 }
-                delay(100L) // 100ms fast-poll loop
+                delay(500L)
             }
         }
     }
 
     private fun isHostDataEnumerationAttempted(): Boolean {
-        // Fast-path inspection of UDC controller state
         val udcDir = File("/sys/class/udc")
         if (udcDir.exists() && udcDir.isDirectory) {
             udcDir.listFiles()?.forEach { file ->
@@ -115,7 +110,6 @@ object UsbTrapdoorController {
             }
         }
 
-        // Fast-path inspection of charger type negotiation
         val pwrType = File("/sys/class/power_supply/usb/type")
         if (pwrType.exists()) {
             try {

@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -24,7 +25,7 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
         private const val BROKER_NOTIFICATION_ID = 9002
         const val ACTION_MEDIA_CAPTURE_COMPLETED = "com.hamoon.uncleted.ACTION_MEDIA_CAPTURE_COMPLETED"
         const val EXTRA_REQUEST_ID = "com.hamoon.uncleted.EXTRA_REQUEST_ID"
-        private const val MAX_BROKER_TIMEOUT_MS = 60_000L
+        private const val MAX_BROKER_TIMEOUT_MS = 20_000L
     }
 
     private var watchdogJob: Job? = null
@@ -35,7 +36,6 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ACTION_MEDIA_CAPTURE_COMPLETED) {
                 val receivedId = intent.getLongExtra(EXTRA_REQUEST_ID, 0L)
-                // Dismiss if request IDs match, or if either side is untracked (0L fallback)
                 if (activeRequestId == 0L || receivedId == 0L || receivedId == activeRequestId) {
                     Log.i(TAG, "Media capture completion signal received for request $receivedId. Dismissing broker window.")
                     dismissBroker()
@@ -50,6 +50,13 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         activeRequestId = intent.getLongExtra(EXTRA_REQUEST_ID, 0L)
         Log.d(TAG, "Broker activity created (Request ID: $activeRequestId).")
+
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
 
         window.addFlags(
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
@@ -67,6 +74,13 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
                         WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
+
+        val dummyView = View(this)
+        setContentView(dummyView)
+
+        try {
+            reportFullyDrawn()
+        } catch (_: Exception) {}
 
         val filter = IntentFilter(ACTION_MEDIA_CAPTURE_COMPLETED)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -122,6 +136,11 @@ class CameraPermissionBrokerActivity : AppCompatActivity() {
             unregisterReceiver(captureCompletionReceiver)
         } catch (_: Exception) {}
         finishAndRemoveTask()
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
     }
 
     override fun onDestroy() {

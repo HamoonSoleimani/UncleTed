@@ -292,7 +292,7 @@
     <string name="root_feature_hide_process_desc">Enforces process hiding and namespace isolation across Magisk and KernelSU.</string>
     <string name="process_hiding_enabled_toast">Process hiding enabled.</string>
     <string name="process_hiding_disabled_toast">Process hiding disabled.</string>
-    <string name="process_hiding_failed_toast">Operation failed.</string>
+    <string name="process_hiding_failed_toast">Process hiding failed.</string>
     <string name="root_feature_survive_reset">Survive Factory Reset (AVB Guarded)</string>
     <string name="root_feature_survive_reset_desc">Stages an emergency loader script. Blocked automatically if AVB 2.0 is locked to prevent hard bricks.</string>
     <string name="loader_script_url_hint">Loader Script URL</string>

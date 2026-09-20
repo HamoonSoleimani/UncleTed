@@ -10,20 +10,14 @@ import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.MonitoringService
 import com.hamoon.uncleted.services.UsbTripwireService
 import com.hamoon.uncleted.services.ZoneWipeService
-import com.hamoon.uncleted.util.DecoyUserManager
-import com.hamoon.uncleted.util.RootChecker
 import com.hamoon.uncleted.util.TripwireManager
 import com.hamoon.uncleted.util.WatchdogManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
 class BootCompletedReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "BootCompletedReceiver"
-        private val isDecoyPrewarmed = AtomicBoolean(false)
         private val isBfuInitialized = AtomicBoolean(false)
         private val isCeInitialized = AtomicBoolean(false)
     }
@@ -43,16 +37,6 @@ class BootCompletedReceiver : BroadcastReceiver() {
         // 1. Direct Boot / BFU Phase (Execute once per device boot cycle)
         if (!isBfuInitialized.getAndSet(true)) {
             SecurityPreferences.syncHookCredentials(context)
-
-            val decoyId = SecurityPreferences.getDecoyUserId(context)
-            if (decoyId > 0 && !isDecoyPrewarmed.getAndSet(true)) {
-                CoroutineScope(Dispatchers.IO).launch {
-                    if (RootChecker.isDeviceRooted()) {
-                        Log.i(TAG, "Pre-warming and repairing decoy user profile for User $decoyId...")
-                        DecoyUserManager.repairAndWarmDecoyUser(decoyId)
-                    }
-                }
-            }
 
             com.hamoon.uncleted.honeypot.DecoyAppManager.updateAllAliases(context)
             TripwireManager.scheduleFromLastCheckIn(context)

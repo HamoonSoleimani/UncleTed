@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private val settingsFragment by lazy { SettingsFragment() }
     private val aboutFragment by lazy { AboutFragment() }
 
-    private var activeFragment: Fragment = dashboardFragment
+    private var activeFragment: Fragment? = null
     private var isAuthenticating = true
 
     companion object {
@@ -85,7 +85,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         if (isRooted && isPrimaryUser) {
             try {
                 GodMode.whitelistFromBatteryOptimizations(applicationContext)
-                GodMode.cleanupLegacyAccessibility(applicationContext)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed executing God Mode startup routines", e)
             }
@@ -143,7 +142,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         toggle.syncState()
 
         binding.navView.setNavigationItemSelectedListener(this)
-        setupFragments()
 
         showFragment(dashboardFragment, getString(R.string.menu_dashboard))
         binding.navView.setCheckedItem(R.id.nav_dashboard)
@@ -176,27 +174,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
-    private fun setupFragments() {
-        if (isFinishing || isDestroyed) return
-        if (supportFragmentManager.findFragmentByTag("DASHBOARD") != null) return
-
-        supportFragmentManager.commit(allowStateLoss = true) {
-            add(R.id.nav_host_fragment, dashboardFragment, "DASHBOARD").hide(dashboardFragment)
-            add(R.id.nav_host_fragment, antiForensicsFragment, "ANTI_FORENSICS").hide(antiForensicsFragment)
-            add(R.id.nav_host_fragment, hardwareSentinelsFragment, "HARDWARE").hide(hardwareSentinelsFragment)
-            add(R.id.nav_host_fragment, cryptoEngineFragment, "CRYPTO").hide(cryptoEngineFragment)
-            add(R.id.nav_host_fragment, authenticationFragment, "AUTH").hide(authenticationFragment)
-            add(R.id.nav_host_fragment, proximityTripwireFragment, "PROXIMITY").hide(proximityTripwireFragment)
-            add(R.id.nav_host_fragment, remoteSignalingFragment, "SIGNALING").hide(remoteSignalingFragment)
-            add(R.id.nav_host_fragment, surveillanceFragment, "SURVEILLANCE").hide(surveillanceFragment)
-            add(R.id.nav_host_fragment, destructionProtocolsFragment, "DESTRUCTION").hide(destructionProtocolsFragment)
-            add(R.id.nav_host_fragment, permissionsFragment, "PERMISSIONS").hide(permissionsFragment)
-            add(R.id.nav_host_fragment, diagnosticsFragment, "DIAGNOSTICS").hide(diagnosticsFragment)
-            add(R.id.nav_host_fragment, settingsFragment, "SETTINGS").hide(settingsFragment)
-            add(R.id.nav_host_fragment, aboutFragment, "ABOUT").hide(aboutFragment)
-        }
-    }
-
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         val (fragment, title) = when (item.itemId) {
             R.id.nav_dashboard -> dashboardFragment to getString(R.string.menu_dashboard)
@@ -221,12 +198,19 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun showFragment(fragment: Fragment, title: String) {
-        if (fragment == activeFragment && fragment.isVisible) return
+        if (fragment == activeFragment && fragment.isAdded && fragment.isVisible) return
         if (isFinishing || isDestroyed) return
 
         supportFragmentManager.commit(allowStateLoss = true) {
-            hide(activeFragment)
-            show(fragment)
+            val current = activeFragment
+            if (current != null && current.isAdded) {
+                hide(current)
+            }
+            if (!fragment.isAdded) {
+                add(R.id.nav_host_fragment, fragment, title)
+            } else {
+                show(fragment)
+            }
         }
         activeFragment = fragment
         binding.toolbar.title = title

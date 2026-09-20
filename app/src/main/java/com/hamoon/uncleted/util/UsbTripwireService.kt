@@ -27,7 +27,7 @@ class UsbTripwireService : Service() {
     companion object {
         private const val TAG = "UsbTripwireService"
         private const val NOTIFICATION_ID = 2002
-        private const val POLLING_INTERVAL_MS = 1000L
+        private const val POLLING_INTERVAL_MS = 2500L
     }
 
     override fun onCreate() {

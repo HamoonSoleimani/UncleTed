@@ -7,6 +7,8 @@ import androidx.annotation.StringRes
 import com.hamoon.uncleted.R
 import com.hamoon.uncleted.data.SecurityPreferences
 import com.hamoon.uncleted.services.PowerButtonService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object SecurityScoreCalculator {
 
@@ -25,10 +27,22 @@ object SecurityScoreCalculator {
         @ColorRes val colorRes: Int
     )
 
-    suspend fun getChecklistItems(context: Context): List<ChecklistItem> {
+    suspend fun getChecklistItems(context: Context): List<ChecklistItem> = withContext(Dispatchers.IO) {
         val isRooted = RootChecker.isDeviceRooted()
+        val isAdmin = PermissionUtils.isDeviceAdminActive(context)
+        val isAccessibility = isRooted || PermissionUtils.isAccessibilityServiceEnabled(context, PowerButtonService::class.java)
+        val hasPerms = PermissionUtils.hasCameraPermission(context) &&
+                PermissionUtils.hasLocationPermissions(context) &&
+                PermissionUtils.hasSmsPermissions(context) &&
+                PermissionUtils.hasPostNotificationsPermission(context)
+        val normalPin = SecurityPreferences.getNormalPin(context)
+        val duressPin = SecurityPreferences.getDuressPin(context)
+        val hasPins = !normalPin.isNullOrEmpty() && !duressPin.isNullOrEmpty()
+        val hasContact = !SecurityPreferences.getEmergencyContact(context).isNullOrEmpty()
+        val isIntruder = SecurityPreferences.isIntruderSelfieEnabled(context)
+        val isSim = SecurityPreferences.isSimChangeAlertEnabled(context)
 
-        return listOf(
+        listOf(
             ChecklistItem(
                 iconRes = R.drawable.ic_alert_triangle_24,
                 titleRes = R.string.check_root_title,
@@ -41,70 +55,59 @@ object SecurityScoreCalculator {
                 titleRes = R.string.check_admin_title,
                 descriptionRes = R.string.check_admin_desc,
                 weight = 25,
-                isMet = { PermissionUtils.isDeviceAdminActive(context) }
+                isMet = { isAdmin }
             ),
             ChecklistItem(
                 iconRes = R.drawable.ic_accessibility_24,
                 titleRes = R.string.check_accessibility_title,
                 descriptionRes = R.string.check_accessibility_desc,
                 weight = 20,
-                isMet = {
-                    // On rooted devices, hardware volume keys are intercepted via kernel getevent without accessibility
-                    isRooted || PermissionUtils.isAccessibilityServiceEnabled(context, PowerButtonService::class.java)
-                }
+                isMet = { isAccessibility }
             ),
             ChecklistItem(
                 iconRes = R.drawable.ic_smartphone_24,
                 titleRes = R.string.check_permissions_title,
                 descriptionRes = R.string.check_permissions_desc,
                 weight = 20,
-                isMet = {
-                    PermissionUtils.hasCameraPermission(context) &&
-                            PermissionUtils.hasLocationPermissions(context) &&
-                            PermissionUtils.hasSmsPermissions(context) &&
-                            PermissionUtils.hasPostNotificationsPermission(context)
-                }
+                isMet = { hasPerms }
             ),
             ChecklistItem(
                 iconRes = R.drawable.ic_pin_24,
                 titleRes = R.string.check_pins_title,
                 descriptionRes = R.string.check_pins_desc,
                 weight = 15,
-                isMet = {
-                    !SecurityPreferences.getNormalPin(context).isNullOrEmpty() &&
-                            !SecurityPreferences.getDuressPin(context).isNullOrEmpty()
-                }
+                isMet = { hasPins }
             ),
             ChecklistItem(
                 iconRes = R.drawable.ic_contact_24,
                 titleRes = R.string.check_contact_title,
                 descriptionRes = R.string.check_contact_desc,
                 weight = 10,
-                isMet = { !SecurityPreferences.getEmergencyContact(context).isNullOrEmpty() }
+                isMet = { hasContact }
             ),
             ChecklistItem(
                 iconRes = R.drawable.ic_selfie_24,
                 titleRes = R.string.check_intruder_title,
                 descriptionRes = R.string.check_intruder_desc,
                 weight = 5,
-                isMet = { SecurityPreferences.isIntruderSelfieEnabled(context) }
+                isMet = { isIntruder }
             ),
             ChecklistItem(
                 iconRes = R.drawable.ic_sim_card_24,
                 titleRes = R.string.check_sim_title,
                 descriptionRes = R.string.check_sim_desc,
                 weight = 5,
-                isMet = { SecurityPreferences.isSimChangeAlertEnabled(context) }
+                isMet = { isSim }
             )
         )
     }
 
-    suspend fun calculateSecurityLevel(context: Context): SecurityLevel {
+    suspend fun calculateSecurityLevel(context: Context): SecurityLevel = withContext(Dispatchers.IO) {
         val items = getChecklistItems(context)
         val isRooted = items.firstOrNull { it.titleRes == R.string.check_root_title }?.isMet?.invoke() ?: false
 
         if (isRooted) {
-            return SecurityLevel(6, R.string.level_root_title, R.string.level_root_desc, R.color.level_root_god_mode)
+            return@withContext SecurityLevel(6, R.string.level_root_title, R.string.level_root_desc, R.color.level_root_god_mode)
         }
 
         val nonRootItems = items.filter { it.weight > 0 }
@@ -113,7 +116,7 @@ object SecurityScoreCalculator {
 
         val percentage = if (maxScore > 0) (currentScore.toFloat() / maxScore.toFloat()) * 100 else 0f
 
-        return when {
+        when {
             !PermissionUtils.isDeviceAdminActive(context) -> SecurityLevel(0, R.string.level_0_title, R.string.level_0_desc, R.color.level_1_poor)
             percentage < 25 -> SecurityLevel(1, R.string.level_1_title, R.string.level_1_desc, R.color.level_1_poor)
             percentage < 50 -> SecurityLevel(2, R.string.level_2_title, R.string.level_2_desc, R.color.level_2_fair)
